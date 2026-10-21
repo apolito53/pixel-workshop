@@ -1,5 +1,9 @@
 # Pixel Workshop
 
+[Open the live editor](https://nova-pixel-workshop.antholito.chatgpt.site)
+
+![Original lantern drawn through MCP](artifacts/lantern-preview.png)
+
 A precise pixel-art editor with one TypeScript drawing engine shared by a React browser workspace and MCP tools. Every canvas cell is an actual output pixel. No image-generation API or GPU is needed.
 
 ## Run the portable Node version
