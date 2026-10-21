@@ -1,5 +1,6 @@
 import type { ProjectService } from './project-service.ts';
 import { lanternDemo } from './demo.ts';
+import { cottageDemo } from './cottage.ts';
 import { encodePng } from './png.ts';
 export async function pixelApi(request:Request,service:ProjectService) {
   const url=new URL(request.url),parts=url.pathname.replace(/^\/api\/pixel\/?/,'').split('/').filter(Boolean);
@@ -15,7 +16,7 @@ export async function pixelApi(request:Request,service:ProjectService) {
       const origin=request.headers.get('origin');if(origin&&origin!==url.origin)throw new Error('Cross-origin editing is not allowed.');
       const text=await request.text();if(text.length>12_000_000)throw new Error('Project is too large.');const body=JSON.parse(text);
       if(!parts[1]){
-        const doc=await service.create(body.name,body.width,body.height,body.demo?lanternDemo():body.document);
+        const doc=await service.create(body.name,body.width,body.height,body.demo==='cottage'?cottageDemo():body.demo?lanternDemo():body.document);
         return Response.json({doc,canUndo:false,canRedo:false});
       }
       if(!['paint','undo','redo'].includes(body.action))throw new Error('Unknown edit action.');

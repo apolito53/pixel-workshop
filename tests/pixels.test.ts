@@ -4,7 +4,7 @@ import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {PNG} from 'pngjs';
-import {createDocument,applyCommands,composite,color,validateDocument} from '../lib/pixels.ts';
+import {createDocument,applyCommands,composite,color,validateDocument,readRegion} from '../lib/pixels.ts';
 import {ProjectService} from '../lib/project-service.ts';
 import {fileStore} from '../server/file-store.ts';
 import {encodePng} from '../lib/png.ts';
@@ -20,6 +20,20 @@ test('flood fill respects a closed outline; transparent erase preserves other pi
  let d=applyCommands(createDocument('Fill',8,8),[{op:'rect',x:1,y:1,width:6,height:6,filled:false,color:'#123456'},{op:'fill',x:2,y:2,color:'#ff0000'}]);
  assert.equal(d.layers[0].pixels[0],0);assert.equal(d.layers[0].pixels[2*8+2],color('#ff0000'));assert.equal(d.layers[0].pixels[1*8+1],color('#123456'));
  d=applyCommands(d,[{op:'pixel',x:2,y:2,color:'transparent'}]);assert.equal(d.layers[0].pixels[2*8+2],0);
+});
+test('selection transforms preserve exact RGBA and handle overlapping moves atomically',()=>{
+ const a=color('#ff000080'),b=color('#00ff00'),base=applyCommands(createDocument('Selection',5,3),[{op:'paste',x:0,y:0,width:3,height:2,pixels:[a,0,b,b,a,0]}]);
+ const moved=applyCommands(base,[{op:'transform',mode:'move',x:0,y:0,width:3,height:2,x2:1,y2:1}]);
+ assert.deepEqual(readRegion(moved,'base',{x:1,y:1,width:3,height:2}),[a,0,b,b,a,0]);
+ assert.deepEqual(readRegion(moved,'base',{x:0,y:0,width:5,height:1}),[0,0,0,0,0]);
+ const flipped=applyCommands(base,[{op:'transform',mode:'flip_horizontal',x:0,y:0,width:3,height:2},{op:'transform',mode:'flip_vertical',x:0,y:0,width:3,height:2}]);
+ assert.deepEqual(readRegion(flipped,'base',{x:0,y:0,width:3,height:2}),[0,a,b,b,0,a]);
+ const copied=applyCommands(base,[{op:'transform',mode:'copy',x:0,y:0,width:2,height:2,x2:3,y2:1}]);
+ assert.deepEqual(readRegion(copied,'base',{x:3,y:1,width:2,height:2}),[a,0,b,a]);
+ assert.equal(copied.layers[0].pixels[0],a);
+ assert.throws(()=>applyCommands(base,[{op:'clear'},{op:'transform',mode:'move',x:0,y:0,width:3,height:2,x2:4,y2:0}]));
+ assert.equal(base.layers[0].pixels[0],a);
+ assert.throws(()=>applyCommands(base,[{op:'paste',x:0,y:0,width:1,height:1,pixels:[-1]}]));
 });
 test('layers composite alpha and visibility correctly',()=>{
  let d=applyCommands(createDocument('Layers',1,1),[{op:'pixel',x:0,y:0,color:'#ff0000'},{op:'add_layer',id:'top',name:'Top'},{op:'pixel',layer:'top',x:0,y:0,color:'#0000ff80'}]);

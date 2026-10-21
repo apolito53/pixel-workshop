@@ -6,4 +6,4 @@ const cloudStore:ProjectStore={
   async get(id){const item=await bucket().get(`projects/${safeId(id)}.json`);return item?{entry:await item.json<Entry>(),etag:item.etag}:null;},
   async put(id,entry,etag){const result=await bucket().put(`projects/${safeId(id)}.json`,JSON.stringify(entry),{httpMetadata:{contentType:'application/json'},onlyIf:etag?{etagMatches:etag}:{etagDoesNotMatch:'*'}});if(!result)throw new Error('This project changed. Reload it before applying your edit.');}
 };
-export const cloudService=new ProjectService(cloudStore);
+export const projectService=new ProjectService(cloudStore);

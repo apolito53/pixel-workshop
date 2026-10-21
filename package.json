@@ -15,7 +15,9 @@
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "mcp": "node --experimental-strip-types server/stdio.ts",
     "server": "node --experimental-strip-types server/node.ts",
-    "build:node": "vite build --config vite.node.config.ts"
+    "build:node": "vite build --config vite.node.config.ts",
+    "build:vercel": "next build --webpack",
+    "dev:vercel": "next dev --webpack"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -23,6 +25,7 @@
     "@modelcontextprotocol/sdk": "1.32.1",
     "@shadcn/react": "^0.3.0",
     "@types/pngjs": "6.0.5",
+    "@vercel/blob": "2.8.2",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "^1.1.1",

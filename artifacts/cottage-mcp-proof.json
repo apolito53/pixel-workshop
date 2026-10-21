@@ -1,0 +1,16 @@
+{
+  "transport": "HTTP",
+  "tools": [
+    "list_canvases",
+    "create_canvas",
+    "get_canvas",
+    "paint",
+    "undo",
+    "redo",
+    "export_png"
+  ],
+  "projectId": "89bdaf90-7762-4a75-a84b-0898ae579d73",
+  "width": 64,
+  "height": 64,
+  "revision": 3
+}

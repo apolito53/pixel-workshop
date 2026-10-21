@@ -1,6 +1,13 @@
 export type Layer = { id: string; name: string; visible: boolean; pixels: number[] };
 export type PixelDocument = { format: 'pixel-workshop/1'; id: string; name: string; width: number; height: number; revision: number; palette: string[]; layers: Layer[]; updatedAt: string };
 export type PaintCommand = { op: string; layer?: string; [key: string]: unknown };
+export type PixelRegion = { x:number; y:number; width:number; height:number };
+export function readRegion(d:PixelDocument,layer:string,region:PixelRegion):number[] {
+  const x=requireInt(region.x,0,d.width-1,'x'),y=requireInt(region.y,0,d.height-1,'y');
+  const w=requireInt(region.width,1,d.width-x,'width'),h=requireInt(region.height,1,d.height-y,'height');
+  const l=d.layers.find(l=>l.id===layer);if(!l)throw new Error('Layer not found.');
+  return Array.from({length:w*h},(_,i)=>l.pixels[(y+Math.floor(i/w))*d.width+x+i%w]);
+}
 export const DEFAULT_PALETTE = ['#201d2b','#3b3048','#64506b','#99809f','#e4d8d5','#fff5df','#453e35','#75543d','#ac754b','#dbab69','#eed49a','#263e38','#41664a','#719554','#a5bd68','#486b78','#76a2ad','#b6d4cd','#604582','#9671ba','#ccb2e5','#b55066','#e2858a','#edb49b'];
 export function requireInt(v: unknown, min: number, max: number, label: string): number {
   if (!Number.isInteger(v) || (v as number) < min || (v as number) > max) throw new Error(`${label} must be an integer from ${min} to ${max}.`);
@@ -66,6 +73,28 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[]): 
     if(c.op==='rename_layer'){l.name=String(c.name||'Layer').slice(0,60);continue;}
     if(c.op==='delete_layer'){if(d.layers.length===1)throw new Error('Keep at least one layer.');d.layers=d.layers.filter(x=>x.id!==l.id);continue;}
     if(c.op==='clear'){l.pixels.fill(0);spend(l.pixels.length);continue;}
+    if(c.op==='transform'||c.op==='paste'){
+      const x=requireInt(c.x,0,d.width-1,'x'),y=requireInt(c.y,0,d.height-1,'y');
+      const w=requireInt(c.width,1,d.width-x,'width'),h=requireInt(c.height,1,d.height-y,'height');
+      spend(w*h*3);
+      let pixels:number[],tx=x,ty=y;
+      if(c.op==='paste'){
+        if(!Array.isArray(c.pixels)||c.pixels.length!==w*h||c.pixels.some(p=>!Number.isInteger(p)||p<0||p>0xffffffff))throw new Error('Paste needs width × height packed RGBA pixels.');
+        pixels=c.pixels as number[];
+      }else{
+        if(!['move','copy','flip_horizontal','flip_vertical'].includes(String(c.mode)))throw new Error('Unknown transform mode.');
+        pixels=readRegion(d,l.id,{x,y,width:w,height:h});
+        if(c.mode==='move'||c.mode==='copy'){
+          tx=requireInt(c.x2,0,d.width-w,'x2');ty=requireInt(c.y2,0,d.height-h,'y2');
+        }
+        if(c.mode==='move')for(let yy=0;yy<h;yy++)for(let xx=0;xx<w;xx++)l.pixels[(y+yy)*d.width+x+xx]=0;
+      }
+      for(let yy=0;yy<h;yy++)for(let xx=0;xx<w;xx++){
+        const sx=c.op==='transform'&&c.mode==='flip_horizontal'?w-1-xx:xx,sy=c.op==='transform'&&c.mode==='flip_vertical'?h-1-yy:yy;
+        l.pixels[(ty+yy)*d.width+tx+xx]=pixels[sy*w+sx];
+      }
+      continue;
+    }
     const ink=color(c.color), x=requireInt(c.x,0,d.width-1,'x'), y=requireInt(c.y,0,d.height-1,'y');
     const put=(px:number,py:number)=>{spend(1);if(px>=0&&py>=0&&px<d.width&&py<d.height)l.pixels[py*d.width+px]=ink;};
     if(c.op==='pixel'){put(x,y);continue;}

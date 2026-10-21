@@ -42,7 +42,7 @@ Coordinates are integer, zero-based and bounded by the canvas. Operations includ
 
 ## Browser workspace
 
-Pencil, eraser, fill, eyedropper, lines, filled/outlined rectangles and ellipses; palette and custom hex color; layers and visibility; undo/redo; grid and zoom; PNG export at native or integer scale; editable project download/import. Keyboard shortcuts: B pencil, E eraser, G fill, I eyedropper, L line, R rectangle, O ellipse, H grid, Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z redo.
+Pencil, eraser, fill, eyedropper, lines, filled/outlined rectangles and ellipses; palette and custom hex color; layers and visibility; undo/redo; rectangular selections with drag-to-move, copy/paste, horizontal/vertical flips and pixel nudging; grid, fit-to-workspace and integer zoom; true 1×/2× preview; PNG export at native or integer scale; editable project download/import. Keyboard shortcuts: B pencil, E eraser, G fill, I eyedropper, L line, R rectangle, O ellipse, H grid, Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z redo.
 
 Edits autosave. The current project and project list refresh every three seconds while idle to reflect MCP edits. Conflicting edits are rejected and the authoritative canvas reloads. PNG exports exclude the grid and editor checkerboard.
 
@@ -50,7 +50,23 @@ Edits autosave. The current project and project list refresh every three seconds
 
 `.pixel.json` uses `format: "pixel-workshop/1"`, dimensions, palette and bottom-to-top layers. Layer pixels are unsigned packed RGBA values (`0xRRGGBBAA`), with zero fully transparent. Import validates dimensions, colors, layer IDs, and buffer lengths and creates a new project instead of overwriting an existing one.
 
-V1 supports 1–256 pixels per side, eight layers, up to 128 palette colors and up to twelve undo steps (history is reduced for large multilayer canvases). Project listing shows up to 100 hosted projects. Animation, selection transforms and larger canvases are future work.
+V1 supports 1–256 pixels per side, eight layers, up to 128 palette colors and up to twelve undo steps (history is reduced for large multilayer canvases). Project listing shows up to 100 hosted projects. Animation and larger canvases are future work.
+
+## Deploy on Vercel
+
+Import this repository with the Next.js preset. `vercel.json` selects `pnpm run build:vercel`, which builds native Next.js output. The default `build` command remains the Sites/Cloudflare build. Use Node.js 24.x.
+
+Connect a **private Vercel Blob** store to the project in Storage, enabling the `BLOB_READ_WRITE_TOKEN` environment variable for production, preview and development. Redeploy after connecting it. Artwork, layers and undo history persist in Blob, with conditional writes preventing conflicting edits. There is no temporary-filesystem fallback. A missing store produces a setup message in the editor.
+
+This is an owner workspace: keep Vercel Deployment Protection enabled for every domain. The API and `/mcp` share its project namespace and rely on the hosting access boundary. Add application authentication and per-user storage before opening it as a public multi-user service. Sites and Vercel use separate stores; transfer artwork with editable `.pixel.json` files.
+
+For local native Next.js development, use `pnpm dev:vercel` with the Blob variable configured in your local environment. Native Next.js writes to `.next-native`; Sites/Vinext uses its own build output and `.next` metadata.
+
+## Selection commands
+
+Selections affect the active layer. Press **V**, drag a rectangle, then drag inside it to move; arrows nudge one pixel, Shift+arrows ten. Ctrl/Cmd+C, X and V copy, cut and paste within the editor. Delete clears selected pixels; Escape deselects. Copy/paste preserves the original packed RGBA values, including partial alpha. The selection panel has flip and clipboard controls.
+
+MCP uses `{op:"transform",mode:"move"|"copy"|"flip_horizontal"|"flip_vertical",layer,x,y,width,height,x2,y2}`. Destination `x2,y2` is required for move/copy and must fit the entire selection. `{op:"paste",layer,x,y,width,height,pixels:[...]}` accepts row-major packed RGBA pixels. Both replace the entire destination rectangle, including transparent pixels. Moving snapshots the source before clearing, so overlapping moves are exact and undoable.
 
 ## Hosting adapter
 
@@ -63,8 +79,13 @@ pnpm test
 pnpm exec tsc --noEmit
 node --experimental-strip-types tests/mcp-smoke.ts
 node --experimental-strip-types tests/mcp-smoke.ts --http
+node --experimental-strip-types tests/mcp-smoke.ts --http --cottage
 ```
 
 The HTTP smoke test starts a temporary loopback server using the same hosted MCP handler. It creates a canvas through the official MCP client, paints the 42-command original lantern, inspects its layers and exports the actual PNG under `artifacts/`. The stdio test uses a separate disposable project directory.
 
 The lantern example is original hand-plotted artwork built exclusively with the same drawing commands that MCP exposes. It is also available as an editable project.
+
+![Moonkeeper’s cottage drawn through MCP](artifacts/cottage-preview.png)
+
+Moonkeeper’s cottage is an original 64 × 64, five-layer example painted through 299 MCP commands, including copied and mirrored windows. Open it from New canvas, or find its native PNG, enlarged preview and editable project in `artifacts/`.
