@@ -8,6 +8,7 @@ import {createDocument,applyCommands,composite,color,validateDocument,readRegion
 import {ProjectService} from '../lib/project-service.ts';
 import {fileStore} from '../server/file-store.ts';
 import {encodePng} from '../lib/png.ts';
+import {encodeBrowserPng} from '../lib/browser-png.ts';
 import {mcpResponse} from '../lib/mcp-tools.ts';
 import {lanternDemo} from '../lib/demo.ts';
 
@@ -43,6 +44,10 @@ test('native PNG round-trips exact RGBA; integer scale repeats pixels',()=>{
  const d=applyCommands(createDocument('PNG',2,2),[{op:'pixel',x:1,y:0,color:'#aabbcc80'}]),png=PNG.sync.read(encodePng(d));
  assert.equal(png.width,2);assert.equal(png.height,2);assert.deepEqual(png.data,Buffer.from(composite(d)));
  const big=PNG.sync.read(encodePng(d,4));assert.equal(big.width,8);for(let y=0;y<8;y++)for(let x=0;x<8;x++)assert.deepEqual(big.data.subarray((y*8+x)*4,(y*8+x)*4+4),png.data.subarray((Math.floor(y/4)*2+Math.floor(x/4))*4,(Math.floor(y/4)*2+Math.floor(x/4))*4+4));
+});
+test('browser PNG export preserves exact translucent RGBA at native and integer scales',()=>{
+ const d=applyCommands(createDocument('Browser PNG',2,2),[{op:'pixel',x:0,y:0,color:'#f6da9280'},{op:'pixel',x:1,y:1,color:'#12345603'}]);
+ for(const scale of [1,4]){const browser=PNG.sync.read(Buffer.from(encodeBrowserPng(d,scale))),server=PNG.sync.read(encodePng(d,scale));assert.deepEqual(browser.data,server.data);assert.equal(browser.width,2*scale);}
 });
 test('project JSON round-trips and rejects corrupt layers',()=>{
  const d=lanternDemo();assert.deepEqual(validateDocument(JSON.parse(JSON.stringify(d))),d);assert.throws(()=>validateDocument({...d,layers:[{...d.layers[0],pixels:[1]}]}));

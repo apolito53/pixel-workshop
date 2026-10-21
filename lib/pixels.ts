@@ -54,10 +54,11 @@ export function composite(d: PixelDocument): Uint8Array {
   }
   return rgba;
 }
-export function applyCommands(source: PixelDocument, commands: PaintCommand[]): PixelDocument {
+export function historyLimit(d:PixelDocument){return Math.max(1,Math.min(12,Math.floor(400000/(d.width*d.height*d.layers.length))));}
+export function applyCommands(source: PixelDocument, commands: PaintCommand[], work={spent:0}): PixelDocument {
   if (!Array.isArray(commands)||commands.length<1||commands.length>5000) throw new Error('Send 1–5000 drawing commands in one batch.');
-  const d=structuredClone(source); let budget=0;
-  const spend=(n:number)=>{budget+=n;if(budget>2000000)throw new Error('Drawing batch is too large; split it into smaller batches.');};
+  const d=structuredClone(source);
+  const spend=(n:number)=>{work.spent+=n;if(work.spent>2000000)throw new Error('Drawing batch is too large; split it into smaller batches.');};
   for(const c of commands) {
     if (!c || typeof c.op!=='string') throw new Error('Every command needs an op.');
     if(c.op==='rename'){if(typeof c.name!=='string'||!c.name.trim())throw new Error('Enter a project name.');d.name=c.name.slice(0,80);continue;}

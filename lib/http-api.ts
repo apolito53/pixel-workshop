@@ -19,9 +19,8 @@ export async function pixelApi(request:Request,service:ProjectService) {
         const doc=await service.create(body.name,body.width,body.height,body.demo==='cottage'?cottageDemo():body.demo?lanternDemo():body.document);
         return Response.json({doc,canUndo:false,canRedo:false});
       }
-      if(!['paint','undo','redo'].includes(body.action))throw new Error('Unknown edit action.');
-      await service.edit(parts[1],body.revision,body.action,body.commands);
-      const {entry}=await service.get(parts[1]);return Response.json({doc:entry.doc,canUndo:!!entry.undo.length,canRedo:!!entry.redo.length});
+      const edits=body.edits??[{action:body.action,commands:body.commands}];
+      return Response.json(await service.editSnapshot(parts[1],body.revision,edits,body.requestId));
     }
     return Response.json({error:'Route not found'},{status:404});
   }catch(e){const message=e instanceof Error?e.message:'Request failed';return Response.json({error:message},{status:/changed/.test(message)?409:400});}

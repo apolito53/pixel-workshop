@@ -46,7 +46,9 @@ Pencil, eraser, fill, eyedropper, lines, filled/outlined rectangles and ellipses
 
 The pixel grid starts enabled. Each checkerboard square and outlined cell corresponds to one output pixel and scales with zoom; the pointer outlines the exact cell being painted. Grid lines appear at 3× zoom and above. The area outside the canvas is plain, so there is no second decorative grid to confuse with the pixel cells.
 
-Edits autosave. The current project and project list refresh every three seconds while idle to reflect MCP edits. Conflicting edits are rejected and the authoritative canvas reloads. PNG exports exclude the grid and editor checkerboard.
+Painting and session undo/redo update locally immediately. Completed strokes queue in the background and share saves (up to eight edits per request), while each stroke retains its own undo step. Acknowledgements rebase later edits and active stroke previews instead of replacing them. Opening or creating another canvas waits for outstanding saves. PNG and editable-project downloads use the current local canvas, including unsaved edits, and exclude guides.
+
+Failed saves pause the queue without discarding the drawing. Retry uses the same request ID so a lost response cannot duplicate a stroke; conflicting external/MCP edits offer Save a copy. The page warns before leaving with pending edits. The current project and project list refresh every three seconds while idle to reflect MCP edits; polling cannot overwrite queued or active strokes.
 
 ## Project format and limits
 
