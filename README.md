@@ -44,6 +44,8 @@ Coordinates are integer, zero-based and bounded by the canvas. Operations includ
 
 Pencil, eraser, fill, eyedropper, lines, filled/outlined rectangles and ellipses; palette and custom hex color; layers and visibility; undo/redo; rectangular selections with drag-to-move, copy/paste, horizontal/vertical flips and pixel nudging; grid, fit-to-workspace and integer zoom; true 1×/2× preview; PNG export at native or integer scale; editable project download/import. Keyboard shortcuts: B pencil, E eraser, G fill, I eyedropper, L line, R rectangle, O ellipse, H grid, Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z redo.
 
+The pixel grid starts enabled. Each checkerboard square and outlined cell corresponds to one output pixel and scales with zoom; the pointer outlines the exact cell being painted. Grid lines appear at 3× zoom and above. The area outside the canvas is plain, so there is no second decorative grid to confuse with the pixel cells.
+
 Edits autosave. The current project and project list refresh every three seconds while idle to reflect MCP edits. Conflicting edits are rejected and the authoritative canvas reloads. PNG exports exclude the grid and editor checkerboard.
 
 ## Project format and limits
