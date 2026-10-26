@@ -63,7 +63,7 @@ test('storage persists edits and undo/redo; stale revisions and concurrent write
 });
 test('hosted JSON-RPC exposes tools, reports invalid operations, and returns real PNGs',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'pixel-mcp-'));try{const s=new ProjectService(fileStore(dir));const rpc=async(method:string,params={})=>(await (await mcpResponse(new Request('http://local/mcp',{method:'POST',body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})}),s)).json()) as any;
- assert.equal((await rpc('server/discover')).result.supportedVersions[0],'2026-07-28');assert.equal((await rpc('tools/list')).result.tools.length,7);
+ assert.equal((await rpc('server/discover')).result.supportedVersions[0],'2026-07-28');assert.equal((await rpc('tools/list')).result.tools.length,9);
  const made=await rpc('tools/call',{name:'create_canvas',arguments:{name:'MCP sprite',width:16,height:16}}),d=JSON.parse(made.result.content[0].text);
  const painted=await rpc('tools/call',{name:'paint',arguments:{id:d.id,revision:0,commands:[{op:'rect',x:2,y:2,width:12,height:12,color:'#ffaa55'}]}});assert.equal(painted.result.isError,undefined);
  const exported=await rpc('tools/call',{name:'export_png',arguments:{id:d.id}});const img=PNG.sync.read(Buffer.from(exported.result.content[1].data,'base64'));assert.equal(img.width,16);assert.equal(img.data[3],0);

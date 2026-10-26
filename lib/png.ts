@@ -10,3 +10,10 @@ export function encodePng(doc:PixelDocument, scale=1) {
   }
   return PNG.sync.write(out,{colorType:6});
 }
+
+export function encodeRgbaPng(bytes: Uint8Array,width: number,height: number): Buffer {
+  if (!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width*height>4194304 ||
+    bytes.length !== width*height*4) throw new Error('Invalid sprite sheet dimensions.');
+  const png = new PNG({width,height});png.data.set(bytes);
+  return PNG.sync.write(png,{colorType:6});
+}

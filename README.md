@@ -21,7 +21,7 @@ Open http://127.0.0.1:4317. The Node service serves the React/Vite build, projec
 
 For a client that launches a local server, run `node --experimental-strip-types server/stdio.ts` with this repository as its working directory. `PIXEL_DATA_DIR` should point to the same directory used by the browser service. Both processes use revision checks, a file lock, and atomic writes.
 
-Available tools: `create_canvas`, `list_canvases`, `get_canvas`, `paint`, `undo`, `redo`, `export_png`. The published Site also exposes these tools through its canonical private plugin.
+Available tools: `create_canvas`, `list_canvases`, `get_canvas`, `paint`, `undo`, `redo`, `export_png`, `export_sprite_sheet`, `generate_effect`. Drawing commands accept a zero-based `frame` index; animation controls are `frame_add`, `frame_delete`, and `set_fps`. The published Site also exposes these tools through its canonical private plugin.
 
 Example drawing batch (use the ID and revision returned by `create_canvas`):
 
@@ -50,11 +50,17 @@ Painting and session undo/redo update locally immediately. Completed strokes que
 
 Failed saves pause the queue without discarding the drawing. Retry uses the same request ID so a lost response cannot duplicate a stroke; conflicting external/MCP edits offer Save a copy. The page warns before leaving with pending edits. The current project and project list refresh every three seconds while idle to reflect MCP edits; polling cannot overwrite queued or active strokes.
 
+## Animation workbench
+
+Every canvas now has a timeline. **Duplicate** adds an editable cel, **Play** previews frames at 4–30 fps, and **Onion** displays translucent neighboring frames. Pencil, fill, shape, selection, copy/paste, undo and layer visibility all operate on the selected frame (layer names and visibility remain shared across frames). The browser exports the current frame as a transparent PNG, the entire animation as a composite PNG sprite sheet, and a separate JSON atlas containing frame rectangles and playback durations. The atlas points to the downloaded `-sheet.png` file.
+
+The **Procedural Effects** panel generates seed-based embers, sparkles or shockwaves. Effects live on their own editable layer across frames. This initial vertical slice rasterizes the effect into pixel cels; re-editable procedural recipes and a richer node/layer compositor remain future extensions. Generation is completely local and costs no AI tokens. MCP agents can also edit frames and generate effects using the same undoable document engine.
+
 ## Project format and limits
 
 `.pixel.json` uses `format: "pixel-workshop/1"`, dimensions, palette and bottom-to-top layers. Layer pixels are unsigned packed RGBA values (`0xRRGGBBAA`), with zero fully transparent. Import validates dimensions, colors, layer IDs, and buffer lengths and creates a new project instead of overwriting an existing one.
 
-V1 supports 1–256 pixels per side, eight layers, up to 128 palette colors and up to twelve undo steps (history is reduced for large multilayer canvases). Project listing shows up to 100 hosted projects. Animation and larger canvases are future work.
+Canvases support 1–256 pixels per side, eight layers, up to 128 palette colors, and up to twelve undo steps (history is reduced for larger animated documents). The optional `animation` section retains the original base layer pixels as frame 0 and stores additional frame cels by layer ID. Existing static `.pixel.json` imports remain valid. Animation is limited to 32 frames and 900,000 total layer-cells per document. Project listing shows up to 100 hosted projects. Larger canvases remain future work.
 
 ## Deploy on Vercel
 
