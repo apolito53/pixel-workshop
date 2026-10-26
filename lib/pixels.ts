@@ -2,7 +2,7 @@ export type Layer = { id: string; name: string; visible: boolean; pixels: number
 export type AnimationFrame = { id: string; pixels: Record<string, number[]> };
 export type PixelDocument = { format: 'pixel-workshop/1'; id: string; name: string; width: number; height: number; revision: number; palette: string[]; layers: Layer[]; updatedAt: string; animation?: { fps: number; frames: AnimationFrame[] } };
 export const MAX_ANIMATION_FRAMES = 32;
-export const MAX_ANIMATION_CELLS = 2_000_000;
+export const MAX_ANIMATION_CELLS = 900_000;
 export function frameCount(d: PixelDocument) { return 1 + (d.animation?.frames.length ?? 0); }
 export function frameView(d: PixelDocument, frame = 0): PixelDocument {
   requireInt(frame, 0, frameCount(d) - 1, 'frame');
