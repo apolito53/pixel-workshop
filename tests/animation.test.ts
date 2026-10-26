@@ -13,6 +13,13 @@ test('legacy static canvases still round-trip and display one frame',()=>{
   assert.equal(frameView(source,0),source);
   assert.deepEqual(validateDocument(JSON.parse(JSON.stringify(source))),source);
 });
+test('adding the same frame is deterministic during optimistic saves and rebasing',()=>{
+ const base=createDocument('Deterministic',4,4),ops=[{op:'frame_add'}];
+ const first=applyCommands(base,ops),again=applyCommands(base,ops);
+ assert.equal(first.animation!.frames[0].id,again.animation!.frames[0].id);
+ const second=applyCommands(first,[{op:'frame_add',source_frame:1}]);
+ assert.notEqual(second.animation!.frames[0].id,second.animation!.frames[1].id);
+});
 test('editing an animation frame leaves base art untouched; transforms use selected cel',()=>{
   const base=applyCommands(createDocument('Walker',4,4),[
     {op:'pixel',x:1,y:1,color:'#ff0000'},
