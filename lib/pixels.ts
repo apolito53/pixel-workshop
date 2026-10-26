@@ -1,11 +1,21 @@
 export type Layer = { id: string; name: string; visible: boolean; pixels: number[] };
-export type PixelDocument = { format: 'pixel-workshop/1'; id: string; name: string; width: number; height: number; revision: number; palette: string[]; layers: Layer[]; updatedAt: string };
+export type AnimationFrame = { id: string; pixels: Record<string, number[]> };
+export type PixelDocument = { format: 'pixel-workshop/1'; id: string; name: string; width: number; height: number; revision: number; palette: string[]; layers: Layer[]; updatedAt: string; animation?: { fps: number; frames: AnimationFrame[] } };
+export const MAX_ANIMATION_FRAMES = 32;
+export const MAX_ANIMATION_CELLS = 2_000_000;
+export function frameCount(d: PixelDocument) { return 1 + (d.animation?.frames.length ?? 0); }
+export function frameView(d: PixelDocument, frame = 0): PixelDocument {
+  requireInt(frame, 0, frameCount(d) - 1, 'frame');
+  if (frame === 0) return d;
+  const pixels = d.animation!.frames[frame - 1].pixels;
+  return { ...d, layers: d.layers.map(l => ({ ...l, pixels: pixels[l.id] })) };
+}
 export type PaintCommand = { op: string; layer?: string; [key: string]: unknown };
 export type PixelRegion = { x:number; y:number; width:number; height:number };
-export function readRegion(d:PixelDocument,layer:string,region:PixelRegion):number[] {
+export function readRegion(d:PixelDocument,layer:string,region:PixelRegion,frame=0):number[] {
   const x=requireInt(region.x,0,d.width-1,'x'),y=requireInt(region.y,0,d.height-1,'y');
   const w=requireInt(region.width,1,d.width-x,'width'),h=requireInt(region.height,1,d.height-y,'height');
-  const l=d.layers.find(l=>l.id===layer);if(!l)throw new Error('Layer not found.');
+  const l=frameView(d,frame).layers.find(l=>l.id===layer);if(!l)throw new Error('Layer not found.');
   return Array.from({length:w*h},(_,i)=>l.pixels[(y+Math.floor(i/w))*d.width+x+i%w]);
 }
 export const DEFAULT_PALETTE = ['#201d2b','#3b3048','#64506b','#99809f','#e4d8d5','#fff5df','#453e35','#75543d','#ac754b','#dbab69','#eed49a','#263e38','#41664a','#719554','#a5bd68','#486b78','#76a2ad','#b6d4cd','#604582','#9671ba','#ccb2e5','#b55066','#e2858a','#edb49b'];
@@ -37,6 +47,28 @@ export function validateDocument(input: unknown): PixelDocument {
   }
   if (!Array.isArray(d.palette) || d.palette.length>128) throw new Error('Palette can contain at most 128 colors.');
   d.palette.forEach(color);
+  if (d.animation !== undefined) {
+    if (!d.animation || !Number.isInteger(d.animation.fps) || d.animation.fps < 1 || d.animation.fps > 30 ||
+      !Array.isArray(d.animation.frames) || d.animation.frames.length >= MAX_ANIMATION_FRAMES)
+      throw new Error('Invalid animation settings.');
+    const frameIds = new Set<string>();
+    const layerIds = d.layers.map(l => l.id);
+    for (const frame of d.animation.frames) {
+      if (!frame || typeof frame.id !== 'string' || !/^[a-z0-9_-]{1,64}$/i.test(frame.id) ||
+        frameIds.has(frame.id) || !frame.pixels || typeof frame.pixels !== 'object' ||
+        Array.isArray(frame.pixels) || Object.keys(frame.pixels).length !== layerIds.length)
+        throw new Error('Invalid animation frame.');
+      frameIds.add(frame.id);
+      for (const id of layerIds) {
+        const pixels = frame.pixels[id];
+        if (!Array.isArray(pixels) || pixels.length !== d.width * d.height ||
+          pixels.some(p => !Number.isInteger(p) || p < 0 || p > 0xffffffff))
+          throw new Error('Invalid animation cel pixels.');
+      }
+    }
+    if (frameCount(d) * d.layers.length * d.width * d.height > MAX_ANIMATION_CELLS)
+      throw new Error('Animation exceeds the pixel budget.');
+  }
   return structuredClone(d);
 }
 export function composite(d: PixelDocument): Uint8Array {
@@ -54,7 +86,7 @@ export function composite(d: PixelDocument): Uint8Array {
   }
   return rgba;
 }
-export function historyLimit(d:PixelDocument){return Math.max(1,Math.min(12,Math.floor(400000/(d.width*d.height*d.layers.length))));}
+export function historyLimit(d:PixelDocument){return Math.max(1,Math.min(12,Math.floor(400000/(d.width*d.height*d.layers.length*frameCount(d)))));}
 export function applyCommands(source: PixelDocument, commands: PaintCommand[], work={spent:0}): PixelDocument {
   if (!Array.isArray(commands)||commands.length<1||commands.length>5000) throw new Error('Send 1–5000 drawing commands in one batch.');
   const d=structuredClone(source);
@@ -63,16 +95,49 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
     if (!c || typeof c.op!=='string') throw new Error('Every command needs an op.');
     if(c.op==='rename'){if(typeof c.name!=='string'||!c.name.trim())throw new Error('Enter a project name.');d.name=c.name.slice(0,80);continue;}
     if(c.op==='palette'){if(!Array.isArray(c.colors)||c.colors.length>128)throw new Error('Choose up to 128 palette colors.');c.colors.forEach(color);d.palette=c.colors as string[];continue;}
+    if(c.op==='set_fps'){
+      const fps=requireInt(c.fps,1,30,'fps');
+      d.animation ??= {fps,frames:[]};d.animation.fps=fps;continue;
+    }
+    if(c.op==='frame_add'){
+      if(frameCount(d)>=MAX_ANIMATION_FRAMES)throw new Error('Animation supports up to 32 frames.');
+      if((frameCount(d)+1)*d.layers.length*d.width*d.height>MAX_ANIMATION_CELLS)
+        throw new Error('Animation exceeds the pixel budget.');
+      const from=requireInt(c.source_frame ?? 0,0,frameCount(d)-1,'source_frame');
+      const sourceLayers=frameView(d,from).layers;
+      const blank=c.blank === true;
+      spend(d.width*d.height*d.layers.length);
+      d.animation ??= {fps:8,frames:[]};
+      d.animation.frames.push({id:'frame-'+crypto.randomUUID().slice(0,8),
+        pixels:Object.fromEntries(sourceLayers.map(l=>[l.id,blank?Array(d.width*d.height).fill(0):[...l.pixels]]))});
+      continue;
+    }
+    if(c.op==='frame_delete'){
+      const index=requireInt(c.frame,1,frameCount(d)-1,'frame');
+      d.animation!.frames.splice(index-1,1);continue;
+    }
     if(c.op==='add_layer'){
       if(d.layers.length>=8)throw new Error('A project can have up to 8 layers.');
+      if(frameCount(d)*(d.layers.length+1)*d.width*d.height>MAX_ANIMATION_CELLS)
+        throw new Error('Animation exceeds the pixel budget.');
       const id=String(c.id||'layer-'+d.layers.length);
       if(!/^[a-z0-9_-]{1,64}$/i.test(id)||d.layers.some(l=>l.id===id))throw new Error('Choose a unique layer ID.');
-      d.layers.push({id,name:String(c.name||'New layer').slice(0,60),visible:true,pixels:Array(d.width*d.height).fill(0)});continue;
+      d.layers.push({id,name:String(c.name||'New layer').slice(0,60),visible:true,pixels:Array(d.width*d.height).fill(0)});
+      for(const frame of d.animation?.frames ?? [])frame.pixels[id]=Array(d.width*d.height).fill(0);
+      continue;
     }
-    const l=d.layers.find(l=>l.id===(c.layer||d.layers[0].id)); if(!l)throw new Error('Layer not found.');
-    if(c.op==='visibility'){if(typeof c.visible!=='boolean')throw new Error('visible must be true or false.');l.visible=c.visible;continue;}
-    if(c.op==='rename_layer'){l.name=String(c.name||'Layer').slice(0,60);continue;}
-    if(c.op==='delete_layer'){if(d.layers.length===1)throw new Error('Keep at least one layer.');d.layers=d.layers.filter(x=>x.id!==l.id);continue;}
+    const targetLayer=c.layer||d.layers[0].id;
+    const metadataLayer=d.layers.find(l=>l.id===targetLayer);if(!metadataLayer)throw new Error('Layer not found.');
+    if(c.op==='visibility'){if(typeof c.visible!=='boolean')throw new Error('visible must be true or false.');metadataLayer.visible=c.visible;continue;}
+    if(c.op==='rename_layer'){metadataLayer.name=String(c.name||'Layer').slice(0,60);continue;}
+    if(c.op==='delete_layer'){
+      if(d.layers.length===1)throw new Error('Keep at least one layer.');
+      d.layers=d.layers.filter(x=>x.id!==metadataLayer.id);
+      for(const frame of d.animation?.frames ?? [])delete frame.pixels[metadataLayer.id];
+      continue;
+    }
+    const selectedFrame=c.frame===undefined?0:requireInt(c.frame,0,frameCount(d)-1,'frame');
+    const l=frameView(d,selectedFrame).layers.find(l=>l.id===targetLayer)!;
     if(c.op==='clear'){l.pixels.fill(0);spend(l.pixels.length);continue;}
     if(c.op==='transform'||c.op==='paste'){
       const x=requireInt(c.x,0,d.width-1,'x'),y=requireInt(c.y,0,d.height-1,'y');
@@ -84,7 +149,7 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
         pixels=c.pixels as number[];
       }else{
         if(!['move','copy','flip_horizontal','flip_vertical'].includes(String(c.mode)))throw new Error('Unknown transform mode.');
-        pixels=readRegion(d,l.id,{x,y,width:w,height:h});
+        pixels=readRegion(d,l.id,{x,y,width:w,height:h},selectedFrame);
         if(c.mode==='move'||c.mode==='copy'){
           tx=requireInt(c.x2,0,d.width-w,'x2');ty=requireInt(c.y2,0,d.height-h,'y2');
         }
