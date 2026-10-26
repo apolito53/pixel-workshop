@@ -108,7 +108,10 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
       const blank=c.blank === true;
       spend(d.width*d.height*d.layers.length);
       d.animation ??= {fps:8,frames:[]};
-      d.animation.frames.push({id:'frame-'+crypto.randomUUID().slice(0,8),
+      const newFrameId=c.id===undefined?`frame-${source.revision+1}-${frameCount(d)}`:String(c.id);
+      if(!/^[a-z0-9_-]{1,64}$/i.test(newFrameId)||d.animation.frames.some(f=>f.id===newFrameId))
+        throw new Error('Animation frame IDs must be unique.');
+      d.animation.frames.push({id:newFrameId,
         pixels:Object.fromEntries(sourceLayers.map(l=>[l.id,blank?Array(d.width*d.height).fill(0):[...l.pixels]]))});
       continue;
     }
