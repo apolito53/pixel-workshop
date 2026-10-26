@@ -60,7 +60,7 @@ The **Procedural Effects** panel generates seed-based embers, sparkles or shockw
 
 `.pixel.json` uses `format: "pixel-workshop/1"`, dimensions, palette and bottom-to-top layers. Layer pixels are unsigned packed RGBA values (`0xRRGGBBAA`), with zero fully transparent. Import validates dimensions, colors, layer IDs, and buffer lengths and creates a new project instead of overwriting an existing one.
 
-Canvases support 1–256 pixels per side, eight layers, up to 128 palette colors, and up to twelve undo steps (history is reduced for larger animated documents). The optional `animation` section retains the original base layer pixels as frame 0 and stores additional frame cels by layer ID. Existing static `.pixel.json` imports remain valid. Animation is limited to 32 frames and 2,000,000 total layer-cells per document. Project listing shows up to 100 hosted projects. Larger canvases remain future work.
+Canvases support 1–256 pixels per side, eight layers, up to 128 palette colors, and up to twelve undo steps (history is reduced for larger animated documents). The optional `animation` section retains the original base layer pixels as frame 0 and stores additional frame cels by layer ID. Existing static `.pixel.json` imports remain valid. Animation is limited to 32 frames and 900,000 total layer-cells per document. Project listing shows up to 100 hosted projects. Larger canvases remain future work.
 
 ## Deploy on Vercel
 
