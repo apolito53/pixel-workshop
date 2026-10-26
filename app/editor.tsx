@@ -1,35 +1,76 @@
 'use client';
 import {useCallback,useEffect,useRef,useState,type PointerEvent as PE} from 'react';
-import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize} from 'lucide-react';
-import {applyCommands,composite,readRegion,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
+import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles} from 'lucide-react';
+import {applyCommands,composite,frameCount,frameView,readRegion,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
+import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
+import {generateEffectCommands,type EffectKind,EFFECT_KINDS} from '../lib/effects.ts';
 import {EditQueue,type EditorSnapshot,type QueueState} from '../lib/edit-queue.ts';
 type Snapshot=EditorSnapshot;
 type Tool='select'|'pencil'|'eraser'|'fill'|'picker'|'line'|'rect'|'ellipse';
 const tools=[['pencil',Pencil,'Pencil','B'],['eraser',Eraser,'Eraser','E'],['fill',PaintBucket,'Fill','G'],['picker',Pipette,'Eyedropper','I'],['line',Minus,'Line','L'],['rect',Square,'Rectangle','R'],['ellipse',Circle,'Ellipse','O'],['select',Scan,'Select / move','V']] as const;
 async function api<T>(path:string,body?:unknown):Promise<T>{const r=await fetch('/api/pixel/'+path,{method:body?'POST':'GET',headers:body?{'content-type':'application/json'}:{},...(body?{body:JSON.stringify(body)}:{}),cache:'no-store'});const d=await r.json() as T & {error?:string};if(!r.ok)throw Object.assign(new Error(d.error||'Request failed'),{status:r.status});return d;}
 function download(name:string,data:Blob){const url=URL.createObjectURL(data),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-function render(c:HTMLCanvasElement|null,d:PixelDocument|null,z:number,grid=false){if(!c||!d)return;c.width=d.width*z;c.height=d.height*z;const ctx=c.getContext('2d')!,temp=document.createElement('canvas');temp.width=d.width;temp.height=d.height;temp.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(composite(d)),d.width,d.height),0,0);ctx.imageSmoothingEnabled=false;ctx.drawImage(temp,0,0,c.width,c.height);if(grid&&z>=3){ctx.strokeStyle='#ffffff38';ctx.beginPath();for(let x=0;x<=d.width;x++){ctx.moveTo(x*z+.5,0);ctx.lineTo(x*z+.5,c.height);}for(let y=0;y<=d.height;y++){ctx.moveTo(0,y*z+.5);ctx.lineTo(c.width,y*z+.5);}ctx.stroke();}}
+const pixelOps = new Set(['pixel','fill','line','rect','ellipse','transform','paste','clear']);
+const targetFrame=(ops:PaintCommand[],frame:number):PaintCommand[]=>
+  ops.map(op=>pixelOps.has(op.op)&&op.frame===undefined?{...op,frame}:op);
+function render(c:HTMLCanvasElement|null,d:PixelDocument|null,z:number,grid=false,ghosts:PixelDocument[]=[]){
+ if(!c||!d)return;
+ c.width=d.width*z;c.height=d.height*z;
+ const ctx=c.getContext('2d')!,temp=document.createElement('canvas');temp.width=d.width;temp.height=d.height;
+ const t= temp.getContext('2d')!;
+ ctx.imageSmoothingEnabled=false;
+ const paint=(doc:PixelDocument,alpha:number)=>{
+   t.putImageData(new ImageData(new Uint8ClampedArray(composite(doc)),doc.width,doc.height),0,0);
+   ctx.globalAlpha=alpha;ctx.drawImage(temp,0,0,c.width,c.height);
+ };
+ ghosts.forEach((ghost,i)=>paint(ghost,i===0?.25:.15));paint(d,1);ctx.globalAlpha=1;
+ if(grid&&z>=3){ctx.strokeStyle='#ffffff38';ctx.beginPath();for(let x=0;x<=d.width;x++){ctx.moveTo(x*z+.5,0);ctx.lineTo(x*z+.5,c.height);}for(let y=0;y<=d.height;y++){ctx.moveTo(0,y*z+.5);ctx.lineTo(c.width,y*z+.5);}ctx.stroke();}
+}
+function FrameThumbnail({doc,index}:{doc:PixelDocument;index:number}){
+ const ref=useRef<HTMLCanvasElement>(null);
+ useEffect(()=>{
+  const c=ref.current;if(!c)return;
+  const view=frameView(doc,index);c.width=doc.width;c.height=doc.height;
+  c.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(composite(view)),doc.width,doc.height),0,0);
+ },[doc,index]);
+ return <canvas ref={ref} className="frame-thumbnail" aria-hidden="true"/>;
+}
 export default function Editor(){
- const [snap,setSnap]=useState<Snapshot|null>(null),[list,setList]=useState<PixelDocument[]>([]),[tool,setTool]=useState<Tool>('pencil'),[ink,setInk]=useState('#f6da92'),[layer,setLayer]=useState('base'),[zoom,setZoom]=useState(10),[grid,setGrid]=useState(true),[filled,setFilled]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState('Opening workspace…'),[error,setError]=useState(''),[cursor,setCursor]=useState('X —   Y —'),[hover,setHover]=useState<{x:number;y:number}|null>(null),[modal,setModal]=useState(false),[name,setName]=useState('Untitled sprite'),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[scale,setScale]=useState(1),[selection,setSelection]=useState<PixelRegion|null>(null),[clipboard,setClipboard]=useState<{width:number;height:number;pixels:number[]}|null>(null),[previewScale,setPreviewScale]=useState(1),[fitMode,setFitMode]=useState(true),[saveState,setSaveState]=useState<Pick<QueueState,'pending'|'saving'|'error'>>({pending:0,saving:false,error:null});
- const queue=useRef<EditQueue|null>(null),viewport=useRef<HTMLDivElement>(null),selectionDrag=useRef<{base:Snapshot;start:{x:number;y:number};source:PixelRegion|null;region:PixelRegion;layer:string}|null>(null),canvas=useRef<HTMLCanvasElement>(null),preview=useRef<HTMLCanvasElement>(null),file=useRef<HTMLInputElement>(null),current=useRef(snap),locked=useRef(false),stroke=useRef<{base:Snapshot;start:{x:number;y:number};last:{x:number;y:number};ops:PaintCommand[]}|null>(null);
+ const [frame,setFrame]=useState(0),[playing,setPlaying]=useState(false),[onion,setOnion]=useState(false),[effectKind,setEffectKind]=useState<EffectKind>('embers'),[effectSeed,setEffectSeed]=useState(53),[snap,setSnap]=useState<Snapshot|null>(null),[list,setList]=useState<PixelDocument[]>([]),[tool,setTool]=useState<Tool>('pencil'),[ink,setInk]=useState('#f6da92'),[layer,setLayer]=useState('base'),[zoom,setZoom]=useState(10),[grid,setGrid]=useState(true),[filled,setFilled]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState('Opening workspace…'),[error,setError]=useState(''),[cursor,setCursor]=useState('X —   Y —'),[hover,setHover]=useState<{x:number;y:number}|null>(null),[modal,setModal]=useState(false),[name,setName]=useState('Untitled sprite'),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[scale,setScale]=useState(1),[selection,setSelection]=useState<PixelRegion|null>(null),[clipboard,setClipboard]=useState<{width:number;height:number;pixels:number[]}|null>(null),[previewScale,setPreviewScale]=useState(1),[fitMode,setFitMode]=useState(true),[saveState,setSaveState]=useState<Pick<QueueState,'pending'|'saving'|'error'>>({pending:0,saving:false,error:null});
+ const queue=useRef<EditQueue|null>(null),viewport=useRef<HTMLDivElement>(null),selectionDrag=useRef<{base:Snapshot;start:{x:number;y:number};source:PixelRegion|null;region:PixelRegion;layer:string;frame:number}|null>(null),canvas=useRef<HTMLCanvasElement>(null),preview=useRef<HTMLCanvasElement>(null),file=useRef<HTMLInputElement>(null),current=useRef(snap),locked=useRef(false),stroke=useRef<{base:Snapshot;start:{x:number;y:number};last:{x:number;y:number};ops:PaintCommand[];frame:number}|null>(null);
  const present=useCallback((s:Snapshot)=>{current.current=s;setSnap(s);setLayer(l=>s.doc.layers.some(x=>x.id===l)?l:s.doc.layers[0].id);},[]);
  const showQueue=useCallback((state:QueueState)=>{
   let visible=state.snapshot;
   const st=stroke.current,drag=selectionDrag.current;
-  if(st){st.base=state.snapshot;visible={...state.snapshot,doc:applyCommands(state.snapshot.doc,st.ops)};}
-  else if(drag){drag.base=state.snapshot;if(drag.source)visible={...state.snapshot,doc:applyCommands(state.snapshot.doc,[{op:'transform',mode:'move',layer:drag.layer,...drag.source,x2:drag.region.x,y2:drag.region.y}])};}
+  if(st){st.base=state.snapshot;visible={...state.snapshot,doc:applyCommands(state.snapshot.doc,targetFrame(st.ops,st.frame))};}
+  else if(drag){drag.base=state.snapshot;if(drag.source)visible={...state.snapshot,doc:applyCommands(state.snapshot.doc,[{op:'transform',mode:'move',layer:drag.layer,frame:drag.frame,...drag.source,x2:drag.region.x,y2:drag.region.y}])};}
   present(visible);setSaveState({pending:state.pending,saving:state.saving,error:state.error});
   setNotice(state.error?`Save paused · ${state.pending} edits kept locally`:state.pending?`Saving ${state.pending} edit${state.pending===1?'':'s'}…`:'All changes saved');
   const d=state.snapshot.doc;setList(items=>items.map(p=>p.id===d.id?{...p,name:d.name,revision:d.revision,updatedAt:d.updatedAt}:p));
  },[present]);
  const adopt=useCallback((s:Snapshot)=>{
-  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFitMode(true);}
+  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);setFitMode(true);}
   queue.current?.dispose();queue.current=new EditQueue(s,request=>api<Snapshot>('projects/'+s.doc.id,request),showQueue);
   setSaveState({pending:0,saving:false,error:null});present(s);
  },[present,showQueue]);
  const refresh=useCallback(async()=>setList(await api<PixelDocument[]>('projects')),[]);
  useEffect(()=>{let alive=true;(async()=>{try{const entries=await api<PixelDocument[]>('projects');if(!alive)return;setList(entries);const s=entries.length?await api<Snapshot>('projects/'+entries[0].id):await api<Snapshot>('projects',{demo:true});if(alive){adopt(s);setNotice('All changes saved');await refresh();}}catch(e){if(alive)setError((e as Error).message);}})();return()=>{alive=false;queue.current?.dispose();};},[adopt,refresh]);
- useEffect(()=>{render(canvas.current,snap?.doc||null,zoom,grid);render(preview.current,snap?.doc||null,previewScale);},[snap,zoom,grid,previewScale]);
+ useEffect(()=>{
+  const doc=snap?.doc;if(!doc)return;
+  const index=Math.min(frame,frameCount(doc)-1),ghosts:PixelDocument[]=[];
+  if(onion&&frameCount(doc)>1){
+    if(index>0)ghosts.push(frameView(doc,index-1));
+    if(index+1<frameCount(doc))ghosts.push(frameView(doc,index+1));
+  }
+  const view=frameView(doc,index);
+  render(canvas.current,view,zoom,grid,ghosts);render(preview.current,view,previewScale);
+ },[snap,frame,zoom,grid,previewScale,onion]);
+ useEffect(()=>{if(snap)setFrame(i=>Math.min(i,frameCount(snap.doc)-1));},[snap?.doc.animation?.frames.length,snap?.doc.id]);
+ useEffect(()=>{
+   if(!playing||!snap||frameCount(snap.doc)<2)return;
+   const timer=setInterval(()=>setFrame(i=>(i+1)%frameCount(current.current?.doc||snap.doc)),1000/(snap.doc.animation?.fps??8));
+   return()=>clearInterval(timer);
+ },[playing,snap?.doc.id,snap?.doc.animation?.fps,snap?.doc.animation?.frames.length]);
  useEffect(()=>{const element=viewport.current;if(!element||!snap||!fitMode)return;const fit=()=>setZoom(Math.max(1,Math.min(24,Math.floor(Math.min((element.clientWidth-112)/snap.doc.width,(element.clientHeight-97)/snap.doc.height)))));fit();const observer=new ResizeObserver(fit);observer.observe(element);return()=>observer.disconnect();},[snap?.doc.id,snap?.doc.width,snap?.doc.height,fitMode]);
  useEffect(()=>setSelection(null),[layer]);
  useEffect(()=>setHover(null),[zoom,snap?.doc.id]);
@@ -45,7 +86,7 @@ export default function Editor(){
  const commit=useCallback(async(ops:PaintCommand[],base?:Snapshot,action='paint')=>{
   const q=queue.current;if(!q||locked.current||base&&base.doc.id!==q.state.snapshot.doc.id)return false;
   if(action==='undo'&&!q.state.snapshot.canUndo||action==='redo'&&!q.state.snapshot.canRedo)return false;
-  setError('');try{q.enqueue({action:action as 'paint'|'undo'|'redo',...(action==='paint'?{commands:ops}:{})});return true;}
+  setError('');try{q.enqueue({action:action as 'paint'|'undo'|'redo',...(action==='paint'?{commands:targetFrame(ops,Math.min(frame,frameCount(q.state.snapshot.doc)-1))}:{})});return true;}
   catch(e){present(q.state.snapshot);setError((e as Error).message);return false;}
  },[present]);
  const create=async(demo:boolean|'cottage'=false,document?:unknown,asCopy=false)=>{
@@ -59,15 +100,15 @@ export default function Editor(){
   catch(e){setError((e as Error).message);}finally{locked.current=false;setBusy(false);}
  };
  const point=(e:PE<HTMLCanvasElement>)=>{const d=current.current!.doc,b=e.currentTarget.getBoundingClientRect();return {x:Math.max(0,Math.min(d.width-1,Math.floor((e.clientX-b.left)/b.width*d.width))),y:Math.max(0,Math.min(d.height-1,Math.floor((e.clientY-b.top)/b.height*d.height)))};};
- const copySelection=()=>{const doc=current.current?.doc;if(!doc||!selection)return;setClipboard({width:selection.width,height:selection.height,pixels:readRegion(doc,layer,selection)});setNotice(`Copied ${selection.width} × ${selection.height} pixels`);};
+ const copySelection=()=>{const doc=current.current?.doc;if(!doc||!selection)return;setClipboard({width:selection.width,height:selection.height,pixels:readRegion(doc,layer,selection,Math.min(frame,frameCount(doc)-1))});setNotice(`Copied ${selection.width} × ${selection.height} pixels`);};
  const pasteSelection=()=>{const doc=current.current?.doc;if(!doc||!clipboard||locked.current)return;if(clipboard.width>doc.width||clipboard.height>doc.height){setError('The copied area is larger than this canvas.');return;}const region={x:Math.min(doc.width-clipboard.width,(selection?.x??-2)+2),y:Math.min(doc.height-clipboard.height,(selection?.y??-2)+2),width:clipboard.width,height:clipboard.height};setSelection(region);setTool('select');void commit([{op:'paste',layer,...region,pixels:clipboard.pixels}]);};
  const transformSelection=(mode:string,dx=0,dy=0)=>{const doc=current.current?.doc;if(!doc||!selection||locked.current)return;const region={...selection,x:Math.max(0,Math.min(doc.width-selection.width,selection.x+dx)),y:Math.max(0,Math.min(doc.height-selection.height,selection.y+dy))};if(mode==='move'&&region.x===selection.x&&region.y===selection.y)return;void commit([{op:'transform',layer,mode,...selection,x2:region.x,y2:region.y}]);setSelection(region);};
  const clearSelection=()=>{if(selection)void commit([{op:'rect',layer,...selection,color:'transparent'}]);};
  const shape=(a:{x:number;y:number},b:{x:number;y:number}):PaintCommand=>tool==='line'?{op:'line',layer,color:ink,...a,x2:b.x,y2:b.y}:{op:tool,layer,color:ink,x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),width:Math.abs(a.x-b.x)+1,height:Math.abs(a.y-b.y)+1,filled};
- const down=(e:PE<HTMLCanvasElement>)=>{const s=current.current;if(e.button!==0||!s||locked.current||stroke.current||selectionDrag.current)return;e.preventDefault();const p=point(e);setHover(p);if(tool==='select'){e.currentTarget.setPointerCapture(e.pointerId);const inside=selection&&p.x>=selection.x&&p.y>=selection.y&&p.x<selection.x+selection.width&&p.y<selection.y+selection.height;const region=inside?selection!:{...p,width:1,height:1};selectionDrag.current={base:s,start:p,source:inside?region:null,region,layer};setSelection(region);return;}setSelection(null);if(tool==='picker'){const rgba=composite(s.doc),i=(p.y*s.doc.width+p.x)*4;if(rgba[i+3])setInk('#'+Array.from(rgba.slice(i,i+3)).map(v=>v.toString(16).padStart(2,'0')).join(''));return;}if(tool==='fill'){void commit([{op:'fill',layer,color:ink,...p}]);return;}if(!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(ink)){setError('Choose a valid hex color.');return;}e.currentTarget.setPointerCapture(e.pointerId);const ops:PaintCommand[]=['pencil','eraser'].includes(tool)?[{op:'pixel',layer,color:tool==='eraser'?'transparent':ink,...p}]:[shape(p,p)];stroke.current={base:s,start:p,last:p,ops};present({...s,doc:applyCommands(s.doc,ops)});};
- const move=(e:PE<HTMLCanvasElement>)=>{if(!snap)return;const p=point(e);setHover(old=>old?.x===p.x&&old?.y===p.y?old:p);setCursor(`X ${String(p.x).padStart(3,'0')}   Y ${String(p.y).padStart(3,'0')}`);const drag=selectionDrag.current;if(drag){if(drag.source){const source=drag.source;drag.region={...source,x:Math.max(0,Math.min(drag.base.doc.width-source.width,source.x+p.x-drag.start.x)),y:Math.max(0,Math.min(drag.base.doc.height-source.height,source.y+p.y-drag.start.y))};present({...drag.base,doc:applyCommands(drag.base.doc,[{op:'transform',mode:'move',layer:drag.layer,...source,x2:drag.region.x,y2:drag.region.y}])});}else drag.region={x:Math.min(drag.start.x,p.x),y:Math.min(drag.start.y,p.y),width:Math.abs(p.x-drag.start.x)+1,height:Math.abs(p.y-drag.start.y)+1};setSelection(drag.region);return;}const st=stroke.current;if(!st||(p.x===st.last.x&&p.y===st.last.y)||st.ops.length>4000)return;if(['pencil','eraser'].includes(tool))st.ops.push({op:'line',layer,color:tool==='eraser'?'transparent':ink,...st.last,x2:p.x,y2:p.y});else st.ops=[shape(st.start,p)];st.last=p;present({...st.base,doc:applyCommands(st.base.doc,st.ops)});};
- const up=()=>{const drag=selectionDrag.current;if(drag){selectionDrag.current=null;if(drag.source&&(drag.source.x!==drag.region.x||drag.source.y!==drag.region.y))void commit([{op:'transform',mode:'move',layer:drag.layer,...drag.source,x2:drag.region.x,y2:drag.region.y}],drag.base);else present(drag.base);return;}const st=stroke.current;if(st){stroke.current=null;void commit(st.ops,st.base);}};
- const png=async()=>{const d=current.current?.doc;if(!d)return;try{const {encodeBrowserPng}=await import('../lib/browser-png.ts');download(d.name+'.png',new Blob([encodeBrowserPng(d,scale)],{type:'image/png'}));if(!queue.current?.state.pending)setNotice(`Exported ${d.width*scale} × ${d.height*scale} PNG`);}catch(e){setError((e as Error).message);}};
+ const down=(e:PE<HTMLCanvasElement>)=>{const s=current.current;if(e.button!==0||!s||locked.current||stroke.current||selectionDrag.current)return;e.preventDefault();const p=point(e);setHover(p);if(playing)return;if(tool==='select'){e.currentTarget.setPointerCapture(e.pointerId);const inside=selection&&p.x>=selection.x&&p.y>=selection.y&&p.x<selection.x+selection.width&&p.y<selection.y+selection.height;const region=inside?selection!:{...p,width:1,height:1};selectionDrag.current={base:s,start:p,source:inside?region:null,region,layer,frame:Math.min(frame,frameCount(s.doc)-1)};setSelection(region);return;}setSelection(null);if(tool==='picker'){const rgba=composite(frameView(s.doc,Math.min(frame,frameCount(s.doc)-1))),i=(p.y*s.doc.width+p.x)*4;if(rgba[i+3])setInk('#'+Array.from(rgba.slice(i,i+3)).map(v=>v.toString(16).padStart(2,'0')).join(''));return;}if(tool==='fill'){void commit([{op:'fill',layer,color:ink,...p}]);return;}if(!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(ink)){setError('Choose a valid hex color.');return;}e.currentTarget.setPointerCapture(e.pointerId);const ops:PaintCommand[]=['pencil','eraser'].includes(tool)?[{op:'pixel',layer,color:tool==='eraser'?'transparent':ink,...p}]:[shape(p,p)];stroke.current={base:s,start:p,last:p,ops,frame:Math.min(frame,frameCount(s.doc)-1)};present({...s,doc:applyCommands(s.doc,targetFrame(ops,Math.min(frame,frameCount(s.doc)-1)))});};
+ const move=(e:PE<HTMLCanvasElement>)=>{if(!snap)return;const p=point(e);setHover(old=>old?.x===p.x&&old?.y===p.y?old:p);setCursor(`X ${String(p.x).padStart(3,'0')}   Y ${String(p.y).padStart(3,'0')}`);const drag=selectionDrag.current;if(drag){if(drag.source){const source=drag.source;drag.region={...source,x:Math.max(0,Math.min(drag.base.doc.width-source.width,source.x+p.x-drag.start.x)),y:Math.max(0,Math.min(drag.base.doc.height-source.height,source.y+p.y-drag.start.y))};present({...drag.base,doc:applyCommands(drag.base.doc,[{op:'transform',mode:'move',layer:drag.layer,frame:drag.frame,...source,x2:drag.region.x,y2:drag.region.y}])});}else drag.region={x:Math.min(drag.start.x,p.x),y:Math.min(drag.start.y,p.y),width:Math.abs(p.x-drag.start.x)+1,height:Math.abs(p.y-drag.start.y)+1};setSelection(drag.region);return;}const st=stroke.current;if(!st||(p.x===st.last.x&&p.y===st.last.y)||st.ops.length>4000)return;if(['pencil','eraser'].includes(tool))st.ops.push({op:'line',layer,color:tool==='eraser'?'transparent':ink,...st.last,x2:p.x,y2:p.y});else st.ops=[shape(st.start,p)];st.last=p;present({...st.base,doc:applyCommands(st.base.doc,targetFrame(st.ops,st.frame))});};
+ const up=()=>{const drag=selectionDrag.current;if(drag){selectionDrag.current=null;if(drag.source&&(drag.source.x!==drag.region.x||drag.source.y!==drag.region.y))void commit([{op:'transform',mode:'move',layer:drag.layer,frame:drag.frame,...drag.source,x2:drag.region.x,y2:drag.region.y}],drag.base);else present(drag.base);return;}const st=stroke.current;if(st){stroke.current=null;void commit(targetFrame(st.ops,st.frame),st.base);}};
+ const png=async()=>{const d=current.current?.doc;if(!d)return;try{const {encodeBrowserPng}=await import('../lib/browser-png.ts');download(d.name+'.png',new Blob([encodeBrowserPng(frameView(d,Math.min(frame,frameCount(d)-1)),scale)],{type:'image/png'}));if(!queue.current?.state.pending)setNotice(`Exported ${d.width*scale} × ${d.height*scale} PNG`);}catch(e){setError((e as Error).message);}};
  useEffect(()=>{const h=(e:KeyboardEvent)=>{if((e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"]')||stroke.current||selectionDrag.current)return;if(e.key==='Escape'){setModal(false);setSelection(null);return;}if(modal)return;const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='z'){e.preventDefault();void commit([],undefined,e.shiftKey?'redo':'undo');return;}if(mod&&key==='c'&&selection){e.preventDefault();copySelection();return;}if(mod&&key==='v'&&clipboard){e.preventDefault();pasteSelection();return;}if(mod&&key==='x'&&selection){e.preventDefault();copySelection();clearSelection();return;}if(selection&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const step=e.shiftKey?10:1;transformSelection('move',e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0,e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0);return;}if(selection&&['Delete','Backspace'].includes(e.key)){e.preventDefault();clearSelection();return;}if(mod)return;const t=tools.find(t=>t[3].toLowerCase()===key);if(t)setTool(t[0]);if(key==='h')setGrid(v=>!v);};window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);});
  const d=snap?.doc,displayError=error||saveState.error?.message;
  return <main className="workshop"><header className="app-header"><a className="brand" href="/"><span className="brand-mark">{Array.from({length:9},(_,i)=><i key={i}/>)}</span><span>pixel<span className="brand-light">workshop</span><small>A LITTLE ROOM TO MAKE THINGS</small></span></a><div className="header-meta"><span className="version">WORKSPACE / 01</span><span className="connection"><i/> MCP enabled</span></div><button className="primary" disabled={!d||busy} onClick={()=>void png()}><Download size={15}/>Export PNG</button></header>
