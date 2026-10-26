@@ -14,3 +14,11 @@ export function encodeBrowserPng(doc:PixelDocument,scale=1):Uint8Array<ArrayBuff
   }
   return new Uint8Array(pngjs.PNG.sync.write(out,{colorType:6}));
 }
+
+export function encodeBrowserRgba(bytes: Uint8Array, width: number, height: number): Uint8Array<ArrayBuffer> {
+  if (!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width*height>4194304 ||
+    bytes.length !== width*height*4) throw new Error('Invalid sprite sheet dimensions.');
+  const png = new pngjs.PNG({width,height});
+  png.data.set(bytes);
+  return new Uint8Array(pngjs.PNG.sync.write(png,{colorType:6}));
+}
