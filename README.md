@@ -50,6 +50,8 @@ Painting and session undo/redo update locally immediately. Completed strokes que
 
 Failed saves pause the queue without discarding the drawing. Retry uses the same request ID so a lost response cannot duplicate a stroke; conflicting external/MCP edits offer Save a copy. The page warns before leaving with pending edits. The current project and project list refresh every three seconds while idle to reflect MCP edits; polling cannot overwrite queued or active strokes.
 
+Undo and Redo now sit underneath the drawing and grid tools in the left toolbar, rather than in the document bar. On shorter screens the painting tools scroll independently, keeping Undo/Redo reachable; the existing Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z shortcuts remain available.
+
 ## Animation workbench
 
 Every canvas now has a timeline. **Duplicate** adds an editable cel, **Play** previews frames at 4–30 fps, and **Onion** displays translucent neighboring frames. Pencil, fill, shape, selection, copy/paste, undo and layer visibility all operate on the selected frame (layer names and visibility remain shared across frames). The browser exports the current frame as a transparent PNG, the entire animation as a composite PNG sprite sheet, and a separate JSON atlas containing frame rectangles and playback durations. The atlas points to the downloaded `-sheet.png` file.
