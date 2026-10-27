@@ -4,6 +4,11 @@ export type EffectKind = 'embers' | 'sparkles' | 'shockwave';
 export const EFFECT_KINDS: EffectKind[] = ['embers', 'sparkles', 'shockwave'];
 export type EffectRecipe = { kind: EffectKind; seed: number; ink: string };
 
+/** Keep the renderer and UI consistent about when another effect can fit. */
+export function hasFreeEffectLayerSlot(d: PixelDocument | null | undefined): boolean {
+  return Boolean(d && d.layers.length < 8);
+}
+
 function randomFromSeed(seed: number) {
   let state = (seed | 0) || 1;
   return () => {
@@ -72,7 +77,7 @@ export function generateEffectCommands(d: PixelDocument, recipe: EffectRecipe): 
   if (!Number.isInteger(recipe.seed) || recipe.seed < 0 || recipe.seed > 2147483647)
     throw new Error('Effect seed must be an integer between 0 and 2147483647.');
   color(recipe.ink);
-  if (d.layers.length >= 8) throw new Error('The effect needs a free layer (maximum eight).');
+  if (!hasFreeEffectLayerSlot(d)) throw new Error('The effect needs a free layer (maximum eight).');
   const area = d.width * d.height, currentFrames = frameCount(d);
   const capacity = Math.min(8, Math.floor(MAX_ANIMATION_CELLS / (area * (d.layers.length + 1))),
     Math.floor(1_800_000 / (area * (d.layers.length + 3))));
