@@ -140,7 +140,7 @@ export default function Editor(){
   }catch(e){setError((e as Error).message);}
  };
  const addEffect=async()=>{
-  const doc=current.current?.doc;if(!doc||playing)return;
+  const doc=current.current?.doc;if(!doc)return;
   try{
    const commands=generateEffectCommands(doc,{kind:effectKind,seed:effectSeed,ink});
    if(await commit(commands)){
@@ -176,7 +176,7 @@ export default function Editor(){
    <p>Create a seeded, editable animation layer. Painting and undo work on every generated frame.</p>
    <label className="effect-field">Effect<select aria-label="Procedural effect type" value={effectKind} onChange={e=>setEffectKind(e.target.value as EffectKind)}>{EFFECT_KINDS.map(k=><option key={k} value={k}>{k==='shockwave'?'Shockwave':k==='embers'?'Embers':'Sparkles'}</option>)}</select></label>
    <label className="effect-field">Seed<input aria-label="Effect random seed" type="number" min={0} max={2147483647} value={effectSeed} onChange={e=>setEffectSeed(Number(e.target.value))}/></label>
-   <button className="secondary full effect-generate" disabled={!d||busy||playing||d.layers.length>=8} onClick={()=>void addEffect()}><Sparkles size={14}/>Generate editable effect</button>
+   <button className="secondary full effect-generate" disabled={!d||busy||d.layers.length>=8} title={d?.layers.length===8?'Maximum eight layers. Delete a layer to add another effect.':'Generate an effect without stopping playback'} onClick={()=>void addEffect()}><Sparkles size={14}/>Generate editable effect</button>
   </section>
   <section className="inspector-section export-section"><div className="section-heading"><span>EXPORT</span><span className="filetype">PNG</span></div><label className="scale-select">Output size<select aria-label="PNG export scale" value={scale} onChange={e=>setScale(Number(e.target.value))}>{[1,2,4,8].map(s=><option key={s} value={s}>{s}× {d?`· ${d.width*s} × ${d.height*s}`:''}</option>)}</select></label><p>Transparent background.<br/>Clean pixels, ready for your game.</p><button className="secondary full" disabled={!d||busy} onClick={()=>{if(d)download(d.name+'.pixel.json',new Blob([JSON.stringify(d)],{type:'application/json'}));}}>Save editable project <Download size={14}/></button>
   <button className="secondary full" disabled={!d||busy} onClick={()=>void exportSheet()}>Sprite sheet PNG <Download size={14}/></button>
