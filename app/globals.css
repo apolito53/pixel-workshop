@@ -28,3 +28,9 @@
 .export-section .secondary+.secondary{margin-top:8px}
 @media(max-width:950px){.timeline{height:158px}.timeline-header{align-items:flex-start;flex-direction:column;gap:5px;min-height:66px;padding:6px 12px}.timeline-controls{justify-content:flex-start;gap:4px}}
 @media(max-width:600px){.timeline{height:170px}.timeline-controls .small-toggle{font-size:9px}.frame-tile{flex-basis:56px;padding:3px}.frame-thumbnail{width:38px;height:38px}.fps-control{font-size:9px}.timeline-track{padding:6px 10px}}
+
+/* Layer deletion should be distinguishable from visibility and remain tappable. */
+.layer-row .layer-delete{width:30px;height:30px;flex-shrink:0;border-radius:4px;color:#aa9290}
+.layer-row .layer-delete:hover:not(:disabled){background:#b550661d;color:#edabb1}
+.layer-row .layer-delete:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.effect-capacity{font-size:10px;margin:10px 0 0!important;color:#a1a3ab;line-height:1.35!important}

@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {PNG} from 'pngjs';
 import {applyCommands,createDocument,color,composite,frameCount,frameView,readRegion,validateDocument} from '../lib/pixels.ts';
-import {effectPixels,generateEffectCommands} from '../lib/effects.ts';
+import {effectPixels,generateEffectCommands,hasFreeEffectLayerSlot} from '../lib/effects.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
 import {encodeRgbaPng} from '../lib/png.ts';
 import {encodeBrowserRgba} from '../lib/browser-png.ts';
@@ -78,6 +78,25 @@ test('sprite sheet exports exact RGBA and matching atlas coordinates',()=>{
   const browser=PNG.sync.read(Buffer.from(encodeBrowserRgba(sheet.bytes,sheet.width,sheet.height)));
   assert.deepEqual(png.data,browser.data);
   assert.deepEqual(png.data,Buffer.from(sheet.bytes));
+});
+test('layer-capacity recovers after deletion, while visibility does not free slots',()=>{
+ const recipe={kind:'sparkles' as const,seed:53,ink:'#f6da92'};
+ let doc=applyCommands(createDocument('Layer cap',16,16),
+   Array.from({length:7},(_,i)=>({op:'add_layer',id:'layer-'+(i+1),name:'Layer '+(i+1)})));
+ assert.equal(doc.layers.length,8);
+ assert.equal(hasFreeEffectLayerSlot(doc),false);
+ assert.throws(()=>generateEffectCommands(doc,recipe),/free layer/);
+ doc=applyCommands(doc,[{op:'visibility',layer:'layer-7',visible:false}]);
+ assert.equal(doc.layers.length,8,'hiding must not consume or release a layer slot');
+ assert.throws(()=>generateEffectCommands(doc,recipe),/free layer/);
+ doc=applyCommands(doc,[{op:'delete_layer',layer:'layer-7'}]);
+ assert.equal(doc.layers.length,7);
+ assert.equal(hasFreeEffectLayerSlot(doc),true,'Generate must re-enable as soon as a layer is removed');
+ assert.equal(Object.keys(doc.animation?.frames[0].pixels||{}).length,0);
+ doc=applyCommands(doc,generateEffectCommands(doc,recipe));
+ assert.equal(doc.layers.length,8,'generation must be usable again after deleting a layer');
+ assert.equal(hasFreeEffectLayerSlot(doc),false);
+ assert.ok(doc.layers.some(l=>l.name==='Sparkles FX'));
 });
 test('seeded procedural VFX produce editable transparent layers, preserving original artwork',()=>{
   const base=applyCommands(createDocument('Campfire',32,32),[{op:'pixel',x:1,y:1,color:'#ffffff'}]);
