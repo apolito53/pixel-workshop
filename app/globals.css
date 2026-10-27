@@ -88,7 +88,6 @@
   scrollbar-width:thin;scrollbar-color:#44464b transparent}
  .inspector-panel[hidden]{display:none!important}
  .inspector .inspector-section{padding:17px 18px}
- .inspector .preview-section{display:block}
  .inspector .navigator{height:140px}
  .inspector .palette{grid-template-columns:repeat(7,minmax(0,1fr))}
  .inspector .color-controls{flex-wrap:nowrap;gap:9px}
