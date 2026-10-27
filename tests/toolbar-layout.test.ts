@@ -27,8 +27,9 @@ test('history rail retains existing enablement, callbacks and keyboard shortcuts
     ['Undo', 'canUndo', 'undo'],
     ['Redo', 'canRedo', 'redo'],
   ] as const) {
-    const railButton = editor.match(new RegExp('<button[^>]*aria-label="' + name + '"[^>]*>'))?.[0];
-    assert.ok(railButton, name + ' button exists');
+    const start = editor.indexOf('aria-label="' + name + '"', editor.indexOf('className="rail-history"'));
+    assert.ok(start >= 0, name + ' button exists');
+    const railButton = editor.slice(start, editor.indexOf('</button>', start));
     assert.ok(railButton.includes('disabled={!snap?.' + enabled + '||busy}'));
     assert.ok(railButton.includes("commit([],undefined,'" + command + "')"));
   }
