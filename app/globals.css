@@ -104,3 +104,30 @@
 @media(prefers-reduced-motion:reduce){
  .work-area .inspector{transition:none}
 }
+
+/* Keep history actions reachable at the bottom of the left rail, even on short phones.
+   The drawing tools scroll independently when vertical space is tight. */
+.tool-rail{min-height:0;overflow:hidden}
+.rail-paint-tools{display:flex;flex:1 1 auto;min-height:0;width:100%;align-items:center;
+ flex-direction:column;gap:9px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;
+ scrollbar-width:none;touch-action:pan-y}
+.rail-paint-tools::-webkit-scrollbar{display:none}
+.rail-paint-tools>.tool,.rail-paint-tools>.rail-rule{flex-shrink:0}
+.rail-history{display:flex;width:100%;flex-shrink:0;flex-direction:column;align-items:center;
+ gap:7px;padding-top:9px;border-top:1px solid var(--line)}
+.history-tool{flex-shrink:0;color:#b9b6b4}
+.history-tool:hover:not(:disabled){color:var(--accent)}
+.tool-rail>.rail-ink{margin-top:0;flex-shrink:0}
+@media(max-width:800px){
+ .tool-rail{gap:6px}
+ .rail-paint-tools{gap:5px}
+ .rail-history{gap:5px;padding-top:6px}
+ .rail-history .history-tool{height:36px}
+}
+@media(max-width:800px) and (max-height:650px){
+ .tool-rail{padding-top:7px;padding-bottom:7px;gap:4px}
+ .rail-paint-tools{gap:3px}
+ .rail-paint-tools .rail-rule{margin:4px 0}
+ .rail-history{gap:3px;padding-top:4px}
+ .tool-rail>.rail-ink{width:20px;height:20px}
+}
