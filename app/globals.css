@@ -34,3 +34,27 @@
 .layer-row .layer-delete:hover:not(:disabled){background:#b550661d;color:#edabb1}
 .layer-row .layer-delete:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .effect-capacity{font-size:10px;margin:10px 0 0!important;color:#a1a3ab;line-height:1.35!important}
+
+/* The inspector is a set of destinations, not one long stack of controls. */
+.inspector{overscroll-behavior:contain}
+.inspector-tabs{position:sticky;top:0;z-index:4;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;padding:9px 9px 8px;background:var(--panel);border-bottom:1px solid var(--line)}
+.inspector-tab{display:flex;align-items:center;justify-content:center;gap:5px;min-width:0;min-height:39px;padding:7px 3px;border:1px solid transparent;border-radius:5px;color:#a2a3aa;font-size:10px;font-weight:600;white-space:nowrap;transition:background .15s,border-color .15s,color .15s}
+.inspector-tab svg{flex-shrink:0}
+.inspector-tab.active{color:var(--accent);border-color:#aa805345;background:#e7ad721b}
+.inspector-tab:hover:not(.active){color:#e1ddd6;background:#ffffff0b}
+.inspector-tab:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.inspector-panel[hidden]{display:none!important}
+.inspector-panel{min-width:0}
+.inspector-panel>.inspector-section:last-child{border-bottom:0}
+.inspector-disclosure .inspector-summary{list-style:none;cursor:pointer;margin:0;user-select:none}
+.inspector-disclosure .inspector-summary::-webkit-details-marker{display:none}
+.inspector-disclosure .inspector-summary::marker{content:''}
+.inspector-disclosure[open] .inspector-summary{margin-bottom:14px}
+.inspector-summary-end{display:inline-flex;align-items:center;gap:8px}
+.inspector-summary svg{color:#8b8d94;transition:transform .15s}
+.inspector-disclosure[open] .inspector-summary svg{transform:rotate(180deg);color:var(--accent)}
+.inspector-summary:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+.effects-manage-link{display:flex;align-items:center;justify-content:center;width:100%;margin-top:8px;color:var(--accent);font-size:10px}
+@media(max-width:1100px){.inspector-tabs{padding:7px 4px;gap:1px}.inspector-tab{gap:3px;font-size:9px}}
+@media(max-width:720px){.inspector-tabs{padding:6px 3px;gap:2px}.inspector-tab{min-height:48px;flex-direction:column;gap:3px;padding:4px 0;font-size:9px}.inspector-tab svg{width:17px;height:17px}}
+@media(max-width:480px){.inspector-tab{font-size:8px;min-height:45px}}
