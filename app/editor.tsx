@@ -3,7 +3,7 @@ import {useCallback,useEffect,useRef,useState,type PointerEvent as PE} from 'rea
 import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles} from 'lucide-react';
 import {applyCommands,composite,frameCount,frameView,readRegion,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
-import {generateEffectCommands,type EffectKind,EFFECT_KINDS} from '../lib/effects.ts';
+import {generateEffectCommands,hasFreeEffectLayerSlot,type EffectKind,EFFECT_KINDS} from '../lib/effects.ts';
 import {EditQueue,type EditorSnapshot,type QueueState} from '../lib/edit-queue.ts';
 type Snapshot=EditorSnapshot;
 type Tool='select'|'pencil'|'eraser'|'fill'|'picker'|'line'|'rect'|'ellipse';
@@ -176,7 +176,8 @@ export default function Editor(){
    <p>Create a seeded, editable animation layer. Painting and undo work on every generated frame.</p>
    <label className="effect-field">Effect<select aria-label="Procedural effect type" value={effectKind} onChange={e=>setEffectKind(e.target.value as EffectKind)}>{EFFECT_KINDS.map(k=><option key={k} value={k}>{k==='shockwave'?'Shockwave':k==='embers'?'Embers':'Sparkles'}</option>)}</select></label>
    <label className="effect-field">Seed<input aria-label="Effect random seed" type="number" min={0} max={2147483647} value={effectSeed} onChange={e=>setEffectSeed(Number(e.target.value))}/></label>
-   <button className="secondary full effect-generate" disabled={!d||busy||d.layers.length>=8} title={d?.layers.length===8?'All eight layer slots are occupied. Use a layer trash icon to free one.':'Generate an effect without stopping playback'} onClick={()=>void addEffect()}><Sparkles size={14}/>Generate editable effect</button>
+   {d&&<p className="effect-capacity" aria-live="polite">{d.layers.length} / 8 layer slots used · {hasFreeEffectLayerSlot(d)?'Ready to generate':'Delete a layer to make room'}</p>}
+   <button className="secondary full effect-generate" disabled={busy||!hasFreeEffectLayerSlot(d)} title={!hasFreeEffectLayerSlot(d)?'All eight layer slots are occupied. Use a layer trash icon to free one.':'Generate an effect without stopping playback'} onClick={()=>void addEffect()}><Sparkles size={14}/>Generate editable effect</button>
   </section>
   <section className="inspector-section export-section"><div className="section-heading"><span>EXPORT</span><span className="filetype">PNG</span></div><label className="scale-select">Output size<select aria-label="PNG export scale" value={scale} onChange={e=>setScale(Number(e.target.value))}>{[1,2,4,8].map(s=><option key={s} value={s}>{s}× {d?`· ${d.width*s} × ${d.height*s}`:''}</option>)}</select></label><p>Transparent background.<br/>Clean pixels, ready for your game.</p><button className="secondary full" disabled={!d||busy} onClick={()=>{if(d)download(d.name+'.pixel.json',new Blob([JSON.stringify(d)],{type:'application/json'}));}}>Save editable project <Download size={14}/></button>
   <button className="secondary full" disabled={!d||busy} onClick={()=>void exportSheet()}>Sprite sheet PNG <Download size={14}/></button>
