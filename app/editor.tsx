@@ -44,12 +44,15 @@ export default function Editor(){
  const panRef=useRef<GesturePoint>({x:0,y:0});
  const touchPoints=useRef(new Map<number,GesturePoint>());
  const touchGesture=useRef<{ids:[number,number];start:PinchStart;last:PinchView}|null>(null);
+ const gestureFrame=useRef<number|null>(null);
  const suppressTouchDrawing=useRef(false);
  const [mobileLayout,setMobileLayout]=useState(false),[touchCapable,setTouchCapable]=useState(false),[inspectorOpen,setInspectorOpen]=useState(false);
  const inspectorRef=useRef<HTMLElement>(null),drawerToggleRef=useRef<HTMLButtonElement>(null),drawerCloseRef=useRef<HTMLButtonElement>(null);
  const [frame,setFrame]=useState(0),[playing,setPlaying]=useState(false),[onion,setOnion]=useState(false),[effectKind,setEffectKind]=useState<EffectKind>('embers'),[effectSeed,setEffectSeed]=useState(53),[snap,setSnap]=useState<Snapshot|null>(null),[list,setList]=useState<PixelDocument[]>([]),[tool,setTool]=useState<Tool>('pencil'),[ink,setInk]=useState('#f6da92'),[layer,setLayer]=useState('base'),[zoom,setZoom]=useState(10),[grid,setGrid]=useState(true),[filled,setFilled]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState('Opening workspace…'),[error,setError]=useState(''),[cursor,setCursor]=useState('X —   Y —'),[hover,setHover]=useState<{x:number;y:number}|null>(null),[modal,setModal]=useState(false),[name,setName]=useState('Untitled sprite'),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[scale,setScale]=useState(1),[selection,setSelection]=useState<PixelRegion|null>(null),[clipboard,setClipboard]=useState<{width:number;height:number;pixels:number[]}|null>(null),[previewScale,setPreviewScale]=useState(1),[fitMode,setFitMode]=useState(true),[saveState,setSaveState]=useState<Pick<QueueState,'pending'|'saving'|'error'>>({pending:0,saving:false,error:null});
  const queue=useRef<EditQueue|null>(null),viewport=useRef<HTMLDivElement>(null),selectionDrag=useRef<{base:Snapshot;start:{x:number;y:number};source:PixelRegion|null;region:PixelRegion;layer:string;frame:number}|null>(null),canvas=useRef<HTMLCanvasElement>(null),preview=useRef<HTMLCanvasElement>(null),file=useRef<HTMLInputElement>(null),current=useRef(snap),locked=useRef(false),stroke=useRef<{base:Snapshot;start:{x:number;y:number};last:{x:number;y:number};ops:PaintCommand[];frame:number}|null>(null);
  const resetPan=useCallback(()=>{
+  if(gestureFrame.current!==null)cancelAnimationFrame(gestureFrame.current);
+  gestureFrame.current=null;
   panRef.current={x:0,y:0};setCanvasPan({x:0,y:0});setPinchScale(1);
   touchPoints.current.clear();touchGesture.current=null;suppressTouchDrawing.current=false;
  },[]);
@@ -198,20 +201,34 @@ export default function Editor(){
   }
   e.preventDefault();
  };
+ const updateGesture=()=>{
+  const gesture=touchGesture.current,doc=current.current?.doc,el=viewport.current;
+  if(!gesture||!doc||!el)return;
+  const a=touchPoints.current.get(gesture.ids[0]),b=touchPoints.current.get(gesture.ids[1]);
+  if(!a||!b)return;
+  const result=movePinch(gesture.start,a,b,gestureViewport(el),{width:doc.width,height:doc.height});
+  gesture.last=result;panRef.current=result.pan;
+  setCanvasPan(result.pan);setPinchScale(result.scale);
+ };
  const touchMove=(e:PE<HTMLDivElement>)=>{
   if(e.pointerType!=='touch'||!touchNavigationActive||!touchPoints.current.has(e.pointerId))return;
   touchPoints.current.set(e.pointerId,{x:e.clientX,y:e.clientY});
-  const gesture=touchGesture.current,doc=current.current?.doc;
-  if(!gesture||!doc)return;
-  const a=touchPoints.current.get(gesture.ids[0]),b=touchPoints.current.get(gesture.ids[1]);
-  if(!a||!b)return;
-  const result=movePinch(gesture.start,a,b,gestureViewport(e.currentTarget),{width:doc.width,height:doc.height});
-  gesture.last=result;panRef.current=result.pan;
-  setCanvasPan(result.pan);setPinchScale(result.scale);
+  if(!touchGesture.current)return;
+  // Pointer events arrive per finger. Coalesce them to one frame so parallel
+  // two-finger drags do not flicker between brief false pinch distances.
+  if(gestureFrame.current===null){
+   gestureFrame.current=requestAnimationFrame(()=>{
+    gestureFrame.current=null;updateGesture();
+   });
+  }
   e.preventDefault();
  };
  const touchEnd=(e:PE<HTMLDivElement>)=>{
   if(e.pointerType!=='touch'||!touchNavigationActive||!touchPoints.current.has(e.pointerId))return;
+  if(gestureFrame.current!==null){
+   cancelAnimationFrame(gestureFrame.current);gestureFrame.current=null;
+  }
+  updateGesture();
   const gesture=touchGesture.current,doc=current.current?.doc;
   if(gesture&&gesture.ids.includes(e.pointerId)&&doc){
    const finished=finishPinch(gesture.start,gesture.last,gestureViewport(e.currentTarget),{width:doc.width,height:doc.height});
