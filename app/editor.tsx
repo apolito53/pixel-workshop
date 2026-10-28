@@ -45,7 +45,7 @@ export default function Editor(){
  const touchPoints=useRef(new Map<number,GesturePoint>());
  const touchGesture=useRef<{ids:[number,number];start:PinchStart;last:PinchView}|null>(null);
  const suppressTouchDrawing=useRef(false);
- const [mobileLayout,setMobileLayout]=useState(false),[inspectorOpen,setInspectorOpen]=useState(false);
+ const [mobileLayout,setMobileLayout]=useState(false),[touchCapable,setTouchCapable]=useState(false),[inspectorOpen,setInspectorOpen]=useState(false);
  const inspectorRef=useRef<HTMLElement>(null),drawerToggleRef=useRef<HTMLButtonElement>(null),drawerCloseRef=useRef<HTMLButtonElement>(null);
  const [frame,setFrame]=useState(0),[playing,setPlaying]=useState(false),[onion,setOnion]=useState(false),[effectKind,setEffectKind]=useState<EffectKind>('embers'),[effectSeed,setEffectSeed]=useState(53),[snap,setSnap]=useState<Snapshot|null>(null),[list,setList]=useState<PixelDocument[]>([]),[tool,setTool]=useState<Tool>('pencil'),[ink,setInk]=useState('#f6da92'),[layer,setLayer]=useState('base'),[zoom,setZoom]=useState(10),[grid,setGrid]=useState(true),[filled,setFilled]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState('Opening workspace…'),[error,setError]=useState(''),[cursor,setCursor]=useState('X —   Y —'),[hover,setHover]=useState<{x:number;y:number}|null>(null),[modal,setModal]=useState(false),[name,setName]=useState('Untitled sprite'),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[scale,setScale]=useState(1),[selection,setSelection]=useState<PixelRegion|null>(null),[clipboard,setClipboard]=useState<{width:number;height:number;pixels:number[]}|null>(null),[previewScale,setPreviewScale]=useState(1),[fitMode,setFitMode]=useState(true),[saveState,setSaveState]=useState<Pick<QueueState,'pending'|'saving'|'error'>>({pending:0,saving:false,error:null});
  const queue=useRef<EditQueue|null>(null),viewport=useRef<HTMLDivElement>(null),selectionDrag=useRef<{base:Snapshot;start:{x:number;y:number};source:PixelRegion|null;region:PixelRegion;layer:string;frame:number}|null>(null),canvas=useRef<HTMLCanvasElement>(null),preview=useRef<HTMLCanvasElement>(null),file=useRef<HTMLInputElement>(null),current=useRef(snap),locked=useRef(false),stroke=useRef<{base:Snapshot;start:{x:number;y:number};last:{x:number;y:number};ops:PaintCommand[];frame:number}|null>(null);
@@ -86,9 +86,17 @@ export default function Editor(){
    const timer=setInterval(()=>setFrame(i=>(i+1)%frameCount(current.current?.doc||snap.doc)),1000/(snap.doc.animation?.fps??8));
    return()=>clearInterval(timer);
  },[playing,snap?.doc.id,snap?.doc.animation?.fps,snap?.doc.animation?.frames.length]);
+ const touchNavigationActive=mobileLayout||touchCapable;
  useEffect(()=>{
   resetPan();
- },[mobileLayout,resetPan]);
+  if(viewport.current){viewport.current.scrollLeft=0;viewport.current.scrollTop=0;}
+ },[mobileLayout,touchCapable,resetPan]);
+ useEffect(()=>{
+  const media=window.matchMedia('(pointer: coarse)');
+  const update=()=>setTouchCapable(media.matches);
+  update();media.addEventListener('change',update);
+  return()=>media.removeEventListener('change',update);
+ },[]);
  useEffect(()=>{
   const media=window.matchMedia('(max-width: 800px)');
   const update=()=>{setMobileLayout(media.matches);if(!media.matches)setInspectorOpen(false);};
@@ -169,7 +177,7 @@ export default function Editor(){
   present(queue.current?.state.snapshot ?? st?.base ?? drag!.base);
  };
  const touchDown=(e:PE<HTMLDivElement>)=>{
-  if(e.pointerType!=='touch'||!mobileLayout)return;
+  if(e.pointerType!=='touch'||!touchNavigationActive)return;
   touchPoints.current.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if(touchGesture.current||suppressTouchDrawing.current||touchPoints.current.size!==2)return;
   const doc=current.current?.doc,el=e.currentTarget;
@@ -191,7 +199,7 @@ export default function Editor(){
   e.preventDefault();
  };
  const touchMove=(e:PE<HTMLDivElement>)=>{
-  if(e.pointerType!=='touch'||!mobileLayout||!touchPoints.current.has(e.pointerId))return;
+  if(e.pointerType!=='touch'||!touchNavigationActive||!touchPoints.current.has(e.pointerId))return;
   touchPoints.current.set(e.pointerId,{x:e.clientX,y:e.clientY});
   const gesture=touchGesture.current,doc=current.current?.doc;
   if(!gesture||!doc)return;
@@ -203,7 +211,7 @@ export default function Editor(){
   e.preventDefault();
  };
  const touchEnd=(e:PE<HTMLDivElement>)=>{
-  if(e.pointerType!=='touch'||!mobileLayout||!touchPoints.current.has(e.pointerId))return;
+  if(e.pointerType!=='touch'||!touchNavigationActive||!touchPoints.current.has(e.pointerId))return;
   const gesture=touchGesture.current,doc=current.current?.doc;
   if(gesture&&gesture.ids.includes(e.pointerId)&&doc){
    const finished=finishPinch(gesture.start,gesture.last,gestureViewport(e.currentTarget),{width:doc.width,height:doc.height});
@@ -296,7 +304,7 @@ export default function Editor(){
  <section className="canvas-area" aria-label="Canvas workspace"><div className="canvas-toolbar"><span className="eyebrow">{tools.find(t=>t[0]===tool)?.[2].toUpperCase()} <span className="muted">/ 1 PX</span></span>{['rect','ellipse'].includes(tool)&&<label className="fill-option"><input type="checkbox" checked={filled} onChange={e=>setFilled(e.target.checked)}/>Filled</label>}<span className="spacer"/><button type="button" ref={drawerToggleRef} className={'small-toggle mobile-inspector-toggle '+(inspectorOpen?'on':'')}
  aria-controls="pixel-inspector" aria-expanded={mobileLayout&&inspectorOpen} aria-haspopup="dialog"
  onClick={()=>setInspectorOpen(v=>!v)}><SlidersHorizontal size={17}/>Tools</button><span className="canvas-hint">ONE CELL = ONE PIXEL.</span></div><div className="canvas-scroll" ref={viewport} onPointerDownCapture={touchDown}
- onPointerMoveCapture={touchMove} onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd}><div className="canvas-mat">{d?<div className="canvas-frame" style={mobileLayout?{
+ onPointerMoveCapture={touchMove} onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd}><div className="canvas-mat">{d?<div className="canvas-frame" style={touchNavigationActive?{
  transform:`translate3d(${canvasPan.x}px,${canvasPan.y}px,0) scale(${pinchScale})`
 }:undefined}><span className="canvas-coordinate top-left">0, 0</span><canvas ref={canvas} className="pixel-canvas" aria-label={`${d.name}, ${d.width} by ${d.height} pixel canvas`} style={{width:d.width*zoom,height:d.height*zoom,backgroundSize:`${zoom*2}px ${zoom*2}px`}} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={()=>{if(selectionDrag.current){setSelection(selectionDrag.current.source);present(selectionDrag.current.base);selectionDrag.current=null;}if(stroke.current){present(stroke.current.base);stroke.current=null;}}} onPointerLeave={()=>{setHover(null);if(!stroke.current&&!selectionDrag.current)setCursor('X —   Y —');}}/>{hover&&zoom>=3&&tool!=='select'&&<div className="cell-cursor" aria-hidden="true" style={{left:hover.x*zoom,top:hover.y*zoom,width:zoom,height:zoom}}/>}{selection&&<div className="selection-marquee" style={{left:selection.x*zoom,top:selection.y*zoom,width:selection.width*zoom,height:selection.height*zoom}}/>}<span className="canvas-coordinate bottom-right">{d.width}, {d.height}</span></div>:<div className="loading-canvas"><Grid2X2 size={32}/><span>Opening your pixel workshop…</span>{error&&<button onClick={()=>location.reload()}>Try again</button>}</div>}</div></div>{d&&<div className="timeline" aria-label="Animation timeline">
   <div className="timeline-header"><span className="eyebrow"><Film size={13}/>ANIMATION <span className="muted">{frameCount(d)} FRAME{frameCount(d)===1?'':'S'}</span></span>
