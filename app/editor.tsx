@@ -94,6 +94,7 @@ export default function Editor(){
   resetPan();
   if(viewport.current){viewport.current.scrollLeft=0;viewport.current.scrollTop=0;}
  },[mobileLayout,touchCapable,resetPan]);
+ useEffect(()=>()=>{if(gestureFrame.current!==null)cancelAnimationFrame(gestureFrame.current);},[]);
  useEffect(()=>{
   const media=window.matchMedia('(pointer: coarse)');
   const update=()=>setTouchCapable(media.matches);
@@ -225,6 +226,7 @@ export default function Editor(){
  };
  const touchEnd=(e:PE<HTMLDivElement>)=>{
   if(e.pointerType!=='touch'||!touchNavigationActive||!touchPoints.current.has(e.pointerId))return;
+  if(e.type==='pointerup')touchPoints.current.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if(gestureFrame.current!==null){
    cancelAnimationFrame(gestureFrame.current);gestureFrame.current=null;
   }
