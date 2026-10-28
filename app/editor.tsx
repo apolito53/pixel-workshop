@@ -5,6 +5,7 @@ import {applyCommands,composite,frameCount,frameView,readRegion,type PixelDocume
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
 import {generateEffectCommands,hasFreeEffectLayerSlot,type EffectKind,EFFECT_KINDS} from '../lib/effects.ts';
 import {EditQueue,type EditorSnapshot,type QueueState} from '../lib/edit-queue.ts';
+import {beginPinch,movePinch,finishPinch,touchMidpoint,type GesturePoint,type PinchStart,type PinchView,type GestureViewport} from '../lib/touch-gestures.ts';
 import {INSPECTOR_TABS,inspectorTabForKey,type InspectorTab} from '../lib/inspector-tabs.ts';
 type Snapshot=EditorSnapshot;
 type Tool='select'|'pencil'|'eraser'|'fill'|'picker'|'line'|'rect'|'ellipse';
@@ -38,10 +39,20 @@ function FrameThumbnail({doc,index}:{doc:PixelDocument;index:number}){
 }
 export default function Editor(){
  const [inspectorTab,setInspectorTab]=useState<InspectorTab>('draw');
+ const [canvasPan,setCanvasPan]=useState<GesturePoint>({x:0,y:0});
+ const [pinchScale,setPinchScale]=useState(1);
+ const panRef=useRef<GesturePoint>({x:0,y:0});
+ const touchPoints=useRef(new Map<number,GesturePoint>());
+ const touchGesture=useRef<{ids:[number,number];start:PinchStart;last:PinchView}|null>(null);
+ const suppressTouchDrawing=useRef(false);
  const [mobileLayout,setMobileLayout]=useState(false),[inspectorOpen,setInspectorOpen]=useState(false);
  const inspectorRef=useRef<HTMLElement>(null),drawerToggleRef=useRef<HTMLButtonElement>(null),drawerCloseRef=useRef<HTMLButtonElement>(null);
  const [frame,setFrame]=useState(0),[playing,setPlaying]=useState(false),[onion,setOnion]=useState(false),[effectKind,setEffectKind]=useState<EffectKind>('embers'),[effectSeed,setEffectSeed]=useState(53),[snap,setSnap]=useState<Snapshot|null>(null),[list,setList]=useState<PixelDocument[]>([]),[tool,setTool]=useState<Tool>('pencil'),[ink,setInk]=useState('#f6da92'),[layer,setLayer]=useState('base'),[zoom,setZoom]=useState(10),[grid,setGrid]=useState(true),[filled,setFilled]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState('Opening workspace…'),[error,setError]=useState(''),[cursor,setCursor]=useState('X —   Y —'),[hover,setHover]=useState<{x:number;y:number}|null>(null),[modal,setModal]=useState(false),[name,setName]=useState('Untitled sprite'),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[scale,setScale]=useState(1),[selection,setSelection]=useState<PixelRegion|null>(null),[clipboard,setClipboard]=useState<{width:number;height:number;pixels:number[]}|null>(null),[previewScale,setPreviewScale]=useState(1),[fitMode,setFitMode]=useState(true),[saveState,setSaveState]=useState<Pick<QueueState,'pending'|'saving'|'error'>>({pending:0,saving:false,error:null});
  const queue=useRef<EditQueue|null>(null),viewport=useRef<HTMLDivElement>(null),selectionDrag=useRef<{base:Snapshot;start:{x:number;y:number};source:PixelRegion|null;region:PixelRegion;layer:string;frame:number}|null>(null),canvas=useRef<HTMLCanvasElement>(null),preview=useRef<HTMLCanvasElement>(null),file=useRef<HTMLInputElement>(null),current=useRef(snap),locked=useRef(false),stroke=useRef<{base:Snapshot;start:{x:number;y:number};last:{x:number;y:number};ops:PaintCommand[];frame:number}|null>(null);
+ const resetPan=useCallback(()=>{
+  panRef.current={x:0,y:0};setCanvasPan({x:0,y:0});setPinchScale(1);
+  touchPoints.current.clear();touchGesture.current=null;suppressTouchDrawing.current=false;
+ },[]);
  const present=useCallback((s:Snapshot)=>{current.current=s;setSnap(s);setLayer(l=>s.doc.layers.some(x=>x.id===l)?l:s.doc.layers[0].id);},[]);
  const showQueue=useCallback((state:QueueState)=>{
   let visible=state.snapshot;
@@ -53,10 +64,10 @@ export default function Editor(){
   const d=state.snapshot.doc;setList(items=>items.map(p=>p.id===d.id?{...p,name:d.name,revision:d.revision,updatedAt:d.updatedAt}:p));
  },[present]);
  const adopt=useCallback((s:Snapshot)=>{
-  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);setFitMode(true);}
+  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);resetPan();setFitMode(true);}
   queue.current?.dispose();queue.current=new EditQueue(s,request=>api<Snapshot>('projects/'+s.doc.id,request),showQueue);
   setSaveState({pending:0,saving:false,error:null});present(s);
- },[present,showQueue]);
+ },[present,showQueue,resetPan]);
  const refresh=useCallback(async()=>setList(await api<PixelDocument[]>('projects')),[]);
  useEffect(()=>{let alive=true;(async()=>{try{const entries=await api<PixelDocument[]>('projects');if(!alive)return;setList(entries);const s=entries.length?await api<Snapshot>('projects/'+entries[0].id):await api<Snapshot>('projects',{demo:true});if(alive){adopt(s);setNotice('All changes saved');await refresh();}}catch(e){if(alive)setError((e as Error).message);}})();return()=>{alive=false;queue.current?.dispose();};},[adopt,refresh]);
  useEffect(()=>{
@@ -75,6 +86,9 @@ export default function Editor(){
    const timer=setInterval(()=>setFrame(i=>(i+1)%frameCount(current.current?.doc||snap.doc)),1000/(snap.doc.animation?.fps??8));
    return()=>clearInterval(timer);
  },[playing,snap?.doc.id,snap?.doc.animation?.fps,snap?.doc.animation?.frames.length]);
+ useEffect(()=>{
+  resetPan();
+ },[mobileLayout,resetPan]);
  useEffect(()=>{
   const media=window.matchMedia('(max-width: 800px)');
   const update=()=>{setMobileLayout(media.matches);if(!media.matches)setInspectorOpen(false);};
@@ -142,6 +156,63 @@ export default function Editor(){
   if(locked.current||stroke.current||selectionDrag.current)return;locked.current=true;setBusy(true);
   try{await queue.current?.flush();adopt(await api<Snapshot>('projects/'+id));setError('');setNotice('All changes saved');}
   catch(e){setError((e as Error).message);}finally{locked.current=false;setBusy(false);}
+ };
+ const gestureViewport=(element:HTMLDivElement):GestureViewport=>{
+  const rect=element.getBoundingClientRect();
+  return {width:rect.width,height:rect.height,center:{x:rect.left+rect.width/2,y:rect.top+rect.height/2}};
+ };
+ const cancelActiveStroke=()=>{
+  const st=stroke.current,drag=selectionDrag.current;
+  if(!st&&!drag)return;
+  stroke.current=null;selectionDrag.current=null;
+  if(drag)setSelection(drag.source);
+  present(queue.current?.state.snapshot ?? st?.base ?? drag!.base);
+ };
+ const touchDown=(e:PE<HTMLDivElement>)=>{
+  if(e.pointerType!=='touch'||!mobileLayout)return;
+  touchPoints.current.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(touchGesture.current||suppressTouchDrawing.current||touchPoints.current.size!==2)return;
+  const doc=current.current?.doc,el=e.currentTarget;
+  if(!doc)return;
+  const [first,second]=Array.from(touchPoints.current.entries());
+  const viewport=gestureViewport(el);
+  const start=beginPinch(first[1],second[1],viewport,{width:doc.width,height:doc.height},zoom,panRef.current);
+  cancelActiveStroke();
+  setHover(null);setCursor('X —   Y —');setSelection(null);setFitMode(false);
+  suppressTouchDrawing.current=true;
+  touchGesture.current={ids:[first[0],second[0]],start,last:{
+   scale:1,midpoint:touchMidpoint(first[1],second[1]),pan:panRef.current
+  }};
+  // The first finger may have been captured by the drawing canvas.
+  // Retarget both pointers to the scroll viewport for the rest of this gesture.
+  for(const id of [first[0],second[0]]){
+    try{el.setPointerCapture(id);}catch{/* A cancelled pointer will be cleaned up on release. */}
+  }
+  e.preventDefault();
+ };
+ const touchMove=(e:PE<HTMLDivElement>)=>{
+  if(e.pointerType!=='touch'||!mobileLayout||!touchPoints.current.has(e.pointerId))return;
+  touchPoints.current.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  const gesture=touchGesture.current,doc=current.current?.doc;
+  if(!gesture||!doc)return;
+  const a=touchPoints.current.get(gesture.ids[0]),b=touchPoints.current.get(gesture.ids[1]);
+  if(!a||!b)return;
+  const result=movePinch(gesture.start,a,b,gestureViewport(e.currentTarget),{width:doc.width,height:doc.height});
+  gesture.last=result;panRef.current=result.pan;
+  setCanvasPan(result.pan);setPinchScale(result.scale);
+  e.preventDefault();
+ };
+ const touchEnd=(e:PE<HTMLDivElement>)=>{
+  if(e.pointerType!=='touch'||!mobileLayout||!touchPoints.current.has(e.pointerId))return;
+  const gesture=touchGesture.current,doc=current.current?.doc;
+  if(gesture&&gesture.ids.includes(e.pointerId)&&doc){
+   const finished=finishPinch(gesture.start,gesture.last,gestureViewport(e.currentTarget),{width:doc.width,height:doc.height});
+   panRef.current=finished.pan;setCanvasPan(finished.pan);
+   setZoom(finished.zoom);setPinchScale(1);touchGesture.current=null;setFitMode(false);
+   e.preventDefault();
+  }
+  touchPoints.current.delete(e.pointerId);
+  if(touchPoints.current.size===0)suppressTouchDrawing.current=false;
  };
  const point=(e:PE<HTMLCanvasElement>)=>{const d=current.current!.doc,b=e.currentTarget.getBoundingClientRect();return {x:Math.max(0,Math.min(d.width-1,Math.floor((e.clientX-b.left)/b.width*d.width))),y:Math.max(0,Math.min(d.height-1,Math.floor((e.clientY-b.top)/b.height*d.height)))};};
  const copySelection=()=>{const doc=current.current?.doc;if(!doc||!selection)return;setClipboard({width:selection.width,height:selection.height,pixels:readRegion(doc,layer,selection,Math.min(frame,frameCount(doc)-1))});setNotice(`Copied ${selection.width} × ${selection.height} pixels`);};
