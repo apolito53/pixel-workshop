@@ -1,5 +1,5 @@
-import { projectService } from '../../lib/cloud-store.ts';
-import { mcpResponse } from '../../lib/mcp-tools.ts';
+import {workspaceProviders} from '../../lib/cloud-store.ts';
+import {privateMcpApi} from '../../lib/workspace-http.ts';
 export const dynamic='force-dynamic';
-export function POST(request:Request){return mcpResponse(request,projectService);}
-export function GET(){return new Response('Pixel Workshop MCP: send JSON-RPC to this endpoint.',{status:405});}
+export function POST(request:Request){return privateMcpApi(request,workspaceProviders);}
+export function GET(){return new Response('Pixel Workshop MCP: send an authenticated JSON-RPC request to this endpoint.',{status:405});}
