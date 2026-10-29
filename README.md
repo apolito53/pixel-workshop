@@ -1,6 +1,6 @@
 # Pixel Workshop
 
-[Open the live editor](https://nova-pixel-workshop.antholito.chatgpt.site)
+[Open the live editor](https://pixel-workshop-nine.vercel.app)
 
 ![Original lantern drawn through MCP](artifacts/lantern-preview.png)
 
