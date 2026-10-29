@@ -188,3 +188,9 @@
  .workspace-field input{font-size:16px}
  .workspace-actions{grid-template-columns:1fr}
 }
+
+.workspace-field textarea{width:100%;min-width:0;resize:vertical;max-height:200px;padding:10px;
+ background:#191a1e;border:1px solid #4c4d54;color:#ddc4a6;border-radius:5px;
+ font:11px/1.6 ui-monospace,monospace}
+@media(max-width:480px){.app-header{gap:6px;padding-inline:8px}.brand{font-size:17px;gap:7px}
+ .workspace-header-button{min-width:32px;width:32px;padding:6px}.app-header>.primary{padding:8px 9px}}
