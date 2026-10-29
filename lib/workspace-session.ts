@@ -13,7 +13,7 @@ const textEncoder = new TextEncoder();
 const base64url = (bytes: Uint8Array) =>
   btoa(Array.from(bytes, x => String.fromCharCode(x)).join(''))
     .replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
-const decode = (value: string): Uint8Array => {
+const decode = (value: string): Uint8Array<ArrayBuffer> => {
   if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new Error('Invalid encoding.');
   const encoded = value.replace(/-/g,'+').replace(/_/g,'/');
   const raw = atob(encoded + '='.repeat((4-encoded.length%4)%4));
