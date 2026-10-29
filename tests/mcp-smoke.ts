@@ -20,7 +20,7 @@ const client=new Client({name:'pixel-workshop-verification',version:'1.0.0'});
 const transport=remote?new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)):new StdioClientTransport({command:process.execPath,args:['--experimental-strip-types','server/stdio.ts'],env:{...process.env,PIXEL_DATA_DIR:'./artifacts/mcp-projects'} as Record<string,string>});
 try {
 await client.connect(transport);
-const listed=await client.listTools();assert.equal(listed.tools.length,7);
+const listed=await client.listTools();assert.equal(listed.tools.length,9);
 const created=await client.callTool({name:'create_canvas',arguments:{name:cottage?'Moonkeeper’s cottage':remote?'MCP-painted lantern':'Stdio-painted lantern',width:size,height:size}}) as any;
 assert.ok(!created.isError,created.content[0].text);const doc=JSON.parse(created.content[0].text);
 const painted=await client.callTool({name:'paint',arguments:{id:doc.id,revision:0,commands}}) as any;assert.ok(!painted.isError,painted.content[0].text);
