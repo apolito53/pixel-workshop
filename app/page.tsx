@@ -1,2 +1,2 @@
-import Editor from './editor';
-export default function Home(){return <Editor/>;}
+import WorkspaceGate from './workspace-gate.tsx';
+export default function Home(){return <WorkspaceGate/>;}
