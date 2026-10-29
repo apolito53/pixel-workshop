@@ -142,3 +142,55 @@
  .canvas-frame{transform-origin:center center;will-change:transform}
  .pixel-canvas{touch-action:none}
 }
+
+/* Private workspace entry and manage dialog. No account or email dependency. */
+.workspace-header-button{display:inline-flex;flex-shrink:0;gap:8px;align-items:center;
+ color:#e3c19a;padding:8px 11px;border:1px solid #5d503f;border-radius:5px}
+.workspace-entry{display:flex;align-items:center;justify-content:center;min-height:100dvh;
+ padding:28px 16px;background:radial-gradient(ellipse at 50% 15%,#3a2f38 0%,#1b1b1f 65%)}
+.workspace-card{position:relative;width:min(440px,100%);padding:30px;border:1px solid #505057;border-radius:12px;
+ background:#252629;box-shadow:0 24px 80px #0007}
+.workspace-symbol{width:52px;height:52px;display:flex;align-items:center;justify-content:center;
+ margin-bottom:21px;color:var(--accent);border:1px solid #755f49;border-radius:9px;background:#e7ad7212}
+.workspace-card h1{font-weight:550;font-size:26px;letter-spacing:-.8px;margin:12px 0 11px}
+.workspace-card>p,.workspace-card .workspace-note{font-size:12px;line-height:1.65;color:#aaa9b0}
+.workspace-mode{display:grid;grid-template-columns:1fr 1fr;margin:25px 0 22px;padding:4px;gap:4px;
+ background:#1b1c1f;border:1px solid #414248;border-radius:7px}
+.workspace-mode button{padding:11px 8px;border-radius:4px;font-size:12px;color:#aaa9b0}
+.workspace-mode button.active{color:#efc69b;background:#4b3c31;box-shadow:inset 0 0 0 1px #80614b}
+.workspace-form{display:flex;flex-direction:column;gap:15px}
+.workspace-field{display:flex;flex-direction:column;gap:7px;color:#d0cdd0;font-size:11px;font-weight:600}
+.workspace-field input{width:100%;min-width:0;padding:11px 12px;background:#1b1c20;color:#f3eee9;
+ font:13px ui-monospace,monospace;border:1px solid #4c4d54;border-radius:5px}
+.workspace-field input:read-only{color:#d6b996}
+.workspace-form .workspace-note{margin:0 0 4px}
+.workspace-card .primary{min-height:42px}
+.workspace-card .workspace-error{color:#ffb4ad;font-size:12px;margin:5px 0;line-height:1.5}
+.workspace-card .workspace-message{color:#b8d3a7;font-size:12px;margin:12px 0}
+.workspace-backdrop{position:fixed;inset:0;z-index:30;padding:22px;display:flex;
+ justify-content:center;align-items:center;background:#07070acc;backdrop-filter:blur(6px)}
+.workspace-manage{max-height:90dvh;overflow-y:auto}
+.workspace-manage>p{margin-bottom:23px}
+.workspace-manage .workspace-note{margin:13px 0}
+.workspace-manage .workspace-field{margin-top:20px}
+.workspace-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:13px}
+.workspace-actions .secondary{display:flex;justify-content:center;min-height:42px}
+.workspace-switch{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;margin-top:20px;
+ padding:12px;border-radius:5px;border:1px solid #675052;color:#e0afad;font-size:12px}
+.workspace-switch:hover:not(:disabled){background:#7e4a4a24}
+.workspace-close{position:absolute;top:15px;right:15px;width:32px;height:32px;display:grid;
+ place-items:center;border-radius:5px;color:#babac1}
+@media(max-width:720px){
+ .workspace-header-button{padding:8px;width:36px;height:35px;justify-content:center}
+ .workspace-header-button span{display:none}
+ .workspace-card{padding:23px}
+ .workspace-card h1{font-size:23px}
+ .workspace-field input{font-size:16px}
+ .workspace-actions{grid-template-columns:1fr}
+}
+
+.workspace-field textarea{width:100%;min-width:0;resize:vertical;max-height:200px;padding:10px;
+ background:#191a1e;border:1px solid #4c4d54;color:#ddc4a6;border-radius:5px;
+ font:11px/1.6 ui-monospace,monospace}
+@media(max-width:480px){.app-header{gap:6px;padding-inline:8px}.brand{font-size:17px;gap:7px}
+ .workspace-header-button{min-width:32px;width:32px;padding:6px}.app-header>.primary{padding:8px 9px}}

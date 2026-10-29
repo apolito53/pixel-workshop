@@ -1,6 +1,6 @@
 # Pixel Workshop
 
-[Open the live editor](https://nova-pixel-workshop.antholito.chatgpt.site)
+[Open the live editor](https://pixel-workshop-nine.vercel.app)
 
 ![Original lantern drawn through MCP](artifacts/lantern-preview.png)
 
@@ -15,13 +15,13 @@ pnpm build:node
 pnpm server
 ```
 
-Open http://127.0.0.1:4317. The Node service serves the React/Vite build, project API and `/mcp`. Editable projects and their undo history are saved atomically under `pixel-data/`; change that location with `PIXEL_DATA_DIR`. The server binds to loopback. Remote hosting requires an authenticated reverse proxy; the hosted Site adapter provides that separately.
+Open http://127.0.0.1:4317. The Node service serves the React/Vite build, project API and `/mcp`. Web workspace projects and their undo history are stored atomically under `pixel-data/workspaces/<session-id>/projects/`, with private session metadata alongside them. Set `PIXEL_DATA_DIR` to choose the root. The stand-alone stdio MCP process retains its separately configured local workspace. The Node service binds to loopback; remote hosting still needs an authenticated reverse proxy.
 
 ## MCP
 
 For a client that launches a local server, run `node --experimental-strip-types server/stdio.ts` with this repository as its working directory. `PIXEL_DATA_DIR` should point to the same directory used by the browser service. Both processes use revision checks, a file lock, and atomic writes.
 
-Available tools: `create_canvas`, `list_canvases`, `get_canvas`, `paint`, `undo`, `redo`, `export_png`, `export_sprite_sheet`, `generate_effect`. Drawing commands accept a zero-based `frame` index; animation controls are `frame_add`, `frame_delete`, and `set_fps`. The published Site also exposes these tools through its canonical private plugin.
+Available tools: `create_canvas`, `list_canvases`, `get_canvas`, `paint`, `undo`, `redo`, `export_png`, `export_sprite_sheet`, `generate_effect`. Drawing commands accept a zero-based `frame` index; animation controls are `frame_add`, `frame_delete`, and `set_fps`. The public HTTP `/mcp` endpoint requires an `Authorization: Bearer <workspace-token>` header. Inside the editor, open **Workspace → Copy MCP connection** to get a ready-to-use endpoint/header configuration. This is a secret providing access to that one workspace; keep it private. The stand-alone local stdio process deliberately uses its separate local filesystem and does not need a remote bearer token.
 
 Example drawing batch (use the ID and revision returned by `create_canvas`):
 
@@ -39,6 +39,12 @@ Example drawing batch (use the ID and revision returned by `create_canvas`):
 ```
 
 Coordinates are integer, zero-based and bounded by the canvas. Operations include pixels, lines, rectangles, ellipses, flood fill, clear, palette changes, and layer administration. A drawing batch either completes fully or leaves the document unchanged. MCP paint/get returns an enlarged nearest-neighbor PNG preview. `export_png` defaults to the exact native dimensions with an RGBA transparent background.
+
+## Private workspaces
+
+Every browser visitor begins by **creating a workspace** (no account or email required) or **opening an existing one**. New workspaces receive a cryptographically random `pw_...` session ID. A password is optional; a passwordless ID acts as an unguessable invite key, so treat it like a secret. Optional passwords are salted and hashed with PBKDF2-SHA256. The server issues an HTTP-only, signed cookie valid for up to 90 days to remember the current workspace on that browser. Reopen a workspace on another device using its ID and optional password.
+
+All browser API calls and remote MCP tool calls are authorized on the server. The backing storage namespace is always `workspaces/<session-id>/projects/`; the server never trusts a project ID or client-side filter for ownership, and unauthorized requests do not fall through to shared storage. Password-protected sessions require a valid signed cookie or bearer token after successful authentication. **Workspace → Switch workspace** clears the current cookie without deleting saved artwork. Lost IDs/passwords cannot be automatically recovered.
 
 ## Browser workspace
 
@@ -72,7 +78,7 @@ Import this repository with the Next.js preset. `vercel.json` selects `pnpm run 
 
 Connect a **private Vercel Blob** store to the project in Storage, enabling the `BLOB_READ_WRITE_TOKEN` environment variable for production, preview and development. Redeploy after connecting it. Artwork, layers and undo history persist in Blob, with conditional writes preventing conflicting edits. There is no temporary-filesystem fallback. A missing store produces a setup message in the editor.
 
-This is an owner workspace: keep Vercel Deployment Protection enabled for every domain. The API and `/mcp` share its project namespace and rely on the hosting access boundary. Add application authentication and per-user storage before opening it as a public multi-user service. Sites and Vercel use separate stores; transfer artwork with editable `.pixel.json` files.
+The application uses isolated session-specific project prefixes and signed access credentials, and no longer depends on a single shared project namespace. Vercel Deployment Protection is still useful for private/staging deployments but is not the only security boundary. Sites and Vercel use separate stores; share editable `.pixel.json` projects manually between them.
 
 For local native Next.js development, use `pnpm dev:vercel` with the Blob variable configured in your local environment. Native Next.js writes to `.next-native`; Sites/Vinext uses its own build output and `.next` metadata.
 
@@ -84,7 +90,20 @@ MCP uses `{op:"transform",mode:"move"|"copy"|"flip_horizontal"|"flip_vertical",l
 
 ## Hosting adapter
 
-`app/` wraps the same React editor with the supplied Vite/Vinext Sites runtime. `lib/cloud-store.ts` stores projects in a private R2 bucket using conditional writes. `/mcp` supports Sites discovery plus stateless MCP HTTP JSON-RPC. Sites authenticates and restricts access before forwarding requests. Preserve the Site's owner-private access policy; this prototype uses a single shared project namespace for its owner.
+`app/` wraps the same editor with Vite/Vinext Sites runtime. `lib/cloud-store.ts` stores projects in private R2 using conditional writes; native Vercel uses private Blob. Both stores require workspace credentials on **all** public project API and remote MCP requests. The legacy `projects/` namespace is preserved but no longer exposed by public routes.
+
+## Recovering pre-session artwork
+
+**No legacy project is deleted or automatically assigned to the first visitor.** Existing artwork remains in the old `projects/` Blob/R2 prefix, which the new browser/API cannot access. This avoids gifting everybody's former shared assets to whichever browser opens the site first.
+
+For Vercel Blob, an authorized owner can selectively migrate projects from a trusted local machine with `BLOB_READ_WRITE_TOKEN` already set in the local environment. First create your target workspace in the editor and copy its session ID. Then:
+
+```sh
+node --experimental-strip-types scripts/migrate-legacy.ts --list
+node --experimental-strip-types scripts/migrate-legacy.ts --workspace pw_YOUR_SESSION_ID --ids project-id-1,project-id-2
+```
+
+The script copies **only the explicitly named project IDs**, retains their undo history, and leaves the originals untouched. Do not run it from an untrusted machine or publish your storage token. The R2/local-file equivalent can be recovered by an administrator from preserved objects or by importing downloaded `.pixel.json` files.
 
 ## Verification
 

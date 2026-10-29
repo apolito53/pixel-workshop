@@ -1,6 +1,6 @@
 'use client';
 import {useCallback,useEffect,useRef,useState,type PointerEvent as PE} from 'react';
-import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal} from 'lucide-react';
+import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound} from 'lucide-react';
 import {applyCommands,composite,frameCount,frameView,readRegion,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
 import {generateEffectCommands,hasFreeEffectLayerSlot,type EffectKind,EFFECT_KINDS} from '../lib/effects.ts';
@@ -37,7 +37,7 @@ function FrameThumbnail({doc,index}:{doc:PixelDocument;index:number}){
  },[doc,index]);
  return <canvas ref={ref} className="frame-thumbnail" aria-hidden="true"/>;
 }
-export default function Editor(){
+export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}={}){
  const [inspectorTab,setInspectorTab]=useState<InspectorTab>('draw');
  const [canvasPan,setCanvasPan]=useState<GesturePoint>({x:0,y:0});
  const [pinchScale,setPinchScale]=useState(1);
@@ -301,12 +301,19 @@ export default function Editor(){
   }catch(e){setError((e as Error).message);}
  };
  const closeMobileInspector=()=>{setInspectorOpen(false);drawerToggleRef.current?.focus();};
+ const manageWorkspace=async()=>{
+  try{
+   await queue.current?.flush();
+   if(stroke.current||selectionDrag.current)throw new Error('Finish your current stroke before switching workspaces.');
+   onManageWorkspace?.();
+  }catch(error){setError(error instanceof Error?error.message:'Unable to save before switching.');}
+ };
  const activateInspectorTab=(tab:InspectorTab)=>{
   setInspectorTab(tab);
   if(inspectorRef.current)inspectorRef.current.scrollTop=0;
  };
  const d=snap?.doc,activeFrame=d?Math.min(frame,frameCount(d)-1):0,displayError=error||saveState.error?.message;
- return <main className="workshop"><header className="app-header"><a className="brand" href="/"><span className="brand-mark">{Array.from({length:9},(_,i)=><i key={i}/>)}</span><span>pixel<span className="brand-light">workshop</span><small>A LITTLE ROOM TO MAKE THINGS</small></span></a><div className="header-meta"><span className="version">WORKSPACE / 01</span><span className="connection"><i/> MCP enabled</span></div><button className="primary" disabled={!d||busy} onClick={()=>void png()}><Download size={15}/>Export PNG</button></header>
+ return <main className="workshop"><header className="app-header"><a className="brand" href="/"><span className="brand-mark">{Array.from({length:9},(_,i)=><i key={i}/>)}</span><span>pixel<span className="brand-light">workshop</span><small>A LITTLE ROOM TO MAKE THINGS</small></span></a>{onManageWorkspace&&<button type="button" className="text-button workspace-header-button" aria-label="Manage workspace" title="Workspace and agent connection" onClick={()=>void manageWorkspace()}><KeyRound size={16}/><span>Workspace</span></button>}<div className="header-meta"><span className="version">WORKSPACE / 01</span><span className="connection"><i/> MCP enabled</span></div><button className="primary" disabled={!d||busy} onClick={()=>void png()}><Download size={15}/>Export PNG</button></header>
  <div className="document-bar"><div className="document-switch"><FolderOpen size={15}/><select aria-label="Open saved project" value={d?.id||''} disabled={busy} onChange={e=>void open(e.target.value)}>{!d&&<option>Opening workspace…</option>}{list.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><ChevronDown size={13}/></div><span className="document-size">{d?`${d.width} × ${d.height} px`:'—'}</span><span className="separator"/><button className="text-button" disabled={busy} onClick={()=>setModal(true)}><FilePlus size={15}/>New canvas</button><button className="text-button open-file" disabled={busy} onClick={()=>file.current?.click()}><FolderOpen size={15}/>Open project</button></div>
  <div className="work-area" data-tools-open={mobileLayout&&inspectorOpen}><aside className="tool-rail" aria-label="Drawing tools">
   <div className="rail-paint-tools">
