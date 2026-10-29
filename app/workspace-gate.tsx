@@ -25,7 +25,7 @@ export default function WorkspaceGate(){
   const [loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
   const [mode,setMode]=useState<'create'|'join'>('create');
   const [password,setPassword]=useState(''),[id,setId]=useState('');
-  const [error,setError]=useState(''),[message,setMessage]=useState('');
+  const [error,setError]=useState(''),[message,setMessage]=useState(''),[manualAgent,setManualAgent]=useState('');
   const [managing,setManaging]=useState(false);
 
   useEffect(()=>{let active=true;
@@ -49,7 +49,7 @@ export default function WorkspaceGate(){
     if(busy)return;
     setBusy(true);setError('');
     try{
-      await sessionApi({action:'leave'});setManaging(false);setSession(null);setMessage('');
+      await sessionApi({action:'leave'});setManaging(false);setSession(null);setMessage('');setManualAgent('');
     }catch(e){setError((e as Error).message);}finally{setBusy(false);}
   };
   const copyId=async()=>{
@@ -59,22 +59,29 @@ export default function WorkspaceGate(){
   };
   const copyAgent=async()=>{
     if(!session?.id||busy)return;
-    setBusy(true);setError('');
+    setBusy(true);setError('');setManualAgent('');
+    let connection='';
     try{
       const result=await sessionApi({action:'agent-token'});
       if(!result.token)throw new Error('Unable to issue an agent connection.');
       const configuration={url:window.location.origin+'/mcp',
         headers:{Authorization:'Bearer '+result.token}};
-      await copyText(JSON.stringify(configuration,null,2));
+      connection=JSON.stringify(configuration,null,2);
+      await copyText(connection);
       setMessage('Agent MCP configuration copied. Treat it like a password.');
-    }catch(e){setError((e as Error).message);}finally{setBusy(false);}
+    }catch(e){
+      if(connection){
+        setManualAgent(connection);
+        setError('Clipboard unavailable. Select and copy the connection shown below.');
+      }else setError((e as Error).message);
+    }finally{setBusy(false);}
   };
   if(loading)return <main className="workspace-entry"><div className="workspace-card">Opening Pixel Workshop…</div></main>;
   if(session?.authenticated && session.id)return <>
-    <Editor key={session.id} onManageWorkspace={()=>{setManaging(true);setMessage('');setError('');}}/>
-    {managing&&<div className="workspace-backdrop" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setManaging(false);}}>
+    <Editor key={session.id} onManageWorkspace={()=>{setManaging(true);setMessage('');setError('');setManualAgent('');}}/>
+    {managing&&<div className="workspace-backdrop" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget){setManaging(false);setManualAgent('');}}}>
       <section className="workspace-card workspace-manage" role="dialog" aria-modal="true" aria-labelledby="workspace-manage-heading">
-        <button type="button" className="workspace-close" aria-label="Close workspace settings" onClick={()=>setManaging(false)}><X size={19}/></button>
+        <button type="button" className="workspace-close" aria-label="Close workspace settings" onClick={()=>{setManaging(false);setManualAgent('');}}><X size={19}/></button>
         <span className="eyebrow">YOUR PIXEL WORKSHOP</span>
         <h1 id="workspace-manage-heading">Workspace</h1>
         <p>Your artwork is saved only in this workspace. Keep the ID handy for another device.</p>
@@ -88,6 +95,9 @@ export default function WorkspaceGate(){
         <p className="workspace-note">{session.hasPassword?
           'Password protection enabled. Reopening this workspace elsewhere requires both ID and password.':
           'No password: anyone with this unguessable ID can join. Keep it private.'}</p>
+        {manualAgent&&<label className="workspace-field">MCP connection (manual copy)
+          <textarea readOnly rows={5} value={manualAgent} onFocus={e=>e.currentTarget.select()}/>
+        </label>}
         {message&&<p className="workspace-message" role="status">{message}</p>}
         {error&&<p className="workspace-error" role="alert">{error}</p>}
         <button type="button" className="workspace-switch" disabled={busy} onClick={()=>void leave()}><LogOut size={16}/>Switch workspace</button>
