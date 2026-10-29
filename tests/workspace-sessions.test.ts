@@ -78,7 +78,7 @@ test('two browsers get independent persistent workspaces and cannot list, read, 
   const fakeCookie='pixel_workspace='+a.body.id;
   assert.equal((await f.project('GET','projects',fakeCookie)).status,401);
   assert.equal((await f.project('GET','projects')).status,401);
-  const oldLegacy=new ProjectService(fileStore(join(dir,'legacy')));
+  const oldLegacy=new ProjectService(fileStore(join(dir,'projects')));
   await oldLegacy.create('Old shared project',8,8);
   assert.deepEqual(await (await f.project('GET','projects',ac)).json(),listingA,'legacy projects must not appear');
  }finally{await rm(dir,{recursive:true,force:true});}
