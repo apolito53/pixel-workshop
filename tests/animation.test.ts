@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {PNG} from 'pngjs';
 import {applyCommands,createDocument,color,composite,frameCount,frameView,readRegion,validateDocument} from '../lib/pixels.ts';
-import {effectPixels,generateEffectCommands,hasFreeEffectLayerSlot} from '../lib/effects.ts';
+import {EFFECT_KINDS,EFFECT_PRESETS,EFFECT_GROUPS,effectPixels,generateEffectCommands,hasFreeEffectLayerSlot} from '../lib/effects.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
 import {encodeRgbaPng} from '../lib/png.ts';
 import {encodeBrowserRgba} from '../lib/browser-png.ts';
@@ -112,4 +112,47 @@ test('seeded procedural VFX produce editable transparent layers, preserving orig
   assert.ok(frameView(animated,1).layers[1].pixels.some(Boolean));
   assert.deepEqual(validateDocument(JSON.parse(JSON.stringify(animated))),animated);
   assert.equal(composite(frameView(animated,1)).length,32*32*4);
+});
+
+test('the complete effect catalog is grouped, documented and has valid suggested colors',()=>{
+  assert.equal(EFFECT_KINDS.length,12);
+  assert.deepEqual(Object.keys(EFFECT_PRESETS),[...EFFECT_KINDS]);
+  for (const kind of EFFECT_KINDS) {
+    const preset=EFFECT_PRESETS[kind];
+    assert.ok(EFFECT_GROUPS.includes(preset.group),kind);
+    assert.ok(preset.label.length>2&&preset.description.length>12,kind);
+    assert.equal(color(preset.suggestedInk)&255,255,kind);
+  }
+});
+
+test('every effect rasterizes repeatably within canvas bounds and animates',()=>{
+  for (const kind of EFFECT_KINDS) {
+    const recipe={kind,seed:53,ink:'#c09aff'};
+    for (const [width,height] of [[1,1],[8,16],[32,32],[48,24]]) {
+      const pixels=effectPixels(width,height,2,8,recipe);
+      assert.equal(pixels.length,width*height,kind);
+      assert.deepEqual(pixels,effectPixels(width,height,2,8,recipe),kind+' seed changed');
+      assert.ok(pixels.every(v=>Number.isInteger(v)&&v>=0&&v<=0xffffffff),kind+' invalid RGBA');
+    }
+    const image=effectPixels(32,32,2,8,recipe);
+    assert.ok(image.some(Boolean),kind+' has no visible frame 2 pixels');
+    assert.notDeepEqual(image,effectPixels(32,32,3,8,recipe),kind+' does not animate');
+    if(kind!=='shockwave') {
+      assert.notDeepEqual(image,effectPixels(32,32,2,8,{...recipe,seed:54}),kind+' ignores seed');
+    }
+  }
+});
+
+test('all generators become undoable pixel layers without altering existing art',()=>{
+  for (const kind of EFFECT_KINDS) {
+    const original=applyCommands(createDocument(kind,24,24),[{op:'pixel',x:1,y:1,color:'#aabbcc'}]);
+    const ops=generateEffectCommands(original,{kind,seed:53,ink:EFFECT_PRESETS[kind].suggestedInk});
+    const withFx=applyCommands(original,ops);
+    assert.equal(frameCount(withFx),8,kind);
+    assert.equal(withFx.layers.length,2,kind);
+    assert.equal(withFx.layers[1].name,EFFECT_PRESETS[kind].label+' FX',kind);
+    assert.equal(withFx.layers[0].pixels[25],color('#aabbcc'),kind);
+    assert.ok(frameView(withFx,2).layers[1].pixels.some(Boolean),kind);
+    assert.deepEqual(validateDocument(JSON.parse(JSON.stringify(withFx))),withFx,kind);
+  }
 });

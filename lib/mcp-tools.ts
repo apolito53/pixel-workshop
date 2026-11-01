@@ -1,7 +1,7 @@
 import type { ProjectService } from './project-service.ts';
 import { frameCount, frameView, type PaintCommand } from './pixels.ts';
 import { buildSpriteSheet } from './sprite-sheet.ts';
-import { generateEffectCommands, type EffectKind } from './effects.ts';
+import { EFFECT_KINDS, generateEffectCommands, type EffectKind } from './effects.ts';
 import { encodePng, encodeRgbaPng } from './png.ts';
 
 const id={type:'string',description:'Project ID returned by create_canvas or list_canvases.'};
@@ -32,8 +32,8 @@ export const toolDefinitions=[
     inputSchema:schema({id,frame,scale:{type:'integer',minimum:1,maximum:16}},['id']),annotations:{readOnlyHint:true}},
   {name:'export_sprite_sheet',description:'Export a composited PNG sprite sheet and JSON atlas for all frames.',
     inputSchema:schema({id,columns:{type:'integer',minimum:1,maximum:32}},['id']),annotations:{readOnlyHint:true}},
-  {name:'generate_effect',description:'Generate an editable, seeded particle effect layer (embers, sparkles, shockwave) using the shared pixel engine.',
-    inputSchema:schema({id,revision:rev,kind:{type:'string',enum:['embers','sparkles','shockwave']},
+  {name:'generate_effect',description:'Generate a seeded, editable procedural VFX layer using the shared pixel engine. Kinds: '+EFFECT_KINDS.join(', ')+'.',
+    inputSchema:schema({id,revision:rev,kind:{type:'string',enum:[...EFFECT_KINDS]},
       seed:{type:'integer',minimum:0,maximum:2147483647},ink:{type:'string'}},['id','revision','kind','seed','ink'])}
 ];
 export async function callTool(service:ProjectService,name:string,args:Record<string,unknown>={}) {

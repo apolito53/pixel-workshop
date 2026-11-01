@@ -3,7 +3,7 @@ import {useCallback,useEffect,useRef,useState,type PointerEvent as PE} from 'rea
 import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound} from 'lucide-react';
 import {applyCommands,composite,frameCount,frameView,readRegion,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
-import {generateEffectCommands,hasFreeEffectLayerSlot,type EffectKind,EFFECT_KINDS} from '../lib/effects.ts';
+import {generateEffectCommands,hasFreeEffectLayerSlot,type EffectKind,EFFECT_KINDS,EFFECT_GROUPS,EFFECT_PRESETS} from '../lib/effects.ts';
 import {EditQueue,type EditorSnapshot,type QueueState} from '../lib/edit-queue.ts';
 import {beginPinch,movePinch,finishPinch,touchMidpoint,type GesturePoint,type PinchStart,type PinchView,type GestureViewport} from '../lib/touch-gestures.ts';
 import {INSPECTOR_TABS,inspectorTabForKey,type InspectorTab} from '../lib/inspector-tabs.ts';
@@ -387,7 +387,20 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  <div className="inspector-panel" id="inspector-panel-effects" role="tabpanel" aria-labelledby="inspector-tab-effects" tabIndex={0} hidden={inspectorTab!=='effects'}>
  <section className="inspector-section effects-section"><div className="section-heading"><span>PROCEDURAL EFFECTS</span><Sparkles size={14}/></div>
    <p>Create a seeded, editable animation layer. Painting and undo work on every generated frame.</p>
-   <label className="effect-field">Effect<select aria-label="Procedural effect type" value={effectKind} onChange={e=>setEffectKind(e.target.value as EffectKind)}>{EFFECT_KINDS.map(k=><option key={k} value={k}>{k==='shockwave'?'Shockwave':k==='embers'?'Embers':'Sparkles'}</option>)}</select></label>
+   <label className="effect-field">Effect
+     <select aria-label="Procedural effect type" value={effectKind} onChange={e=>setEffectKind(e.target.value as EffectKind)}>
+       {EFFECT_GROUPS.map(group=><optgroup key={group} label={group}>
+         {EFFECT_KINDS.filter(k=>EFFECT_PRESETS[k].group===group).map(k=><option key={k} value={k}>{EFFECT_PRESETS[k].label}</option>)}
+       </optgroup>)}
+     </select>
+   </label>
+   <p className="effect-description" aria-live="polite">{EFFECT_PRESETS[effectKind].description}</p>
+   <div className="effect-color-row"><span>Suggested color</span><button type="button" className="effect-color-button"
+     aria-label={'Use suggested '+EFFECT_PRESETS[effectKind].label+' color '+EFFECT_PRESETS[effectKind].suggestedInk}
+     onClick={()=>setInk(EFFECT_PRESETS[effectKind].suggestedInk)}
+     title="Set drawing color to this effect’s suggested tint">
+     <i style={{background:EFFECT_PRESETS[effectKind].suggestedInk}} aria-hidden="true"/>{EFFECT_PRESETS[effectKind].suggestedInk.toUpperCase()}
+   </button></div>
    <label className="effect-field">Seed<input aria-label="Effect random seed" type="number" min={0} max={2147483647} value={effectSeed} onChange={e=>setEffectSeed(Number(e.target.value))}/></label>
    {d&&<p className="effect-capacity" aria-live="polite">{d.layers.length} / 8 layer slots used · {hasFreeEffectLayerSlot(d)?'Ready to generate':'Delete a layer to make room'}</p>}
    <button className="secondary full effect-generate" disabled={busy||!hasFreeEffectLayerSlot(d)} title={!hasFreeEffectLayerSlot(d)?'All eight layer slots are occupied. Use a layer trash icon to free one.':'Generate an effect without stopping playback'} onClick={()=>void addEffect()}><Sparkles size={14}/>Generate editable effect</button>
