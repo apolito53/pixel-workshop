@@ -25,6 +25,14 @@
 .effect-field{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#b8b8be;font-size:11px;margin-bottom:9px}
 .effect-field select,.effect-field input{width:130px;min-width:0;padding:6px 8px;font:11px ui-monospace,monospace;background:#1d1e21}
 .effect-generate{margin-top:13px;justify-content:center;color:#e8d1b4;border-color:#806442}
+.effect-field select optgroup{font-style:normal;color:#e5c49f;background:#1d1e21}
+.effect-field select option{color:#dedee5;background:#1d1e21}
+.effects-section .effect-description{min-height:32px;margin:-2px 0 12px;color:#b1b2ba}
+.effect-color-row{display:flex;align-items:center;justify-content:space-between;gap:9px;margin-bottom:15px;color:#a5a6ae;font-size:10px}
+.effect-color-button{display:flex;align-items:center;gap:7px;padding:5px 7px;color:#d0cad0;background:#1d1e21;border:1px solid #424349;border-radius:4px;font:10px ui-monospace,monospace}
+.effect-color-button i{width:16px;height:16px;display:block;border:1px solid #ffffff40;border-radius:3px}
+.effect-color-button:hover{border-color:var(--accent)}
+
 .export-section .secondary+.secondary{margin-top:8px}
 @media(max-width:950px){.timeline{height:158px}.timeline-header{align-items:flex-start;flex-direction:column;gap:5px;min-height:66px;padding:6px 12px}.timeline-controls{justify-content:flex-start;gap:4px}}
 @media(max-width:600px){.timeline{height:170px}.timeline-controls .small-toggle{font-size:9px}.frame-tile{flex-basis:56px;padding:3px}.frame-thumbnail{width:38px;height:38px}.fps-control{font-size:9px}.timeline-track{padding:6px 10px}}
