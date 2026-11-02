@@ -1,7 +1,7 @@
 'use client';
 
 import {useMemo} from 'react';
-import {Check,Plus,Trash2} from 'lucide-react';
+import {Check,Plus,Trash2,ChevronDown} from 'lucide-react';
 import {DEFAULT_PALETTE,type PixelDocument} from '../lib/pixels.ts';
 import {artworkColors,isHexInk,normalizeInk,opacityPercent,rgbHex,suggestColors,withRgb} from '../lib/color-workflow.ts';
 
@@ -27,11 +27,13 @@ export default function ColorWorkbench({
 }:Props){
  const used=useMemo(()=>doc?artworkColors(doc,frame):[],[doc,frame]);
  const suggested=useMemo(()=>suggestColors(ink,used),[ink,used]);
- const saved=doc?.palette??[];
+ const stored=doc?.palette??[];
  const selectedKey=normalizeInk(ink);
+ const hasLegacyStarters=stored.length>=DEFAULT_PALETTE.length&&
+  DEFAULT_PALETTE.every((c,i)=>normalizeInk(stored[i])===normalizeInk(c));
+ const legacy=hasLegacyStarters?stored.slice(0,DEFAULT_PALETTE.length):[];
+ const saved=hasLegacyStarters?stored.slice(DEFAULT_PALETTE.length):stored;
  const isSaved=saved.some(c=>normalizeInk(c)===selectedKey);
- const hasLegacyStarters=saved.length>=DEFAULT_PALETTE.length&&
-  DEFAULT_PALETTE.every((c,i)=>normalizeInk(saved[i])===normalizeInk(c));
  return <section className="inspector-section color-workbench" aria-label="Color workbench">
   <div className="section-heading"><span>CURRENT COLOR</span><span className="muted">PICK ANY COLOR</span></div>
   <div className="color-controls" data-guide="palette">
@@ -78,11 +80,11 @@ export default function ColorWorkbench({
   </div>
 
   <div className="workbench-group workbench-saved-group">
-   <div className="workbench-heading"><b>SAVED PROJECT COLORS</b><small>{saved.length} / 128</small></div>
+   <div className="workbench-heading"><b>SAVED PROJECT COLORS</b><small>{saved.length} pinned</small></div>
    <p className="workbench-hint">Only colors you save here travel with the editable project. Suggestions and recent colors won't alter it.</p>
    <div className="workbench-save-actions">
     <button type="button" className="secondary workbench-save" onClick={onSave}
-     disabled={busy||!doc||!isHexInk(ink)||isSaved||saved.length>=128}>
+     disabled={busy||!doc||!isHexInk(ink)||isSaved||stored.length>=128}>
      <Plus size={14}/> Save current color
     </button>
     {isSaved&&<button type="button" className="workbench-remove-current" disabled={busy}
@@ -93,10 +95,15 @@ export default function ColorWorkbench({
     <Swatch key={c+'-'+i} hex={c} selected={normalizeInk(c)===selectedKey}
      onPick={onPick} label="Saved project color"/>)}</div>
    :<p className="workbench-empty">Nothing saved yet. Start with any color and save your favorites here.</p>}
-   {hasLegacyStarters&&<div className="workbench-legacy">
-    <p>This older project includes the original 24 starter swatches. They're not recommendations.</p>
-    <button type="button" disabled={busy} onClick={onRemoveStarters}>Remove original starter swatches</button>
-   </div>}
+   {hasLegacyStarters&&<details className="workbench-legacy">
+    <summary><span>Original starter swatches</span><small>24 from the older editor</small><ChevronDown size={14}/></summary>
+    <p>These colors were included automatically in older projects. They aren't recommendations and weren't chosen for this artwork. They remain available here, collapsed by default.</p>
+    <div className="workbench-swatch-grid workbench-legacy-swatches" role="group" aria-label="Original starter swatches">
+     {legacy.map((c,i)=><Swatch key={c+'-'+i} hex={c} selected={normalizeInk(c)===selectedKey}
+      onPick={onPick} label="Original starter swatch"/>)}
+    </div>
+    <button type="button" className="workbench-remove-starters" disabled={busy} onClick={onRemoveStarters}>Remove original starter swatches</button>
+   </details>}
   </div>
  </section>;
 }
