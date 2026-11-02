@@ -49,6 +49,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const [mobileLayout,setMobileLayout]=useState(false),[touchCapable,setTouchCapable]=useState(false),[inspectorOpen,setInspectorOpen]=useState(false);
  const inspectorRef=useRef<HTMLElement>(null),drawerToggleRef=useRef<HTMLButtonElement>(null),drawerCloseRef=useRef<HTMLButtonElement>(null);
  const [frame,setFrame]=useState(0),[playing,setPlaying]=useState(false),[onion,setOnion]=useState(false),[effectKind,setEffectKind]=useState<EffectKind>('embers'),[effectSeed,setEffectSeed]=useState(53),[snap,setSnap]=useState<Snapshot|null>(null),[list,setList]=useState<PixelDocument[]>([]),[tool,setTool]=useState<Tool>('pencil'),[ink,setInk]=useState('#f6da92'),[layer,setLayer]=useState('base'),[zoom,setZoom]=useState(10),[grid,setGrid]=useState(true),[filled,setFilled]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState('Opening workspace…'),[error,setError]=useState(''),[cursor,setCursor]=useState('X —   Y —'),[hover,setHover]=useState<{x:number;y:number}|null>(null),[modal,setModal]=useState(false),[name,setName]=useState('Untitled sprite'),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[scale,setScale]=useState(1),[selection,setSelection]=useState<PixelRegion|null>(null),[clipboard,setClipboard]=useState<{width:number;height:number;pixels:number[]}|null>(null),[previewScale,setPreviewScale]=useState(1),[fitMode,setFitMode]=useState(true),[saveState,setSaveState]=useState<Pick<QueueState,'pending'|'saving'|'error'>>({pending:0,saving:false,error:null});
+ const [packModal,setPackModal]=useState(false),[packIds,setPackIds]=useState<string[]>([]);
  const [clipName,setClipName]=useState('idle'),[clipFrom,setClipFrom]=useState(0),[clipTo,setClipTo]=useState(0),[clipFps,setClipFps]=useState(8),[clipMode,setClipMode]=useState<AnimationClip['mode']>('loop');
  const [previewClip,setPreviewClip]=useState<string|null>(null);
  const previewPosition=useRef(0);
@@ -276,7 +277,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const move=(e:PE<HTMLCanvasElement>)=>{if(!snap||e.pointerType==='touch'&&(touchGesture.current!==null||suppressTouchDrawing.current))return;const p=point(e);setHover(old=>old?.x===p.x&&old?.y===p.y?old:p);setCursor(`X ${String(p.x).padStart(3,'0')}   Y ${String(p.y).padStart(3,'0')}`);const drag=selectionDrag.current;if(drag){if(drag.source){const source=drag.source;drag.region={...source,x:Math.max(0,Math.min(drag.base.doc.width-source.width,source.x+p.x-drag.start.x)),y:Math.max(0,Math.min(drag.base.doc.height-source.height,source.y+p.y-drag.start.y))};present({...drag.base,doc:applyCommands(drag.base.doc,[{op:'transform',mode:'move',layer:drag.layer,frame:drag.frame,...source,x2:drag.region.x,y2:drag.region.y}])});}else drag.region={x:Math.min(drag.start.x,p.x),y:Math.min(drag.start.y,p.y),width:Math.abs(p.x-drag.start.x)+1,height:Math.abs(p.y-drag.start.y)+1};setSelection(drag.region);return;}const st=stroke.current;if(!st||tool==='fill'||(p.x===st.last.x&&p.y===st.last.y)||st.ops.length>4000)return;if(['pencil','eraser'].includes(tool))st.ops.push({op:'line',layer,color:tool==='eraser'?'transparent':ink,...st.last,x2:p.x,y2:p.y});else st.ops=[shape(st.start,p)];st.last=p;present({...st.base,doc:applyCommands(st.base.doc,targetFrame(st.ops,st.frame))});};
  const up=()=>{const drag=selectionDrag.current;if(drag){selectionDrag.current=null;if(drag.source&&(drag.source.x!==drag.region.x||drag.source.y!==drag.region.y))void commit([{op:'transform',mode:'move',layer:drag.layer,frame:drag.frame,...drag.source,x2:drag.region.x,y2:drag.region.y}],drag.base);else present(drag.base);return;}const st=stroke.current;if(st){stroke.current=null;void commit(targetFrame(st.ops,st.frame),st.base);}};
  const png=async()=>{const d=current.current?.doc;if(!d)return;try{const {encodeBrowserPng}=await import('../lib/browser-png.ts');download(d.name+'.png',new Blob([encodeBrowserPng(frameView(d,Math.min(frame,frameCount(d)-1)),scale)],{type:'image/png'}));if(!queue.current?.state.pending)setNotice(`Exported ${d.width*scale} × ${d.height*scale} PNG`);}catch(e){setError((e as Error).message);}};
- useEffect(()=>{const h=(e:KeyboardEvent)=>{if((e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"],[role="tab"]')||stroke.current||selectionDrag.current)return;if(e.key==='Escape'){setModal(false);setSelection(null);return;}if(modal)return;const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='z'){e.preventDefault();void commit([],undefined,e.shiftKey?'redo':'undo');return;}if(mod&&key==='c'&&selection){e.preventDefault();copySelection();return;}if(mod&&key==='v'&&clipboard){e.preventDefault();pasteSelection();return;}if(mod&&key==='x'&&selection){e.preventDefault();copySelection();clearSelection();return;}if(selection&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const step=e.shiftKey?10:1;transformSelection('move',e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0,e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0);return;}if(selection&&['Delete','Backspace'].includes(e.key)){e.preventDefault();clearSelection();return;}if(mod)return;const t=tools.find(t=>t[3].toLowerCase()===key);if(t)setTool(t[0]);if(key==='h')setGrid(v=>!v);};window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);});
+ useEffect(()=>{const h=(e:KeyboardEvent)=>{if((e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"],[role="tab"]')||stroke.current||selectionDrag.current)return;if(e.key==='Escape'){setModal(false);setPackModal(false);setSelection(null);return;}if(modal||packModal)return;const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='z'){e.preventDefault();void commit([],undefined,e.shiftKey?'redo':'undo');return;}if(mod&&key==='c'&&selection){e.preventDefault();copySelection();return;}if(mod&&key==='v'&&clipboard){e.preventDefault();pasteSelection();return;}if(mod&&key==='x'&&selection){e.preventDefault();copySelection();clearSelection();return;}if(selection&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const step=e.shiftKey?10:1;transformSelection('move',e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0,e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0);return;}if(selection&&['Delete','Backspace'].includes(e.key)){e.preventDefault();clearSelection();return;}if(mod)return;const t=tools.find(t=>t[3].toLowerCase()===key);if(t)setTool(t[0]);if(key==='h')setGrid(v=>!v);};window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);});
  const addFrame=async()=>{
   const doc=current.current?.doc;if(!doc||playing)return;
   const next=frameCount(doc);
@@ -317,6 +318,28 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
    download(name,new Blob([JSON.stringify(sheet.atlas,null,2)],{type:'application/json'}));
    setNotice('Exported animation atlas JSON');
   }catch(e){setError((e as Error).message);}
+ };
+ const openPack=()=>{
+  setPackIds(list.slice(0,30).map(p=>p.id));
+  setPackModal(true);setError('');
+ };
+ const exportGamePack=async()=>{
+  if(locked.current||!packIds.length)return;
+  locked.current=true;setBusy(true);setError('');
+  try{
+   if(stroke.current||selectionDrag.current)throw new Error('Finish the active brush stroke before exporting a game pack.');
+   await queue.current?.flush();
+   const docs:PixelDocument[]=[];
+   for(let i=0;i<packIds.length;i+=4){
+    const batch=await Promise.all(packIds.slice(i,i+4).map(id=>api<Snapshot>('projects/'+id)));
+    docs.push(...batch.map(item=>item.doc));
+   }
+   const {buildGamePack}=await import('../lib/game-pack.ts');
+   const {bytes}=buildGamePack(docs);
+   download('pixel-workshop-game-pack.zip',new Blob([bytes],{type:'application/zip'}));
+   setPackModal(false);setNotice('Exported '+docs.length+' editable game assets');
+  }catch(e){setError((e as Error).message);}
+  finally{setBusy(false);locked.current=false;}
  };
  const addEffect=async()=>{
   const doc=current.current?.doc;if(!doc)return;
@@ -464,11 +487,38 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  <section className="inspector-section export-section"><div className="section-heading"><span>EXPORT</span><span className="filetype">PNG</span></div><label className="scale-select">Output size<select aria-label="PNG export scale" value={scale} onChange={e=>setScale(Number(e.target.value))}>{[1,2,4,8].map(s=><option key={s} value={s}>{s}× {d?`· ${d.width*s} × ${d.height*s}`:''}</option>)}</select></label><p>Transparent background.<br/>Clean pixels, ready for your game.</p><button className="secondary full" disabled={!d||busy} onClick={()=>{if(d)download(d.name+'.pixel.json',new Blob([JSON.stringify(d)],{type:'application/json'}));}}>Save editable project <Download size={14}/></button>
   <button className="secondary full" disabled={!d||busy} onClick={()=>void exportSheet()}>Sprite sheet PNG <Download size={14}/></button>
   <button className="secondary full" disabled={!d||busy} onClick={exportAtlas}>Animation atlas JSON <Download size={14}/></button>
+  <div className="pack-export-block">
+   <p>Export several sprites with their original editable layers, PNG sheets, named clips and a ready-to-use manifest.</p>
+   <button type="button" className="secondary full pack-export-button" disabled={!list.length||busy} onClick={openPack}><FolderOpen size={15}/>Export game pack ZIP <Download size={14}/></button>
+  </div>
   </section>
  </div>
  </aside></div>
  <footer className="status-bar"><span className={'save-status '+(displayError?'error':'')}><i className={busy||saveState.pending?'saving':''}/>{displayError||notice}</span>{saveState.error&&<>{!saveState.error.conflict&&<button className="text-button save-retry" disabled={busy} onClick={()=>{setError('');queue.current?.retry();}}>Retry save</button>}<button className="text-button save-retry" disabled={busy} onClick={()=>void create(false,current.current?.doc,true)}>Save a copy</button></>}<span className="status-detail">{cursor}</span><span className="status-detail">{d?.layers.length||0} LAYERS</span><span className="status-shortcuts">B pencil<span>E eraser</span><span>G fill</span><span>H grid</span></span></footer>
  <input ref={file} type="file" accept=".json,.pixel.json" className="visually-hidden" aria-label="Import editable project" onChange={async e=>{const f=e.target.files?.[0];if(!f)return;try{if(f.size>12_000_000)throw new Error('Project file is too large.');await create(false,JSON.parse(await f.text()));}catch(err){setError((err as Error).message);}e.target.value='';}}/>
+ {packModal&&<div className="modal-backdrop" onClick={()=>!busy&&setPackModal(false)}>
+   <section className="new-dialog pack-dialog" role="dialog" aria-modal="true" aria-labelledby="pack-dialog-heading" onClick={e=>e.stopPropagation()}>
+    <button className="dialog-close icon-button" type="button" aria-label="Close game pack exporter" disabled={busy} onClick={()=>setPackModal(false)}><X size={18}/></button>
+    <span className="eyebrow">GAME ASSET PIPELINE</span><h2 id="pack-dialog-heading">Pack it all together.</h2>
+    <p className="pack-description">Choose up to 30 projects. Each becomes a folder containing the editable source, RGBA sprite sheet and animation atlas, all indexed by manifest.json.</p>
+    <div className="pack-dialog-actions">
+     <button type="button" disabled={busy} onClick={()=>setPackIds(list.slice(0,30).map(item=>item.id))}>Select first 30</button>
+     <button type="button" disabled={busy} onClick={()=>setPackIds([])}>Clear all</button>
+     <span>{packIds.length} / 30 selected</span>
+    </div>
+    <div className="pack-projects" role="group" aria-label="Choose assets to export">
+     {list.map(p=><label className="pack-project" key={p.id}>
+      <input type="checkbox" checked={packIds.includes(p.id)} disabled={busy||!packIds.includes(p.id)&&packIds.length>=30}
+       onChange={e=>setPackIds(ids=>e.target.checked?[...ids,p.id]:ids.filter(id=>id!==p.id))}/>
+      <span><b>{p.name}</b><small>{p.width} × {p.height} pixels</small></span>
+     </label>)}
+    </div>
+    {error&&<p className="error-text" role="alert">{error}</p>}
+    <button type="button" className="primary full pack-download" disabled={busy||packIds.length===0} onClick={()=>void exportGamePack()}>
+     <Download size={15}/>{busy?'Preparing ZIP…':'Download '+packIds.length+'-asset game pack'}
+    </button>
+   </section>
+  </div>}
  {modal&&<div className="modal-backdrop" onClick={()=>setModal(false)}><section className="new-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" onClick={e=>e.stopPropagation()}><button className="dialog-close icon-button" aria-label="Close new canvas dialog" onClick={()=>setModal(false)}><X size={18}/></button><span className="eyebrow">A FRESH LITTLE START</span><h2 id="dialog-title">Make room for an idea.</h2><label>Canvas name<input autoFocus value={name} maxLength={80} onChange={e=>setName(e.target.value)}/></label><div className="dimension-inputs"><label>Width<input type="number" min={1} max={256} value={width} onChange={e=>setWidth(Number(e.target.value))}/></label><span>×</span><label>Height<input type="number" min={1} max={256} value={height} onChange={e=>setHeight(Number(e.target.value))}/></label></div><div className="size-presets">{[16,32,48,64,128].map(s=><button key={s} className={width===s&&height===s?'selected':''} onClick={()=>{setWidth(s);setHeight(s);}}>{s}×{s}</button>)}</div>{error&&<p className="error-text">{error}</p>}<button className="primary full" disabled={busy} onClick={()=>void create()}><Plus size={16}/>Create canvas</button><button className="text-button example-button" disabled={busy} onClick={()=>void create('cottage')}>Open Moonkeeper’s cottage · 64 × 64</button><button className="text-button example-button" disabled={busy} onClick={()=>void create(true)}>Or open the little lantern</button></section></div>}
  </main>;
 }
