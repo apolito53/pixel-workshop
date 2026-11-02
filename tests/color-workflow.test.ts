@@ -94,7 +94,7 @@ test('the color interface has a real always-reachable picker and separate projec
  assert.ok(workbench.includes('RECENTLY PICKED'));
  assert.ok(workbench.includes('SAVED PROJECT COLORS'));
  assert.ok(workbench.includes('Not saved'));
- assert.ok(workbench.includes('onSave={'));
+ assert.ok(workbench.includes('onClick={onSave}'));
  assert.ok(css.includes('.toolbar-ink-picker'));
  assert.ok(css.includes('.workbench-swatch-grid'));
 });
