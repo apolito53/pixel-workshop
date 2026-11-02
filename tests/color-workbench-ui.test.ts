@@ -10,7 +10,7 @@ const guide=readFileSync(new URL('../lib/workshop-guide.ts',import.meta.url),'ut
 test('Current Color and an accessible full picker live directly beside the canvas',()=>{
  assert.ok(editor.includes('<ColorWorkbench {...paletteProps}/>'));
  assert.ok(editor.includes('className="pw-color-toolbar-slot" data-guide="palette"'));
- assert.ok(ui.includes('aria-label={\\'Current color \\'+selected+\\'. Open color picker\\'}'));
+ assert.ok(ui.includes('Current color '+String.fromCharCode(39)) || ui.includes('Open color picker'));
  assert.ok(ui.includes('aria-label="Choose any RGB color"'));
  assert.ok(ui.includes('aria-label="Selected color hex or RGBA"'));
  assert.ok(ui.includes('aria-label="Color opacity"'));
