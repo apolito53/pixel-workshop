@@ -247,3 +247,10 @@
 .pack-project small{font-size:10px;color:#918f9d}
 .pack-download{justify-content:center;min-height:40px;margin-top:4px}
 @media(max-width:600px){.pack-dialog{padding:23px 18px}.pack-dialog-actions{gap:5px}.pack-dialog-actions button{font-size:10px}}
+
+/* Reusable, parameterized procedural effect recipes. */
+.effect-recipe-panel{border-top:1px solid #4d4750;margin-top:19px;padding-top:16px}
+.effect-recipe-panel .section-heading{margin:0 0 12px}
+.effect-recipe-panel p{font-size:10px;line-height:1.65;color:#a69da8;margin:12px 0}
+.effect-regenerate{justify-content:center;color:#ecd1ff;border-color:#6f5a84;background:#9671ba0b}
+.effect-regenerate:hover{background:#9671ba22}
