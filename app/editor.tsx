@@ -271,9 +271,14 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  const commit=useCallback(async(ops:PaintCommand[],base?:Snapshot,action='paint')=>{
   const q=queue.current;if(!q||locked.current||base&&base.doc.id!==q.state.snapshot.doc.id)return false;
   if(action==='undo'&&!q.state.snapshot.canUndo||action==='redo'&&!q.state.snapshot.canRedo)return false;
-  setError('');try{q.enqueue({action:action as 'paint'|'undo'|'redo',...(action==='paint'?{commands:targetFrame(ops,Math.min(frame,frameCount(q.state.snapshot.doc)-1))}:{})});return true;}
+  setError('');try{
+   q.enqueue({action:action as 'paint'|'undo'|'redo',...(action==='paint'?{commands:targetFrame(ops,Math.min(frame,frameCount(q.state.snapshot.doc)-1))}:{})});
+   if(action==='paint'&&ops.some(op=>['pixel','line','rect','ellipse','fill'].includes(op.op)&&normalizeColor(op.color as string)===normalizeColor(ink)))
+    rememberInk(ink);
+   return true;
+  }
   catch(e){present(q.state.snapshot);setError((e as Error).message);return false;}
- },[present,frame]);
+ },[present,frame,ink,rememberInk]);
  const create=async(demo:boolean|'cottage'=false,document?:unknown,asCopy=false)=>{
   if(locked.current||stroke.current||selectionDrag.current)return;locked.current=true;setBusy(true);
   try{if(!asCopy)await queue.current?.flush();const s=await api<Snapshot>('projects',{name,width,height,demo,document});adopt(s);setFitMode(true);setModal(false);setError('');setNotice('All changes saved');await refresh();}
@@ -375,7 +380,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
    present({...s,doc:applyCommands(s.doc,targetFrame(ops,target))});
   }else void commit(ops);
   return;
- }if(tool==='picker'){const rgba=composite(frameView(s.doc,Math.min(frame,frameCount(s.doc)-1))),i=(p.y*s.doc.width+p.x)*4;if(rgba[i+3])setInk('#'+Array.from(rgba.slice(i,i+3)).map(v=>v.toString(16).padStart(2,'0')).join(''));return;}if(tool==='fill'){
+ }if(tool==='picker'){const rgba=composite(frameView(s.doc,Math.min(frame,frameCount(s.doc)-1))),i=(p.y*s.doc.width+p.x)*4;if(rgba[i+3])chooseInk('#'+Array.from(rgba.slice(i,i+3)).map(v=>v.toString(16).padStart(2,'0')).join('')+(rgba[i+3]<255?rgba[i+3].toString(16).padStart(2,'0'):''));return;}if(tool==='fill'){
   const ops:PaintCommand[]=[{op:'fill',layer,color:ink,...p}];
   if(e.pointerType==='touch'){
    // Defer the save until release so a second finger can cancel a tentative fill.
@@ -480,7 +485,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   const recipe=current.current?.doc.layers.find(l=>l.id===id)?.effect;
   setEffectTarget(id||null);
   if(recipe){
-   setEffectKind(recipe.kind);setEffectSeed(recipe.seed);setInk(recipe.ink);
+   setEffectKind(recipe.kind);setEffectSeed(recipe.seed);chooseInk(recipe.ink);
    setEffectSpeed(recipe.speed);setEffectOpacity(recipe.opacity);setEffectDrift(recipe.drift);
   }
  };
@@ -527,11 +532,28 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
    onManageWorkspace?.();
   }catch(error){setError(error instanceof Error?error.message:'Unable to save before switching.');}
  };
+ const saveCurrentColor=()=>{
+  const doc=current.current?.doc;
+  if(!doc)return;
+  try{
+   const colors=saveColor(doc.palette,ink);
+   if(colors.length!==doc.palette.length)void commit([{op:'palette',colors}]);
+  }catch(e){setError((e as Error).message);}
+ };
+ const removeCurrentSaved=(hex:string)=>{
+  const doc=current.current?.doc;if(!doc)return;
+  const colors=removeSavedColor(doc.palette,hex);
+  if(colors.length!==doc.palette.length)void commit([{op:'palette',colors}]);
+ };
  const activateInspectorTab=(tab:InspectorTab)=>{
   setInspectorTab(tab);
   if(inspectorRef.current)inspectorRef.current.scrollTop=0;
  };
  const d=snap?.doc,activeFrame=d?Math.min(frame,frameCount(d)-1):0,displayError=error||saveState.error?.message;
+ const colorContext=useMemo(()=>contextualColors(d,activeFrame,ink),[d,activeFrame,ink]);
+ const paletteProps={ink,onColor:updateInk,onChoose:chooseInk,recent:recentColors,
+  palette:d?.palette??[],context:colorContext,onSave:saveCurrentColor,
+  onRemove:removeCurrentSaved,disabled:busy||!d};
  return <main className="workshop"><header className="app-header"><a className="brand" href="/"><span className="brand-mark">{Array.from({length:9},(_,i)=><i key={i}/>)}</span><span>pixel<span className="brand-light">workshop</span><small>A LITTLE ROOM TO MAKE THINGS</small></span></a>{onManageWorkspace&&<button type="button" data-guide="workspace" className="text-button workspace-header-button" aria-label="Manage workspace" title="Workspace and agent connection" onClick={()=>void manageWorkspace()}><KeyRound size={16}/><span>Workspace</span></button>}<button type="button" ref={guideToggleRef} className="guide-header-button"
  title="Guided tour and interactive help" aria-label="Open Pixel Workshop guide" onClick={openGuide}>
  <BookOpen size={17}/><span>Guide</span></button><div className="header-meta"><span className="version">WORKSPACE / 01</span><span className="connection"><i/> MCP enabled</span></div><button className="primary" data-guide="quick-export" aria-label="Export current frame as PNG" disabled={!d||busy} onClick={()=>void png()}><Download size={15}/>Export PNG</button></header>
@@ -631,7 +653,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
    <p className="effect-description" aria-live="polite">{EFFECT_PRESETS[effectKind].description}</p>
    <div className="effect-color-row"><span>Suggested color</span><button type="button" className="effect-color-button"
      aria-label={'Use suggested '+EFFECT_PRESETS[effectKind].label+' color '+EFFECT_PRESETS[effectKind].suggestedInk}
-     onClick={()=>setInk(EFFECT_PRESETS[effectKind].suggestedInk)}
+     onClick={()=>chooseInk(EFFECT_PRESETS[effectKind].suggestedInk)}
      title="Set drawing color to this effect’s suggested tint">
      <i style={{background:EFFECT_PRESETS[effectKind].suggestedInk}} aria-hidden="true"/>{EFFECT_PRESETS[effectKind].suggestedInk.toUpperCase()}
    </button></div>
