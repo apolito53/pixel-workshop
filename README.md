@@ -66,7 +66,20 @@ Painting and session undo/redo update locally immediately. Completed strokes que
 
 Failed saves pause the queue without discarding the drawing. Retry uses the same request ID so a lost response cannot duplicate a stroke; conflicting external/MCP edits offer Save a copy. The page warns before leaving with pending edits. The current project and project list refresh every three seconds while idle to reflect MCP edits; polling cannot overwrite queued or active strokes.
 
-Undo and Redo now sit underneath the drawing and grid tools in the left toolbar, rather than in the document bar. On shorter screens the painting tools scroll independently, keeping Undo/Redo reachable; the existing Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z shortcuts remain available.
+Undo and Redo remain beneath the drawing controls on roomy screens; on short or narrow screens the drawing tools move into a left-hand drawer, keeping history and a quick color well reachable. The existing Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z shortcuts remain available.
+
+## Color workbench
+
+**Current color is always visible beside the canvas.** Click its color swatch to open your operating system's color picker without opening the right inspector. On compact screens it remains a clickable square. The Draw panel provides exact `#RRGGBB`/`#RRGGBBAA` entry and an **Opacity** slider; selecting another RGB hue preserves the current alpha.
+
+The Draw panel now explains four different kinds of colors instead of presenting unexplained swatches:
+
+- **Recently picked:** the last eight colors chosen in this editor session, not saved to the project.
+- **In your artwork:** the most-used visible colors in the selected animation frame, refreshed as pixels change. Hidden layers and transparent pixels do not contribute.
+- **Suggested companions:** deterministic highlights, shadows, nearby hues, a complement, and an artwork-aware accent. Each suggestion is labeled with its purpose; no random color generator or network service is involved.
+- **Saved project colors:** explicit swatches stored with this canvas's `.pixel.json`. Click **Save current color** to keep one, or remove the selected saved swatch. Neither the recent colors nor the suggestions are ever saved automatically.
+
+**New blank canvases start with no saved palette.** Existing canvases retain every saved color, including the 24 original default swatches if they came from the older editor. The Draw panel identifies that legacy set and offers an optional one-click removal that preserves any colors added afterward. Removing a palette swatch does not erase pixels already painted with that color. The underlying project format is unchanged.
 
 ## Animation workbench
 
