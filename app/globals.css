@@ -202,3 +202,8 @@
  font:11px/1.6 ui-monospace,monospace}
 @media(max-width:480px){.app-header{gap:6px;padding-inline:8px}.brand{font-size:17px;gap:7px}
  .workspace-header-button{min-width:32px;width:32px;padding:6px}.app-header>.primary{padding:8px 9px}}
+
+/* Playable game proof-of-concept entry point. */
+.workshop .stardrop-editor-link{margin-left:auto;white-space:nowrap;color:#edc99e;border:1px solid #82664b;border-radius:5px;padding:7px 11px;background:#e7ad720d;font-weight:650}
+.workshop .stardrop-editor-link:hover{background:#e7ad7229;color:#ffebc8}
+@media(max-width:620px){.workshop .stardrop-editor-link{padding:7px 9px}.workshop .stardrop-editor-link span{display:none}}
