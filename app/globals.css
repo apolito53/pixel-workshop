@@ -464,7 +464,8 @@
 .toolbar-quick-toggle.on{background:#cba6df26;border-color:#b99bce}
 .toolbar-quick-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .toolbar-quick-popover{position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);
- width:292px;max-width:calc(100vw - 24px);padding:13px 14px 15px;
+ width:292px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 190px);
+ overflow-y:auto;overscroll-behavior:contain;padding:13px 14px 15px;
  background:#262630;border:1px solid #78667c;border-radius:8px;
  box-shadow:0 15px 42px #000b;z-index:15;color:#e6ddd9}
 .toolbar-quick-header{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0 0 5px}
@@ -484,7 +485,8 @@
  .canvas-toolbar{position:relative}
  .toolbar-quick-anchor{position:static}
  .toolbar-quick-popover{top:calc(100% + 6px);left:8px;transform:none;
-  width:min(315px,calc(100vw - 16px));max-width:calc(100vw - 16px)}
+  width:min(315px,calc(100vw - 16px));max-width:calc(100vw - 16px);
+  max-height:min(360px,calc(100dvh - 190px))}
  .quick-color-grid{gap:8px}
  .quick-color-swatch{min-height:31px}
 }
