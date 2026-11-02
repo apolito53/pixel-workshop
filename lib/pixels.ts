@@ -50,7 +50,7 @@ export function color(value: unknown): number {
 export function hex(value: number): string { return '#' + (value >>> 0).toString(16).padStart(8, '0'); }
 export function createDocument(name: string, width: number, height: number, id = crypto.randomUUID()): PixelDocument {
   requireInt(width, 1, 256, 'Width'); requireInt(height, 1, 256, 'Height');
-  return { format:'pixel-workshop/1', id, name: String(name || 'Untitled sprite').slice(0,80), width, height, revision:0, palette:[...DEFAULT_PALETTE], layers:[{id:'base',name:'Base',visible:true,pixels:Array(width*height).fill(0)}], updatedAt:new Date().toISOString() };
+  return { format:'pixel-workshop/1', id, name: String(name || 'Untitled sprite').slice(0,80), width, height, revision:0, palette:[], layers:[{id:'base',name:'Base',visible:true,pixels:Array(width*height).fill(0)}], updatedAt:new Date().toISOString() };
 }
 export function validateDocument(input: unknown): PixelDocument {
   const d = input as PixelDocument;

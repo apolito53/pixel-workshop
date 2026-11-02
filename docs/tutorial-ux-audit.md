@@ -3,7 +3,7 @@
 
 ## Why this exercise exists
 
-Stardrop proved that Pixel Workshop can produce real game assets. Authoring a tutorial asks a different question: **Can someone discover and use those capabilities without knowing the implementation?** The new in-app Field Guide is intentionally task-based. Its six chapters and 22 steps cover the first project, drawing, layering, animation, effects, exports, and workspace/MCP access. It highlights real controls and opens the corresponding compact drawers or inspector tabs. All operations described are optional practice, never automatically executed by the guide.
+Stardrop proved that Pixel Workshop can produce real game assets. Authoring a tutorial asks a different question: **Can someone discover and use those capabilities without knowing the implementation?** The new in-app Field Guide is intentionally task-based. Its six chapters and 23 steps cover the first project, drawing, layering, animation, effects, exports, and workspace/MCP access. It highlights real controls and opens the corresponding compact drawers or inspector tabs. All operations described are optional practice, never automatically executed by the guide.
 
 The findings below come from tracing real editor UI code, documenting every workflow as a beginner would encounter it, and writing guide regression tests. They are **not claims from an observed user study**. A live visual/device testing pass and actual user feedback still matter.
 
@@ -28,7 +28,7 @@ The findings below come from tracing real editor UI code, documenting every work
 | P1 | Exporting game assets | "PNG", "sprite sheet", "atlas", "tileset" and "game pack" describe different outputs. The standalone sheet and atlas are separate downloads, and the correct combination depends on the user's destination engine. | Export presets ("single image", "animated sprite", "tileset", "game pack"), frame/sheet previews, and a more obvious bundled sheet+atlas option. |
 | P1 | Connection to an AI agent | "Copy MCP connection" creates a bearer credential and JSON snippet. This is correct technically but still assumes familiarity with MCP and manually configuring an external client. | Guided, scoped "Connect an agent" flow with clear destination examples, token revocation/rotation, short-lived credentials, and connection health. |
 | P2 | Discovering a template | The Moonkeeper cottage and lantern are links buried at the bottom of the *new-canvas dialog*, not recognizable preset cards when someone first opens the editor. | First-project template picker with previews and "Blank", "Character", "Tileset", and "Animated FX" starters. |
-| P2 | Color / alpha | The hex field accepts 8-digit colors, but the native color picker is primarily an RGB control. Users need to understand alpha manually. | Alpha slider, opacity indicator, editable palette names and convenient recent colors. |
+| Addressed | Color / alpha | Color selection was buried in the Draw panel, while 24 unexplained starter colors looked like recommendations. An RGB picker also obscured RGBA opacity. | **Shipped in contextual color update:** permanent canvas-toolbar picker; direct hex and opacity controls; clearly separated recent, artwork, deterministic suggested and explicitly saved swatches. Remaining: named saved colors and richer color harmony controls. |
 | P2 | Mobile panel switching | Drawing controls slide in from the left; inspector panels slide in from the right. Without the guide, their entry points can look like generic tool buttons. | Persistent icon+label or annotated toggle affordances, context-sensitive panel shortcuts, and an active-tool ribbon that fits very narrow phones. |
 | P2 | Understanding autosave | Save status is a small footer message. Busy users might not notice when a queue is paused or a conflict occurred until much later. | Elevated error notification for saves that require action, with concise recovery instructions; keep healthy autosave quiet. |
 | P2 | Resource budgets | Eight layers, 32 animation frames, 256×256 canvas limits and an overall animated-pixel budget constrain workflows. Some capacity feedback appears only on the FX screen. | Consistent capacity indicators in canvas creation, frame duplication and layer management, with guidance before reaching limits. |
@@ -52,3 +52,15 @@ Automated tests check that every guide target exists, every chapter has useful s
 Next recommended dogfood task: recruit a fresh browser session and ask someone to create a sprite, duplicate a frame, make a named clip, generate sparkles, regenerate safely, and export a game pack **without verbal assistance**. Record their first hesitation at every step; prioritize friction they actually encounter over theoretical UI additions.
 
 **Most valuable immediate follow-up:** stamp discoverability and clip-range selection. Those required the most conceptual explanation while writing the tour.
+
+---
+
+## Contextual palette feedback (2026-11-02)
+
+A direct review from the person commissioning the tool exposed a gap the first tutorial pass underweighted: **the real color picker was buried in inspector menus, while 24 default swatches looked like random color recommendations.** This was a first-order issue in one of the editor's most frequently used interactions, not simply another advanced feature to explain.
+
+**Implemented:** promote a direct native color picker into the canvas toolbar; add in-inspector hex and opacity controls; show recently selected colors separately from colors sampled from visible artwork; generate deterministic, labeled companion hues from the selected color and dominant visible artwork color; keep the saved project palette as an explicit user choice. Blank new projects no longer inherit the historical 24 default colors. Older project palettes remain intact and can shed the original starter set without deleting subsequent additions. The in-app Field Guide now distinguishes current color from optional suggestions and explains how palette persistence works.
+
+**Design constraints:** suggesting must not modify project state, interfere with undo/redo, falsely imply that random colors belong to an artwork, or mutate previously saved documents. Art-derived colors follow the active frame, use only visible composite pixels, and ignore effectively transparent cells. This intentionally stops short of AI image analysis or automatic palette replacement.
+
+**Further exploration:** editable/preset palette names, smarter gamut-aware suggestions, a palette-importer for ASE/GPL, user-selectable color harmony strategies, and optional project-wide dominant-color analysis across animation frames. These are not included in the current change.
