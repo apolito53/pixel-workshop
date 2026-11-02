@@ -1,13 +1,12 @@
-import { color, frameCount, MAX_ANIMATION_CELLS, type PaintCommand, type PixelDocument } from './pixels.ts';
+import { color, frameCount, MAX_ANIMATION_CELLS, PIXEL_EFFECT_KINDS, validateEffectRecipe, type StoredEffectRecipe, type PaintCommand, type PixelDocument } from './pixels.ts';
 
 /** Ordered catalog shared by the editor, procedural renderer and MCP schema. */
-export const EFFECT_KINDS = [
-  'embers', 'sparkles', 'bubbles', 'leaves',
-  'fire', 'smoke', 'explosion', 'shockwave', 'lightning',
-  'rain', 'snow', 'arcane',
-] as const;
+export const EFFECT_KINDS = PIXEL_EFFECT_KINDS;
 export type EffectKind = typeof EFFECT_KINDS[number];
-export type EffectRecipe = { kind: EffectKind; seed: number; ink: string };
+export type EffectRecipe = { kind: EffectKind; seed: number; ink: string; speed?: number; opacity?: number; drift?: number };
+export function normalizeEffectRecipe(recipe:EffectRecipe):StoredEffectRecipe {
+  return validateEffectRecipe({...recipe,speed:recipe.speed??1,opacity:recipe.opacity??1,drift:recipe.drift??0});
+}
 export const EFFECT_GROUPS = ['Particles', 'Elemental', 'Weather', 'Magic'] as const;
 type EffectGroup = typeof EFFECT_GROUPS[number];
 export const EFFECT_PRESETS: Record<EffectKind, { label: string; group: EffectGroup; description: string; suggestedInk: string }> = {
@@ -52,7 +51,7 @@ function tint(base: number, target: number, strength: number) {
 
 // All effect pixels live on conventional editable layers; each frame is recreated
 // deterministically from the same seed and time index, without a cloud renderer.
-export function effectPixels(width: number, height: number, frame: number, count: number, recipe: EffectRecipe): number[] {
+function rawEffectPixels(width: number, height: number, frame: number, count: number, recipe: EffectRecipe): number[] {
   const { kind, seed } = recipe;
   if (!EFFECT_KINDS.includes(kind)) throw new Error('Unknown effect type.');
   const rgb = color(recipe.ink);
@@ -288,12 +287,28 @@ export function effectPixels(width: number, height: number, frame: number, count
   return output;
 }
 
+/** Re-render a recipe using its saved speed, opacity and horizontal drift.
+ * Default values produce the original exact pixels for backward compatibility.
+ */
+export function effectPixels(width:number,height:number,frame:number,count:number,recipe:EffectRecipe):number[]{
+ const full=normalizeEffectRecipe(recipe);
+ const base=rawEffectPixels(width,height,frame*full.speed,count,full);
+ const shift=Math.round(full.drift*frame);
+ if(full.opacity===1 && shift===0)return base;
+ const out=Array<number>(width*height).fill(0);
+ for(let i=0;i<base.length;i++){
+  const packed=base[i];if(!packed)continue;
+  const x=i%width+shift,y=Math.floor(i/width);
+  if(x<0||x>=width)continue;
+  const alpha=Math.round((packed&255)*full.opacity);
+  if(alpha>0)out[y*width+x]=((packed&0xffffff00)|alpha)>>>0;
+ }
+ return out;
+}
+
 // Return ordinary paint commands so browser edits, undo, and MCP use one engine.
 export function generateEffectCommands(d: PixelDocument, recipe: EffectRecipe): PaintCommand[] {
-  if (!EFFECT_KINDS.includes(recipe.kind)) throw new Error('Unknown effect type.');
-  if (!Number.isInteger(recipe.seed) || recipe.seed < 0 || recipe.seed > 2147483647)
-    throw new Error('Effect seed must be an integer between 0 and 2147483647.');
-  color(recipe.ink);
+  const full=normalizeEffectRecipe(recipe);
   if (!hasFreeEffectLayerSlot(d)) throw new Error('The effect needs a free layer (maximum eight).');
   const area = d.width * d.height, currentFrames = frameCount(d);
   const capacity = Math.min(8, Math.floor(MAX_ANIMATION_CELLS / (area * (d.layers.length + 1))),
@@ -309,6 +324,23 @@ export function generateEffectCommands(d: PixelDocument, recipe: EffectRecipe): 
     commands.push({op:'frame_add',source_frame:0});
   for (let i = 0; i < totalFrames; i++)
     commands.push({op:'paste',frame:i,layer,x:0,y:0,width:d.width,height:d.height,
-      pixels:effectPixels(d.width,d.height,i,totalFrames,recipe)});
+      pixels:effectPixels(d.width,d.height,i,totalFrames,full)});
+  commands.push({op:'effect_recipe',layer,recipe:full});
   return commands;
+}
+
+/** Regeneration updates only the designated FX layer, preserving the whole document,
+ * other layers, frame count, edit history and any named clips.
+ * Manually painted pixels inside the selected effect layer are replaced on regenerate.
+ */
+export function regenerateEffectCommands(d:PixelDocument,layer:string,recipe:EffectRecipe):PaintCommand[]{
+ const target=d.layers.find(l=>l.id===layer);
+ if(!target?.effect)throw new Error('Choose a generated effect layer to regenerate.');
+ const full=normalizeEffectRecipe(recipe),count=frameCount(d);
+ if(d.width*d.height*count*3>1_950_000)throw new Error('This effect is too large to regenerate in one batch.');
+ const ops:PaintCommand[]=[{op:'rename_layer',layer,name:EFFECT_PRESETS[full.kind].label+' FX'}];
+ for(let i=0;i<count;i++)ops.push({op:'paste',layer,frame:i,x:0,y:0,width:d.width,height:d.height,
+  pixels:effectPixels(d.width,d.height,i,count,full)});
+ ops.push({op:'effect_recipe',layer,recipe:full});
+ return ops;
 }
