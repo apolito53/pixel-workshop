@@ -2,6 +2,8 @@
 
 [Open the live editor](https://pixel-workshop-nine.vercel.app)
 
+[**Play Stardrop: A Moonkeeper Tale**](https://pixel-workshop-nine.vercel.app/play/moonkeeper) · A small arcade game using ten native, editable Pixel Workshop assets (sprites, cels, environment art, and seeded effects). In-game art workbench exports every asset as `.pixel.json` or a sprite sheet. [Production notes and feature wishlist](docs/stardrop-production-notes.md).
+
 ![Original lantern drawn through MCP](artifacts/lantern-preview.png)
 
 A precise pixel-art editor with one TypeScript drawing engine shared by a React browser workspace and MCP tools. Every canvas cell is an actual output pixel. No image-generation API or GPU is needed.
