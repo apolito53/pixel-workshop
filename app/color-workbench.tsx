@@ -1,7 +1,7 @@
 'use client';
 
-import {useEffect,useRef,useState} from 'react';
-import {Check,ChevronDown,Palette,Plus,Trash2,X} from 'lucide-react';
+import {useEffect,useId,useRef,useState} from 'react';
+import {Check,ChevronDown,Palette,Plus,X} from 'lucide-react';
 import {
  normalizeColor,opacityPercent,splitSavedPalette,withOpacity,withRgb,
  type ColorContext,
@@ -36,6 +36,7 @@ function Swatches({title,description,colors,ink,onChoose}:{
  </div>;
 }
 function ColorEditor({ink,onColor,onChoose,disabled=false}:Pick<Props,'ink'|'onColor'|'onChoose'|'disabled'>){
+ const id=useId(),hexId=id+'-hex',alphaId=id+'-alpha';
  const [draft,setDraft]=useState(ink);
  useEffect(()=>setDraft(ink),[ink]);
  const valid=normalizeColor(draft);
@@ -54,16 +55,16 @@ function ColorEditor({ink,onColor,onChoose,disabled=false}:Pick<Props,'ink'|'onC
      onBlur={()=>onChoose(opaque.slice(0,7)+(opaque.length===9?opaque.slice(7):''))}/>
    </label>
    <div className="pw-color-hex-wrap">
-    <label htmlFor="pw-ink-hex" className="pw-color-field-title">Hex / RGBA</label>
-    <input id="pw-ink-hex" className={'pw-color-hex '+(!valid?'invalid':'')}
+    <label htmlFor={hexId} className="pw-color-field-title">Hex / RGBA</label>
+    <input id={hexId} className={'pw-color-hex '+(!valid?'invalid':'')}
      aria-label="Selected color hex or RGBA" autoComplete="off" spellCheck={false} disabled={disabled}
      value={draft} maxLength={9} onChange={e=>setDraft(e.target.value)}
      onBlur={applyHex} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();applyHex();e.currentTarget.blur();}}}/>
    </div>
   </div>
   <div className="pw-color-alpha-row">
-   <label htmlFor="pw-ink-opacity">Opacity</label>
-   <input id="pw-ink-opacity" aria-label="Color opacity" type="range" min="0" max="100" step="1"
+   <label htmlFor={alphaId}>Opacity</label>
+   <input id={alphaId} aria-label="Color opacity" type="range" min="0" max="100" step="1"
     disabled={disabled} value={opacityPercent(ink)} onChange={e=>onColor(withOpacity(ink,Number(e.target.value)))}
     onPointerUp={()=>onChoose(ink)} onKeyUp={()=>onChoose(ink)}/>
    <output>{opacityPercent(ink)}%</output>
@@ -140,7 +141,7 @@ export default function ColorWorkbench(props:Props){
     aria-label="Close color picker"><X size={17}/></button></div>
    <div className="pw-color-popover-body">
     <ColorEditor ink={props.ink} onColor={props.onColor} onChoose={props.onChoose} disabled={props.disabled}/>
-    <ColorGroups {...props}/>
+    <ColorGroups {...props} onChoose={hex=>{props.onChoose(hex);setOpen(false);toggle.current?.focus();}}/>
    </div>
   </div>}
  </div>;
