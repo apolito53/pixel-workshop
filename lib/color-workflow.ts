@@ -1,4 +1,4 @@
-import {composite,frameCount,frameView,type PixelDocument} from './pixels.ts';
+import {composite,frameCount,frameView,DEFAULT_PALETTE,type PixelDocument} from './pixels.ts';
 
 /** An ephemeral color is never written to the project's saved palette. */
 export type ArtworkColor={hex:string;pixelCount:number};
@@ -7,6 +7,15 @@ const HEX=/^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i;
 const clamp=(n:number,min:number,max:number)=>Math.min(max,Math.max(min,n));
 const byte=(n:number)=>Math.round(clamp(n,0,255)).toString(16).padStart(2,'0');
 
+/** Separate older automatically inserted swatches from deliberate project favorites.
+ * This is a display interpretation only: original project metadata remains untouched.
+ */
+export function splitProjectPalette(palette:readonly string[]):{legacy:string[];saved:string[]}{
+ const old=palette.length>=DEFAULT_PALETTE.length&&DEFAULT_PALETTE.every(
+  (c,i)=>palette[i]?.toLowerCase()===c.toLowerCase());
+ return old?{legacy:palette.slice(0,DEFAULT_PALETTE.length),saved:palette.slice(DEFAULT_PALETTE.length)}:
+  {legacy:[],saved:[...palette]};
+}
 export function isHexInk(value:unknown):value is string{
  return typeof value==='string'&&HEX.test(value);
 }
