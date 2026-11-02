@@ -10,6 +10,8 @@ import {INSPECTOR_TABS,inspectorTabForKey,type InspectorTab} from '../lib/inspec
 type Snapshot=EditorSnapshot;
 type Tool='select'|'pencil'|'eraser'|'fill'|'picker'|'line'|'rect'|'ellipse'|'stamp';
 const tools=[['pencil',Pencil,'Pencil','B'],['eraser',Eraser,'Eraser','E'],['fill',PaintBucket,'Fill','G'],['picker',Pipette,'Eyedropper','I'],['line',Minus,'Line','L'],['rect',Square,'Rectangle','R'],['ellipse',Circle,'Ellipse','O'],['select',Scan,'Select / move','V'],['stamp',Stamp,'Stamp copied pixels','S']] as const;
+// Keep precise explanations in tooltips/ARIA, but make drawer tile names concise.
+const drawerToolLabels:Partial<Record<Tool,string>>={stamp:'Stamp'};
 async function api<T>(path:string,body?:unknown):Promise<T>{const r=await fetch('/api/pixel/'+path,{method:body?'POST':'GET',headers:body?{'content-type':'application/json'}:{},...(body?{body:JSON.stringify(body)}:{}),cache:'no-store'});const d=await r.json() as T & {error?:string};if(!r.ok)throw Object.assign(new Error(d.error||'Request failed'),{status:r.status});return d;}
 function download(name:string,data:Blob){const url=URL.createObjectURL(data),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 const pixelOps = new Set(['pixel','fill','line','rect','ellipse','transform','paste','clear']);
@@ -458,7 +460,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
     <button type="button" ref={drawToolsCloseRef} aria-label="Close drawing tools" onClick={closeDrawTools}><X size={19}/></button>
   </div>
   <div className="rail-paint-tools">
-    {tools.map(([id,Icon,label,key])=><button key={id} className={'tool '+(tool===id?'active':'')} aria-label={label} aria-pressed={tool===id} title={`${label} (${key})`} onClick={()=>{setTool(id);if(compactDrawTools)closeDrawTools();}}><Icon size={19}/><span className="rail-tool-label">{label}</span></button>)}
+    {tools.map(([id,Icon,label,key])=><button key={id} className={'tool '+(tool===id?'active':'')} aria-label={label} aria-pressed={tool===id} title={`${label} (${key})`} onClick={()=>{setTool(id);if(compactDrawTools)closeDrawTools();}}><Icon size={19}/><span className="rail-tool-label">{drawerToolLabels[id]??label}</span></button>)}
     <div className="rail-rule"/>
     <button type="button" className={'tool '+(grid?'active':'')} aria-label="Toggle grid" aria-pressed={grid} onClick={()=>setGrid(v=>!v)}><Grid2X2 size={19}/><span className="rail-tool-label">Grid</span></button>
   </div>
