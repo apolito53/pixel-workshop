@@ -498,3 +498,65 @@
 @media(prefers-reduced-motion:reduce){
  .quick-color-swatch{transition:none}
 }
+
+
+/* Stamp workbench: transparent cursor, grab-and-place workflow, local reusable stamps. */
+.stamp-cursor-preview{position:absolute;z-index:4;image-rendering:pixelated;pointer-events:none;
+ opacity:.6;outline:1px dashed #f5dfab;outline-offset:1px;filter:drop-shadow(0 0 3px #0009)}
+.stamp-context{display:inline-flex;align-items:center;gap:6px;min-width:0;
+ border:1px solid #76644f;border-radius:5px;background:#49392b39;padding:4px 6px;
+ flex-shrink:1}
+.stamp-context-hint{font-size:10px;color:#ecd5ba;max-width:125px;white-space:nowrap;
+ text-overflow:ellipsis;overflow:hidden}
+.stamp-context button{display:inline-flex;align-items:center;justify-content:center;gap:4px;
+ font-size:10px;font-weight:700;border-radius:4px;padding:5px 7px;color:#ffe3c4;
+ border:1px solid #aa865d80;background:#6c554024}
+.stamp-context button:hover{background:#b88a542f}
+.stamp-context label{display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#b9abb7}
+.stamp-context select{max-width:65px;font-size:10px;padding:4px 2px;background:#24252a}
+.stamp-workbench>p{font-size:10px;line-height:1.6;color:#aaa3b2;margin:0 0 12px}
+.stamp-workbench .stamp-capture-button{display:flex;justify-content:center;gap:7px;
+ font-size:11px;color:#f1d4b2;border-color:#806b50}
+.stamp-active{display:flex;align-items:center;gap:10px;border:1px solid #5b505d;
+ background:#1c1d25;border-radius:5px;padding:8px;margin-top:12px}
+.stamp-active .stamp-thumb{width:49px;height:49px;flex-shrink:0}
+.stamp-active>div{display:flex;flex-direction:column;gap:5px;min-width:0}
+.stamp-active b{font-size:11px;color:#eed5ae}
+.stamp-active small{font-size:10px;color:#b4abb8}
+.stamp-thumb{display:block;object-fit:contain;image-rendering:pixelated;
+ border:1px solid #a199aa62;background:repeating-conic-gradient(#383b46 0% 25%,#252831 0% 50%) 50%/12px 12px;
+ border-radius:4px}
+.stamp-save-controls{display:flex;gap:7px;margin:10px 0 15px}
+.stamp-save-controls input{flex:1;min-width:0;width:100%;font-size:11px;padding:7px;
+ background:#1c1d22;border:1px solid #57515b;border-radius:4px}
+.stamp-save-controls button{display:flex;align-items:center;justify-content:center;gap:5px;
+ padding:7px;font-size:10px;color:#e3cca8}
+.stamp-library-heading{display:flex;justify-content:space-between;align-items:center;gap:6px;
+ border-top:1px solid #49444e;padding-top:15px;margin-bottom:9px;font-size:9px;
+ letter-spacing:1px;font-weight:750;color:#c5b5c5}
+.stamp-library-heading span{color:#8e899a}
+.stamp-library-list{display:flex;flex-direction:column;gap:5px;max-height:265px;overflow-y:auto}
+.stamp-library-entry{display:flex;align-items:center;gap:6px;background:#1b1d23;border:1px solid #4e4754;
+ padding:5px;border-radius:5px}
+.stamp-library-entry>button:first-child{display:flex;align-items:center;min-width:0;flex:1;
+ gap:9px;text-align:left;font-size:11px;color:#ddd3d5}
+.stamp-library-entry .stamp-thumb{height:33px;width:33px;flex-shrink:0}
+.stamp-library-entry span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stamp-library-delete{width:30px;height:32px;flex-shrink:0;display:flex;align-items:center;
+ justify-content:center;color:#c69b9a;border-radius:4px}
+.stamp-library-delete:hover{background:#9b454322}
+.stamp-workbench .stamp-empty{font-size:10px;color:#9692a2;margin:0;font-style:italic}
+@media(max-width:920px){
+ .stamp-context-hint{display:none}
+}
+@media(max-width:560px){
+ .stamp-context{padding:3px;gap:3px}
+ .stamp-context button{font-size:0;width:29px;height:29px;padding:4px}
+ .stamp-context button svg{width:15px;height:15px}
+ .stamp-context label{font-size:0;gap:0}
+ .stamp-context select{font-size:10px;max-width:50px}
+}
+@media(max-width:390px){
+ .stamp-context{gap:2px}
+ .stamp-context select{max-width:42px}
+}
