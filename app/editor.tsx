@@ -74,7 +74,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   const d=state.snapshot.doc;setList(items=>items.map(p=>p.id===d.id?{...p,name:d.name,revision:d.revision,updatedAt:d.updatedAt}:p));
  },[present]);
  const adopt=useCallback((s:Snapshot)=>{
-  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);setPreviewClip(null);setEffectTarget(null);resetPan();setFitMode(true);}
+  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);setPreviewClip(null);setEffectTarget(null);setClipOriginal(null);setClipName('idle');setClipFrom(0);setClipTo(0);resetPan();setFitMode(true);}
   queue.current?.dispose();queue.current=new EditQueue(s,request=>api<Snapshot>('projects/'+s.doc.id,request),showQueue);
   setSaveState({pending:0,saving:false,error:null});present(s);
  },[present,showQueue,resetPan]);
@@ -531,7 +531,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
     </div>)}
    </div>:<p className="clip-empty">No clips yet. Define one using the frame numbers below.</p>}
    <button type="button" className="text-button clip-all-frames" onClick={()=>{setPreviewClip(null);setPlaying(false);}} disabled={!previewClip}>Stop clip preview · play all frames</button>
-   <div className="section-heading clip-create-heading"><span>{clipOriginal?'EDIT CLIP':'DEFINE A CLIP'}</span><button type="button" className="text-button" onClick={()=>{setClipOriginal(null);setClipName('new-clip');setClipFrom(Math.min(frame,frameCount(d||current.current!.doc)-1));setClipTo(Math.min(frame,frameCount(d||current.current!.doc)-1));}}>New</button></div>
+   <div className="section-heading clip-create-heading"><span>{clipOriginal?'EDIT CLIP':'DEFINE A CLIP'}</span><button type="button" className="text-button" disabled={!d} onClick={()=>{if(!d)return;setClipOriginal(null);setClipName('new-clip');setClipFrom(Math.min(frame,frameCount(d)-1));setClipTo(Math.min(frame,frameCount(d)-1));}}>New</button></div>
    <label className="effect-field">Name<input aria-label="Animation clip name" value={clipName} onChange={e=>setClipName(e.target.value)} maxLength={32}/></label>
    <label className="effect-field">First frame<input aria-label="Clip start frame" type="number" min={1} max={d?frameCount(d):1} value={clipFrom+1} onChange={e=>setClipFrom(Number(e.target.value)-1)}/></label>
    <label className="effect-field">Last frame<input aria-label="Clip end frame" type="number" min={1} max={d?frameCount(d):1} value={clipTo+1} onChange={e=>setClipTo(Number(e.target.value)-1)}/></label>

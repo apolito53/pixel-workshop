@@ -81,7 +81,7 @@ Open **Export → Export game pack ZIP** to choose up to 30 canvases from the cu
 
 The same Export panel offers **Tileset ZIP** for a uniform grid (e.g. 16 × 16). The selected frame is split into deterministic row-major tile IDs with exact sheet coordinates and transparent-cell detection; it includes the tile PNG, atlas JSON and editable source. Canvas dimensions must be multiples of the chosen tile size. This is a tileset export, *not yet* a full tilemap/layout editor with collision rules or autotiling.
 
-The playable [Stardrop proof-of-concept](/play/moonkeeper) now includes a one-click download of its ten editable original assets as a game pack, with native animation clips tagged on the character, collectibles, enemies and VFX. See [the dogfood notes](docs/stardrop-production-notes.md) for workflow findings and remaining feature priorities.
+The playable [Stardrop proof-of-concept](https://pixel-workshop-nine.vercel.app/play/moonkeeper) now includes a one-click download of its ten editable original assets as a game pack, with native animation clips tagged on the character, collectibles, enemies and VFX. See [the dogfood notes](docs/stardrop-production-notes.md) for workflow findings and remaining feature priorities.
 
 ## Deploy on Vercel
 
