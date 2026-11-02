@@ -434,6 +434,32 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
    {d&&!hasFreeEffectLayerSlot(d)&&<button type="button" className="text-button effects-manage-link" onClick={()=>activateInspectorTab('layers')}><Layers size={14}/>Manage layers to free a slot</button>}
   </section>
  </div>
+ <div className="inspector-panel" id="inspector-panel-animation" role="tabpanel" aria-labelledby="inspector-tab-animation" tabIndex={0} hidden={inspectorTab!=='animation'}>
+  <section className="inspector-section clip-section">
+   <div className="section-heading"><span>ANIMATION CLIPS</span><Film size={15}/></div>
+   <p>Name reusable ranges of frames, give each its own speed, and export them with your atlas. Original pixels remain editable.</p>
+   {d?.animation?.clips?.length?<div className="clip-list">
+    {d.animation.clips.map(clip=><div className="clip-row" key={clip.name}>
+     <div className="clip-row-heading"><b>{clip.name}</b><small>{clip.from+1}–{clip.to+1} · {clip.fps} FPS · {clip.mode}</small></div>
+     <div className="clip-row-actions">
+      <button type="button" title={'Preview '+clip.name} onClick={()=>playClip(clip)} disabled={busy}>▶</button>
+      <button type="button" title={'Edit '+clip.name} onClick={()=>editClip(clip)} disabled={busy}>Edit</button>
+      <button type="button" title={'Delete '+clip.name} onClick={()=>void commit([{op:'clip_delete',name:clip.name}])} disabled={busy}>×</button>
+     </div>
+    </div>)}
+   </div>:<p className="clip-empty">No clips yet. Define one using the frame numbers below.</p>}
+   <button type="button" className="text-button clip-all-frames" onClick={()=>{setPreviewClip(null);setPlaying(false);}} disabled={!previewClip}>Stop clip preview · play all frames</button>
+   <div className="section-heading clip-create-heading"><span>DEFINE A CLIP</span></div>
+   <label className="effect-field">Name<input aria-label="Animation clip name" value={clipName} onChange={e=>setClipName(e.target.value)} maxLength={32}/></label>
+   <label className="effect-field">First frame<input aria-label="Clip start frame" type="number" min={1} max={d?frameCount(d):1} value={clipFrom+1} onChange={e=>setClipFrom(Number(e.target.value)-1)}/></label>
+   <label className="effect-field">Last frame<input aria-label="Clip end frame" type="number" min={1} max={d?frameCount(d):1} value={clipTo+1} onChange={e=>setClipTo(Number(e.target.value)-1)}/></label>
+   <label className="effect-field">Speed<input aria-label="Clip frames per second" type="number" min={1} max={30} value={clipFps} onChange={e=>setClipFps(Number(e.target.value))}/></label>
+   <label className="effect-field">Playback<select aria-label="Clip playback mode" value={clipMode} onChange={e=>setClipMode(e.target.value as AnimationClip['mode'])}>
+    <option value="loop">Loop</option><option value="once">Once</option><option value="pingpong">Ping-pong</option>
+   </select></label>
+   <button type="button" className="secondary full" disabled={!d||busy||!clipName.trim()||clipFrom<0||clipTo<clipFrom||clipTo>=frameCount(d)||clipFps<1||clipFps>30} onClick={()=>void saveClip()}><Plus size={14}/>Save clip</button>
+  </section>
+ </div>
  <div className="inspector-panel" id="inspector-panel-export" role="tabpanel" aria-labelledby="inspector-tab-export" tabIndex={0} hidden={inspectorTab!=='export'}>
  <section className="inspector-section export-section"><div className="section-heading"><span>EXPORT</span><span className="filetype">PNG</span></div><label className="scale-select">Output size<select aria-label="PNG export scale" value={scale} onChange={e=>setScale(Number(e.target.value))}>{[1,2,4,8].map(s=><option key={s} value={s}>{s}× {d?`· ${d.width*s} × ${d.height*s}`:''}</option>)}</select></label><p>Transparent background.<br/>Clean pixels, ready for your game.</p><button className="secondary full" disabled={!d||busy} onClick={()=>{if(d)download(d.name+'.pixel.json',new Blob([JSON.stringify(d)],{type:'application/json'}));}}>Save editable project <Download size={14}/></button>
   <button className="secondary full" disabled={!d||busy} onClick={()=>void exportSheet()}>Sprite sheet PNG <Download size={14}/></button>
