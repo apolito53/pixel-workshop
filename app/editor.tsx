@@ -1,12 +1,14 @@
 'use client';
 import {useCallback,useEffect,useRef,useState,type PointerEvent as PE} from 'react';
-import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound,Stamp} from 'lucide-react';
+import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound,Stamp,BookOpen} from 'lucide-react';
 import {applyCommands,clipFrameSequence,composite,frameCount,frameView,readRegion,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
 import {generateEffectCommands,regenerateEffectCommands,hasFreeEffectLayerSlot,type EffectKind,EFFECT_KINDS,EFFECT_GROUPS,EFFECT_PRESETS} from '../lib/effects.ts';
 import {EditQueue,type EditorSnapshot,type QueueState} from '../lib/edit-queue.ts';
 import {beginPinch,movePinch,finishPinch,touchMidpoint,type GesturePoint,type PinchStart,type PinchView,type GestureViewport} from '../lib/touch-gestures.ts';
 import {INSPECTOR_TABS,inspectorTabForKey,type InspectorTab} from '../lib/inspector-tabs.ts';
+import {guideSteps,type GuideScope} from '../lib/workshop-guide.ts';
+import WorkshopGuide from './workshop-tour.tsx';
 type Snapshot=EditorSnapshot;
 type Tool='select'|'pencil'|'eraser'|'fill'|'picker'|'line'|'rect'|'ellipse'|'stamp';
 const tools=[['pencil',Pencil,'Pencil','B'],['eraser',Eraser,'Eraser','E'],['fill',PaintBucket,'Fill','G'],['picker',Pipette,'Eyedropper','I'],['line',Minus,'Line','L'],['rect',Square,'Rectangle','R'],['ellipse',Circle,'Ellipse','O'],['select',Scan,'Select / move','V'],['stamp',Stamp,'Stamp copied pixels','S']] as const;
@@ -40,6 +42,9 @@ function FrameThumbnail({doc,index}:{doc:PixelDocument;index:number}){
  return <canvas ref={ref} className="frame-thumbnail" aria-hidden="true"/>;
 }
 export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}={}){
+ const [guide,setGuide]=useState<{mode:'off'|'menu'|'tour';scope:GuideScope;index:number}>({mode:'off',scope:'all',index:0});
+ const guideToggleRef=useRef<HTMLButtonElement>(null);
+ const guidePreviousRef=useRef<{tab:InspectorTab;inspectorOpen:boolean;drawOpen:boolean}|null>(null);
  const [inspectorTab,setInspectorTab]=useState<InspectorTab>('draw');
  const [canvasPan,setCanvasPan]=useState<GesturePoint>({x:0,y:0});
  const [pinchScale,setPinchScale]=useState(1);
@@ -60,6 +65,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const [clipName,setClipName]=useState('idle'),[clipFrom,setClipFrom]=useState(0),[clipTo,setClipTo]=useState(0),[clipFps,setClipFps]=useState(8),[clipMode,setClipMode]=useState<AnimationClip['mode']>('loop');
  const [previewClip,setPreviewClip]=useState<string|null>(null);
  const previewPosition=useRef(0);
+ const guideStep=guide.mode==='tour'?guideSteps(guide.scope)[guide.index]:undefined;
  const queue=useRef<EditQueue|null>(null),viewport=useRef<HTMLDivElement>(null),selectionDrag=useRef<{base:Snapshot;start:{x:number;y:number};source:PixelRegion|null;region:PixelRegion;layer:string;frame:number}|null>(null),canvas=useRef<HTMLCanvasElement>(null),preview=useRef<HTMLCanvasElement>(null),file=useRef<HTMLInputElement>(null),current=useRef(snap),locked=useRef(false),stroke=useRef<{base:Snapshot;start:{x:number;y:number};last:{x:number;y:number};ops:PaintCommand[];frame:number}|null>(null);
  const resetPan=useCallback(()=>{
   if(gestureFrame.current!==null)cancelAnimationFrame(gestureFrame.current);
@@ -112,6 +118,18 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
    },1000/(clip?.fps??doc.animation?.fps??8));
    return()=>clearInterval(timer);
  },[playing,previewClip,snap?.doc.id,snap?.doc.revision]);
+ // Guide stops reveal controls without creating projects or altering pixel data.
+ useEffect(()=>{
+  if(!guideStep)return;
+  if(guideStep.panel==='drawing'){
+   setInspectorOpen(false);setDrawToolsOpen(compactDrawTools);
+  }else if(guideStep.panel==='none'){
+   setInspectorOpen(false);setDrawToolsOpen(false);
+  }else{
+   setDrawToolsOpen(false);setInspectorTab(guideStep.panel);
+   setInspectorOpen(mobileLayout);
+  }
+ },[guideStep?.id,compactDrawTools,mobileLayout]);
  const touchNavigationActive=mobileLayout||touchCapable;
  useEffect(()=>{
   resetPan();
@@ -142,7 +160,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   return()=>media.removeEventListener('change',update);
  },[]);
  useEffect(()=>{
-  if(!compactDrawTools||!drawToolsOpen)return;
+  if(!compactDrawTools||!drawToolsOpen||guide.mode!=='off')return;
   drawToolsCloseRef.current?.focus();
   const handle=(e:KeyboardEvent)=>{
    if(e.key==='Escape'){
@@ -161,13 +179,13 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   };
   window.addEventListener('keydown',handle,true);
   return()=>window.removeEventListener('keydown',handle,true);
- },[compactDrawTools,drawToolsOpen]);
+ },[compactDrawTools,drawToolsOpen,guide.mode]);
  useEffect(()=>{
   const panel=inspectorRef.current?.querySelector<HTMLElement>('.inspector-panel:not([hidden])');
   if(panel)panel.scrollTop=0;
  },[inspectorTab]);
  useEffect(()=>{
-  if(!mobileLayout||!inspectorOpen)return;
+  if(!mobileLayout||!inspectorOpen||guide.mode!=='off')return;
   drawerCloseRef.current?.focus();
   const handle=(e:KeyboardEvent)=>{
    if(e.key==='Escape'){
@@ -186,7 +204,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   };
   window.addEventListener('keydown',handle,true);
   return()=>window.removeEventListener('keydown',handle,true);
- },[mobileLayout,inspectorOpen]);
+ },[mobileLayout,inspectorOpen,guide.mode]);
  useEffect(()=>{const element=viewport.current;if(!element||!snap||!fitMode)return;
   const fit=()=>{
    const narrow=window.matchMedia('(max-width: 800px)').matches;
@@ -329,7 +347,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const move=(e:PE<HTMLCanvasElement>)=>{if(!snap||e.pointerType==='touch'&&(touchGesture.current!==null||suppressTouchDrawing.current))return;const p=point(e);setHover(old=>old?.x===p.x&&old?.y===p.y?old:p);setCursor(`X ${String(p.x).padStart(3,'0')}   Y ${String(p.y).padStart(3,'0')}`);const drag=selectionDrag.current;if(drag){if(drag.source){const source=drag.source;drag.region={...source,x:Math.max(0,Math.min(drag.base.doc.width-source.width,source.x+p.x-drag.start.x)),y:Math.max(0,Math.min(drag.base.doc.height-source.height,source.y+p.y-drag.start.y))};present({...drag.base,doc:applyCommands(drag.base.doc,[{op:'transform',mode:'move',layer:drag.layer,frame:drag.frame,...source,x2:drag.region.x,y2:drag.region.y}])});}else drag.region={x:Math.min(drag.start.x,p.x),y:Math.min(drag.start.y,p.y),width:Math.abs(p.x-drag.start.x)+1,height:Math.abs(p.y-drag.start.y)+1};setSelection(drag.region);return;}const st=stroke.current;if(!st||tool==='fill'||tool==='stamp'||(p.x===st.last.x&&p.y===st.last.y)||st.ops.length>4000)return;if(['pencil','eraser'].includes(tool))st.ops.push({op:'line',layer,color:tool==='eraser'?'transparent':ink,...st.last,x2:p.x,y2:p.y});else st.ops=[shape(st.start,p)];st.last=p;present({...st.base,doc:applyCommands(st.base.doc,targetFrame(st.ops,st.frame))});};
  const up=()=>{const drag=selectionDrag.current;if(drag){selectionDrag.current=null;if(drag.source&&(drag.source.x!==drag.region.x||drag.source.y!==drag.region.y))void commit([{op:'transform',mode:'move',layer:drag.layer,frame:drag.frame,...drag.source,x2:drag.region.x,y2:drag.region.y}],drag.base);else present(drag.base);return;}const st=stroke.current;if(st){stroke.current=null;void commit(targetFrame(st.ops,st.frame),st.base);}};
  const png=async()=>{const d=current.current?.doc;if(!d)return;try{const {encodeBrowserPng}=await import('../lib/browser-png.ts');download(d.name+'.png',new Blob([encodeBrowserPng(frameView(d,Math.min(frame,frameCount(d)-1)),scale)],{type:'image/png'}));if(!queue.current?.state.pending)setNotice(`Exported ${d.width*scale} × ${d.height*scale} PNG`);}catch(e){setError((e as Error).message);}};
- useEffect(()=>{const h=(e:KeyboardEvent)=>{if((e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"],[role="tab"]')||stroke.current||selectionDrag.current)return;if(e.key==='Escape'){setModal(false);setPackModal(false);setSelection(null);return;}if(modal||packModal)return;const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='z'){e.preventDefault();void commit([],undefined,e.shiftKey?'redo':'undo');return;}if(mod&&key==='c'&&selection){e.preventDefault();copySelection();return;}if(mod&&key==='v'&&clipboard){e.preventDefault();pasteSelection();return;}if(mod&&key==='x'&&selection){e.preventDefault();copySelection();clearSelection();return;}if(selection&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const step=e.shiftKey?10:1;transformSelection('move',e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0,e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0);return;}if(selection&&['Delete','Backspace'].includes(e.key)){e.preventDefault();clearSelection();return;}if(mod)return;const t=tools.find(t=>t[3].toLowerCase()===key);if(t)setTool(t[0]);if(key==='h')setGrid(v=>!v);};window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);});
+ useEffect(()=>{const h=(e:KeyboardEvent)=>{if(guide.mode!=='off'||(e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"],[role="tab"]')||stroke.current||selectionDrag.current)return;if(e.key==='Escape'){setModal(false);setPackModal(false);setSelection(null);return;}if(modal||packModal)return;const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='z'){e.preventDefault();void commit([],undefined,e.shiftKey?'redo':'undo');return;}if(mod&&key==='c'&&selection){e.preventDefault();copySelection();return;}if(mod&&key==='v'&&clipboard){e.preventDefault();pasteSelection();return;}if(mod&&key==='x'&&selection){e.preventDefault();copySelection();clearSelection();return;}if(selection&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const step=e.shiftKey?10:1;transformSelection('move',e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0,e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0);return;}if(selection&&['Delete','Backspace'].includes(e.key)){e.preventDefault();clearSelection();return;}if(mod)return;const t=tools.find(t=>t[3].toLowerCase()===key);if(t)setTool(t[0]);if(key==='h')setGrid(v=>!v);};window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);});
  const addFrame=async()=>{
   const doc=current.current?.doc;if(!doc||playing)return;
   const next=frameCount(doc);
@@ -433,9 +451,34 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
    if(await commit(commands)){setFrame(0);setSelection(null);setPlaying(true);setNotice('Regenerated effect from saved settings');}
   }catch(e){setError((e as Error).message);}
  };
+ const openGuide=()=>{
+  if(guide.mode==='off')guidePreviousRef.current={tab:inspectorTab,inspectorOpen,drawOpen:drawToolsOpen};
+  try{localStorage.setItem('pixel-workshop-guide-seen-v1','1');}catch{}
+  setInspectorOpen(false);setDrawToolsOpen(false);
+  setGuide({mode:'menu',scope:'all',index:0});
+ };
+ const closeGuide=()=>{
+  const previous=guidePreviousRef.current;
+  setGuide({mode:'off',scope:'all',index:0});
+  if(previous){
+   setInspectorTab(previous.tab);setInspectorOpen(previous.inspectorOpen&&mobileLayout);
+   setDrawToolsOpen(previous.drawOpen&&compactDrawTools);
+  }else{setInspectorOpen(false);setDrawToolsOpen(false);}
+  guidePreviousRef.current=null;
+  requestAnimationFrame(()=>guideToggleRef.current?.focus());
+ };
+ const startGuide=(scope:GuideScope)=>setGuide({mode:'tour',scope,index:0});
+ const moveGuide=(direction:-1|1)=>{
+  setGuide(old=>old.mode!=='tour'?old:{...old,index:Math.max(0,Math.min(guideSteps(old.scope).length-1,old.index+direction))});
+ };
+ const guideMenu=()=>{
+  setInspectorOpen(false);setDrawToolsOpen(false);
+  setGuide(old=>({...old,mode:'menu'}));
+ };
  const closeDrawTools=()=>{setDrawToolsOpen(false);drawToolsToggleRef.current?.focus();};
  const closeMobileInspector=()=>{setInspectorOpen(false);drawerToggleRef.current?.focus();};
  const manageWorkspace=async()=>{
+  if(guide.mode!=='off')closeGuide();
   try{
    await queue.current?.flush();
    if(stroke.current||selectionDrag.current)throw new Error('Finish your current stroke before switching workspaces.');
@@ -447,13 +490,15 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   if(inspectorRef.current)inspectorRef.current.scrollTop=0;
  };
  const d=snap?.doc,activeFrame=d?Math.min(frame,frameCount(d)-1):0,displayError=error||saveState.error?.message;
- return <main className="workshop"><header className="app-header"><a className="brand" href="/"><span className="brand-mark">{Array.from({length:9},(_,i)=><i key={i}/>)}</span><span>pixel<span className="brand-light">workshop</span><small>A LITTLE ROOM TO MAKE THINGS</small></span></a>{onManageWorkspace&&<button type="button" className="text-button workspace-header-button" aria-label="Manage workspace" title="Workspace and agent connection" onClick={()=>void manageWorkspace()}><KeyRound size={16}/><span>Workspace</span></button>}<div className="header-meta"><span className="version">WORKSPACE / 01</span><span className="connection"><i/> MCP enabled</span></div><button className="primary" disabled={!d||busy} onClick={()=>void png()}><Download size={15}/>Export PNG</button></header>
+ return <main className="workshop"><header className="app-header"><a className="brand" href="/"><span className="brand-mark">{Array.from({length:9},(_,i)=><i key={i}/>)}</span><span>pixel<span className="brand-light">workshop</span><small>A LITTLE ROOM TO MAKE THINGS</small></span></a>{onManageWorkspace&&<button type="button" className="text-button workspace-header-button" aria-label="Manage workspace" title="Workspace and agent connection" onClick={()=>void manageWorkspace()}><KeyRound size={16}/><span>Workspace</span></button>}<button type="button" ref={guideToggleRef} className="guide-header-button"
+ title="Guided tour and interactive help" aria-label="Open Pixel Workshop guide" onClick={openGuide}>
+ <BookOpen size={17}/><span>Guide</span></button><div className="header-meta"><span className="version">WORKSPACE / 01</span><span className="connection"><i/> MCP enabled</span></div><button className="primary" aria-label="Export current frame as PNG" disabled={!d||busy} onClick={()=>void png()}><Download size={15}/>Export PNG</button></header>
  <div className="document-bar"><div className="document-switch"><FolderOpen size={15}/><select aria-label="Open saved project" value={d?.id||''} disabled={busy} onChange={e=>void open(e.target.value)}>{!d&&<option>Opening workspace…</option>}{list.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><ChevronDown size={13}/></div><span className="document-size">{d?`${d.width} × ${d.height} px`:'—'}</span><span className="separator"/><button className="text-button" disabled={busy} onClick={()=>setModal(true)}><FilePlus size={15}/>New canvas</button><button className="text-button open-file" disabled={busy} onClick={()=>file.current?.click()}><FolderOpen size={15}/>Open project</button><a className="text-button stardrop-editor-link" href="/play/moonkeeper" title="Play Stardrop, a game made with Pixel Workshop">✧ <span>Play Stardrop</span></a></div>
  <div className="work-area" data-tools-open={mobileLayout&&inspectorOpen} data-draw-open={compactDrawTools&&drawToolsOpen}>
  <button type="button" className="draw-tools-backdrop" tabIndex={-1} aria-label="Dismiss drawing tools" onClick={closeDrawTools}/>
  <aside id="pixel-drawing-tools" className="tool-rail" ref={drawToolsRef} aria-label="Drawing tools"
-  role={compactDrawTools&&drawToolsOpen?'dialog':undefined}
-  aria-modal={compactDrawTools&&drawToolsOpen?true:undefined}
+  role={compactDrawTools&&drawToolsOpen&&guide.mode==='off'?'dialog':undefined}
+  aria-modal={compactDrawTools&&drawToolsOpen&&guide.mode==='off'?true:undefined}
   aria-hidden={compactDrawTools&&!drawToolsOpen}
   inert={compactDrawTools&&!drawToolsOpen}>
   <div className="draw-tools-header"><span><Pencil size={16}/>Drawing tools</span>
@@ -497,8 +542,8 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  </div>}<div className="canvas-footer"><div className="zoom-control"><button aria-label="Zoom out" onClick={()=>{setFitMode(false);setZoom(z=>Math.max(1,z-1));}}><ZoomOut size={16}/></button><span>{Math.round(zoom*pinchScale*100)}%</span><button aria-label="Zoom in" onClick={()=>{setFitMode(false);setZoom(z=>Math.min(24,z+1));}}><ZoomIn size={16}/></button></div><button className={'small-toggle fit-button '+(fitMode?'on':'')} aria-label="Fit canvas to workspace" onClick={()=>{resetPan();setFitMode(true);}}><Maximize size={14}/>Fit</button><span className="scale-caption">{zoom>=3?'1 cell = 1 output pixel':'Zoom in to see the cell grid'}</span><span className="spacer"/><button className={'small-toggle '+(grid?'on':'')} onClick={()=>setGrid(v=>!v)}><Grid2X2 size={14}/>Grid {grid?'on':'off'}</button></div></section>
   <button type="button" className="inspector-backdrop" aria-label="Close tools" onClick={closeMobileInspector}/>
   <aside id="pixel-inspector" className="inspector" ref={inspectorRef} aria-label="Editor inspector"
-   role={mobileLayout&&inspectorOpen?'dialog':undefined}
-   aria-modal={mobileLayout&&inspectorOpen?true:undefined}
+   role={mobileLayout&&inspectorOpen&&guide.mode==='off'?'dialog':undefined}
+   aria-modal={mobileLayout&&inspectorOpen&&guide.mode==='off'?true:undefined}
    aria-hidden={mobileLayout&&!inspectorOpen}
    inert={mobileLayout&&!inspectorOpen}>
   <div className="inspector-drawer-header"><span><SlidersHorizontal size={16}/>Tools</span>
@@ -634,6 +679,8 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
     </button>
    </section>
   </div>}
- {modal&&<div className="modal-backdrop" onClick={()=>setModal(false)}><section className="new-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" onClick={e=>e.stopPropagation()}><button className="dialog-close icon-button" aria-label="Close new canvas dialog" onClick={()=>setModal(false)}><X size={18}/></button><span className="eyebrow">A FRESH LITTLE START</span><h2 id="dialog-title">Make room for an idea.</h2><label>Canvas name<input autoFocus value={name} maxLength={80} onChange={e=>setName(e.target.value)}/></label><div className="dimension-inputs"><label>Width<input type="number" min={1} max={256} value={width} onChange={e=>setWidth(Number(e.target.value))}/></label><span>×</span><label>Height<input type="number" min={1} max={256} value={height} onChange={e=>setHeight(Number(e.target.value))}/></label></div><div className="size-presets">{[16,32,48,64,128].map(s=><button key={s} className={width===s&&height===s?'selected':''} onClick={()=>{setWidth(s);setHeight(s);}}>{s}×{s}</button>)}</div>{error&&<p className="error-text">{error}</p>}<button className="primary full" disabled={busy} onClick={()=>void create()}><Plus size={16}/>Create canvas</button><button className="text-button example-button" disabled={busy} onClick={()=>void create('cottage')}>Open Moonkeeper’s cottage · 64 × 64</button><button className="text-button example-button" disabled={busy} onClick={()=>void create(true)}>Or open the little lantern</button></section></div>}
+ {guide.mode!=='off'&&<WorkshopGuide mode={guide.mode} scope={guide.scope} index={guide.index}
+  onStart={startGuide} onMove={moveGuide} onClose={closeGuide} onMenu={guideMenu}/>}
+  {modal&&<div className="modal-backdrop" onClick={()=>setModal(false)}><section className="new-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" onClick={e=>e.stopPropagation()}><button className="dialog-close icon-button" aria-label="Close new canvas dialog" onClick={()=>setModal(false)}><X size={18}/></button><span className="eyebrow">A FRESH LITTLE START</span><h2 id="dialog-title">Make room for an idea.</h2><label>Canvas name<input autoFocus value={name} maxLength={80} onChange={e=>setName(e.target.value)}/></label><div className="dimension-inputs"><label>Width<input type="number" min={1} max={256} value={width} onChange={e=>setWidth(Number(e.target.value))}/></label><span>×</span><label>Height<input type="number" min={1} max={256} value={height} onChange={e=>setHeight(Number(e.target.value))}/></label></div><div className="size-presets">{[16,32,48,64,128].map(s=><button key={s} className={width===s&&height===s?'selected':''} onClick={()=>{setWidth(s);setHeight(s);}}>{s}×{s}</button>)}</div>{error&&<p className="error-text">{error}</p>}<button className="primary full" disabled={busy} onClick={()=>void create()}><Plus size={16}/>Create canvas</button><button className="text-button example-button" disabled={busy} onClick={()=>void create('cottage')}>Open Moonkeeper’s cottage · 64 × 64</button><button className="text-button example-button" disabled={busy} onClick={()=>void create(true)}>Or open the little lantern</button></section></div>}
  </main>;
 }
