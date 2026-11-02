@@ -254,3 +254,13 @@
 .effect-recipe-panel p{font-size:10px;line-height:1.65;color:#a69da8;margin:12px 0}
 .effect-regenerate{justify-content:center;color:#ecd1ff;border-color:#6f5a84;background:#9671ba0b}
 .effect-regenerate:hover{background:#9671ba22}
+
+/* Game-ready tile exports and reusable snap-to-grid stamps. */
+.tileset-export-block{border-top:1px solid #44454b;margin-top:17px;padding-top:13px}
+.tileset-export-block p{font-size:10px;line-height:1.65;color:#9f9ca7;margin:0 0 10px}
+.tileset-export-block .secondary{margin-top:9px;justify-content:space-between;font-size:10px}
+.tileset-export-block .effect-field{margin:8px 0}
+.tileset-export-block .effect-field input{width:76px}
+.tileset-export-block .tileset-warning{color:#dcaa7d;margin:8px 0 0}
+.selection-section .stamp-snap-field{margin:13px 0}
+.selection-section .stamp-snap-field select{width:116px}
