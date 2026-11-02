@@ -749,13 +749,41 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
      <button className={'small-toggle '+(onion?'on':'')} aria-pressed={onion} onClick={()=>setOnion(v=>!v)}>Onion {onion?'on':'off'}</button>
      <button className="small-toggle" disabled={busy||playing||frameCount(d)>=32} onClick={()=>void addFrame()}><CopyPlus size={14}/>Duplicate</button>
      <button className="small-toggle" disabled={busy||playing||activeFrame===0} onClick={()=>void removeFrame()}><Trash2 size={14}/>Delete</button>
+   <button type="button" className={'small-toggle timeline-range-toggle'+(rangeSelectMode?' on':'')}
+    data-guide="clip-range" disabled={busy||playing} aria-pressed={rangeSelectMode}
+    onClick={()=>{setRangeSelectMode(active=>!active);clipDragRef.current=null;}}>
+    <Scan size={14}/>{rangeSelectMode?'Drag across frames':'Select clip range'}</button>
+   {clipRangeSelection&&<button type="button" className="small-toggle timeline-create-clip"
+    disabled={busy||playing} onClick={openClipFromRange}>
+    <Plus size={14}/>Create clip ({clipRangeSelection.from+1}–{clipRangeSelection.to+1})</button>
     </div>
   </div>
-  <div className="timeline-track" data-guide="timeline-track">{Array.from({length:frameCount(d)},(_,i)=>
-   <button key={i} aria-label={`Select animation frame ${i+1}`} aria-pressed={activeFrame===i} className={'frame-tile '+(activeFrame===i?'active':'')}
-    disabled={busy||playing} onClick={()=>{if(stroke.current||selectionDrag.current)return;setFrame(i);setPreviewClip(null);setSelection(null);}}>
-     <FrameThumbnail doc={d} index={i}/><span>{String(i+1).padStart(2,'0')}</span>
-   </button>)}</div>
+  <div className="timeline-track" data-guide="timeline-track"
+   onPointerMove={dragClipRange} onPointerUp={finishClipRange} onPointerCancel={finishClipRange}>
+   {Array.from({length:frameCount(d)},(_,i)=>
+    <button key={i} data-frame-index={i}
+     aria-label={`Select animation frame ${i+1}`} aria-pressed={activeFrame===i}
+     className={'frame-tile '+(activeFrame===i?'active ':'')+(clipRangeSelection&&i>=clipRangeSelection.from&&i<=clipRangeSelection.to?'range-selected':'')}
+     disabled={busy||playing} onPointerDown={e=>beginClipRange(i,e)}
+     onContextMenu={e=>{e.preventDefault();
+      const selected=clipRangeSelection&&i>=clipRangeSelection.from&&i<=clipRangeSelection.to?
+       clipRangeSelection:{from:i,to:i};
+      setClipRangeSelection(selected);setClipFrom(selected.from);setClipTo(selected.to);
+      setClipOriginal(null);setClipName('new-clip');setRangeSelectMode(false);
+      setInspectorTab('animation');setInspectorOpen(mobileLayout);
+     }}
+     onClick={e=>{
+      if(stroke.current||selectionDrag.current||rangeSelectMode)return;
+      if(e.shiftKey){setClipRangeSelection(clipRange(clipRangeSelection?.from??activeFrame,i,frameCount(d)));return;}
+      setFrame(i);setPreviewClip(null);setSelection(null);
+     }}>
+      <FrameThumbnail doc={d} index={i}/><span>{String(i+1).padStart(2,'0')}</span>
+      <span className="frame-clip-indicators" aria-hidden="true">
+       {clipsAtFrame(d.animation?.clips,i).slice(0,3).map(entry=>
+        <i key={entry.clip.name} style={{backgroundColor:entry.color}}
+         title={entry.clip.name} className="frame-clip-indicator"/>)}
+      </span>
+    </button>)}</div>
  </div>}<div className="canvas-footer" data-guide="zoom"><div className="zoom-control"><button aria-label="Zoom out" onClick={()=>{setFitMode(false);setZoom(z=>Math.max(1,z-1));}}><ZoomOut size={16}/></button><span>{Math.round(zoom*pinchScale*100)}%</span><button aria-label="Zoom in" onClick={()=>{setFitMode(false);setZoom(z=>Math.min(24,z+1));}}><ZoomIn size={16}/></button></div><button className={'small-toggle fit-button '+(fitMode?'on':'')} aria-label="Fit canvas to workspace" onClick={()=>{resetPan();setFitMode(true);}}><Maximize size={14}/>Fit</button><span className="scale-caption">{zoom>=3?'1 cell = 1 output pixel':'Zoom in to see the cell grid'}</span><span className="spacer"/><button className={'small-toggle '+(grid?'on':'')} onClick={()=>setGrid(v=>!v)}><Grid2X2 size={14}/>Grid {grid?'on':'off'}</button></div></section>
   <button type="button" className="inspector-backdrop" aria-label="Close tools" onClick={closeMobileInspector}/>
   <aside id="pixel-inspector" className="inspector" ref={inspectorRef} aria-label="Editor inspector"
@@ -839,19 +867,19 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  <div className="inspector-panel" id="inspector-panel-animation" role="tabpanel" aria-labelledby="inspector-tab-animation" tabIndex={0} hidden={inspectorTab!=='animation'}>
   <section className="inspector-section clip-section">
    <div className="section-heading" data-guide="clips"><span>ANIMATION CLIPS</span><Film size={15}/></div>
-   <p>Name reusable ranges of frames, give each its own speed, and export them with your atlas. Original pixels remain editable.</p>
+   <p>Select a clip range visually in the timeline, or Shift-click two frames, then give it a name. Drag its range again to adjust it. Clips export with the atlas.</p>
    {d?.animation?.clips?.length?<div className="clip-list">
     {d.animation.clips.map(clip=><div className="clip-row" key={clip.name}>
      <div className="clip-row-heading"><b>{clip.name}</b><small>{clip.from+1}–{clip.to+1} · {clip.fps} FPS · {clip.mode}</small></div>
      <div className="clip-row-actions">
       <button type="button" title={'Preview '+clip.name} onClick={()=>playClip(clip)} disabled={busy}>▶</button>
-      <button type="button" title={'Edit '+clip.name} onClick={()=>editClip(clip)} disabled={busy}>Edit</button>
+      <button type="button" title={'Edit '+clip.name} onClick={()=>editClip(clip)} disabled={busy}>Edit range</button>
       <button type="button" title={'Delete '+clip.name} onClick={()=>void commit([{op:'clip_delete',name:clip.name}])} disabled={busy}>×</button>
      </div>
     </div>)}
    </div>:<p className="clip-empty">No clips yet. Define one using the frame numbers below.</p>}
    <button type="button" className="text-button clip-all-frames" onClick={()=>{setPreviewClip(null);setPlaying(false);}} disabled={!previewClip}>Stop clip preview · play all frames</button>
-   <div className="section-heading clip-create-heading"><span>{clipOriginal?'EDIT CLIP':'DEFINE A CLIP'}</span><button type="button" className="text-button" disabled={!d} onClick={()=>{if(!d)return;setClipOriginal(null);setClipName('new-clip');setClipFrom(Math.min(frame,frameCount(d)-1));setClipTo(Math.min(frame,frameCount(d)-1));}}>New</button></div>
+   <div className="section-heading clip-create-heading"><span>{clipOriginal?'EDIT CLIP':'DEFINE A CLIP'}</span><button type="button" className="text-button" disabled={!d} onClick={()=>{if(!d)return;setClipOriginal(null);setClipName('new-clip');const range=clipRangeSelection??{from:Math.min(frame,frameCount(d)-1),to:Math.min(frame,frameCount(d)-1)};setClipFrom(range.from);setClipTo(range.to);}}>New</button></div>
    <label className="effect-field">Name<input aria-label="Animation clip name" value={clipName} onChange={e=>setClipName(e.target.value)} maxLength={32}/></label>
    <label className="effect-field">First frame<input aria-label="Clip start frame" type="number" min={1} max={d?frameCount(d):1} value={clipFrom+1} onChange={e=>setClipFrom(Number(e.target.value)-1)}/></label>
    <label className="effect-field">Last frame<input aria-label="Clip end frame" type="number" min={1} max={d?frameCount(d):1} value={clipTo+1} onChange={e=>setClipTo(Number(e.target.value)-1)}/></label>
