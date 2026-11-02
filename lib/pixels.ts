@@ -1,4 +1,18 @@
-export type Layer = { id: string; name: string; visible: boolean; pixels: number[] };
+export const PIXEL_EFFECT_KINDS = ['embers','sparkles','bubbles','leaves','fire','smoke','explosion','shockwave','lightning','rain','snow','arcane'] as const;
+export type PixelEffectKind=typeof PIXEL_EFFECT_KINDS[number];
+export type StoredEffectRecipe={kind:PixelEffectKind;seed:number;ink:string;speed:number;opacity:number;drift:number};
+export type Layer = { id: string; name: string; visible: boolean; pixels: number[]; effect?: StoredEffectRecipe };
+export function validateEffectRecipe(value:unknown):StoredEffectRecipe{
+ const recipe=value as StoredEffectRecipe;
+ if(!recipe||typeof recipe!=='object'||!PIXEL_EFFECT_KINDS.includes(recipe.kind)||
+  !Number.isInteger(recipe.seed)||recipe.seed<0||recipe.seed>2147483647||
+  !Number.isFinite(recipe.speed)||recipe.speed<.25||recipe.speed>3||
+  !Number.isFinite(recipe.opacity)||recipe.opacity<.1||recipe.opacity>1||
+  !Number.isFinite(recipe.drift)||recipe.drift< -3||recipe.drift>3)
+  throw new Error('Invalid procedural effect recipe.');
+ color(recipe.ink);
+ return {kind:recipe.kind,seed:recipe.seed,ink:recipe.ink,speed:recipe.speed,opacity:recipe.opacity,drift:recipe.drift};
+}
 export type AnimationFrame = { id: string; pixels: Record<string, number[]> };
 export type AnimationClip = { name: string; from: number; to: number; fps: number; mode: 'loop'|'once'|'pingpong' };
 export function clipFrameSequence(clip: AnimationClip): number[] {
@@ -49,6 +63,7 @@ export function validateDocument(input: unknown): PixelDocument {
     if (!l || typeof l.id !== 'string' || !/^[a-z0-9_-]{1,64}$/i.test(l.id) || ids.has(l.id)) throw new Error('Invalid or duplicate layer ID.');
     ids.add(l.id);
     if (typeof l.name !== 'string' || l.name.length>60 || typeof l.visible !== 'boolean' || !Array.isArray(l.pixels) || l.pixels.length !== d.width*d.height || l.pixels.some(p=>!Number.isInteger(p)||p<0||p>0xffffffff)) throw new Error('Invalid layer pixels or metadata.');
+    if(l.effect!==undefined)validateEffectRecipe(l.effect);
   }
   if (!Array.isArray(d.palette) || d.palette.length>128) throw new Error('Palette can contain at most 128 colors.');
   d.palette.forEach(color);
@@ -178,6 +193,8 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
     }
     const targetLayer=c.layer||d.layers[0].id;
     const metadataLayer=d.layers.find(l=>l.id===targetLayer);if(!metadataLayer)throw new Error('Layer not found.');
+    if(c.op==='effect_recipe'){metadataLayer.effect=validateEffectRecipe(c.recipe);continue;}
+    if(c.op==='effect_detach'){delete metadataLayer.effect;continue;}
     if(c.op==='visibility'){if(typeof c.visible!=='boolean')throw new Error('visible must be true or false.');metadataLayer.visible=c.visible;continue;}
     if(c.op==='rename_layer'){metadataLayer.name=String(c.name||'Layer').slice(0,60);continue;}
     if(c.op==='delete_layer'){
