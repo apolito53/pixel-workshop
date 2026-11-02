@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {PNG} from 'pngjs';
-import {applyCommands,createDocument,color,composite,frameCount,frameView,readRegion,validateDocument} from '../lib/pixels.ts';
+import {applyCommands,createDocument,color,composite,frameCount,frameView,readRegion,validateDocument,type AnimationClip} from '../lib/pixels.ts';
 import {EFFECT_KINDS,EFFECT_PRESETS,EFFECT_GROUPS,effectPixels,generateEffectCommands,hasFreeEffectLayerSlot} from '../lib/effects.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
 import {encodeRgbaPng} from '../lib/png.ts';
@@ -188,7 +188,7 @@ test('deleting animation frames updates or removes named clip ranges atomically'
 test('invalid clip metadata and impossible clip edits cannot damage originals',()=>{
  const d=applyCommands(createDocument('Clip validation',4,4),[{op:'frame_add'},{op:'clip_set',name:'Idle',from:0,to:1,fps:4,mode:'loop'}]);
  for(const bad of [{...d.animation!.clips![0],from:5},{...d.animation!.clips![0],fps:0},{...d.animation!.clips![0],mode:'infinite'}]){
-  const copy=structuredClone(d);copy.animation!.clips=[bad as typeof d.animation.clips[number]];
+  const copy=structuredClone(d);copy.animation!.clips=[bad as AnimationClip];
   assert.throws(()=>validateDocument(copy),/Invalid or duplicate animation clip/);
  }
  assert.throws(()=>applyCommands(d,[{op:'clip_set',name:'Invalid',from:1,to:8,fps:8}]),/to/);
