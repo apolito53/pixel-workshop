@@ -276,7 +276,7 @@ function effect(name:string,w:number,h:number,kind:'sparkles'|'explosion'|'shock
   return applyCommands(base,generateEffectCommands(base,{kind,ink,seed}));
 }
 export function createStardropArt():StardropArt {
-  return {
+  const art:StardropArt={
     backdrop:backdrop(),
     moonkeeper:keeper(),
     star:star(),
@@ -288,4 +288,20 @@ export function createStardropArt():StardropArt {
     burst:effect('Starlight Burst',32,32,'explosion','#ffd077',117),
     pulse:effect('Moonwave',48,48,'shockwave','#c9a2ff',5317),
   };
+  const clips:Partial<Record<StardropArtName,{name:string;from:number;to:number;fps:number;mode:'loop'|'once'|'pingpong'}[]>>={
+    moonkeeper:[
+      {name:'idle',from:0,to:0,fps:8,mode:'loop'},
+      {name:'walk',from:1,to:5,fps:9,mode:'pingpong'},
+      {name:'jump',from:3,to:3,fps:8,mode:'once'},
+    ],
+    star:[{name:'twinkle',from:0,to:3,fps:8,mode:'loop'}],
+    shade:[{name:'float',from:0,to:3,fps:7,mode:'loop'}],
+    beacon:[{name:'glow',from:0,to:5,fps:8,mode:'loop'}],
+    sparkles:[{name:'ambient',from:0,to:7,fps:8,mode:'loop'}],
+    burst:[{name:'burst',from:0,to:7,fps:8,mode:'once'}],
+    pulse:[{name:'pulse',from:0,to:7,fps:8,mode:'once'}],
+  };
+  for(const key of Object.keys(clips) as StardropArtName[])
+    art[key]=applyCommands(art[key],clips[key]!.map(clip=>({op:'clip_set',...clip})));
+  return art;
 }

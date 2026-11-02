@@ -211,6 +211,7 @@ export default function MoonkeeperGame(){
   const [art,setArt]=useState<StardropArt|null>(null);
   const [thumbnails,setThumbnails]=useState<Partial<Record<StardropArtName,string>>>({});
   const [error,setError]=useState('');
+  const [packError,setPackError]=useState(''),[downloadingPack,setDownloadingPack]=useState(false);
   const [ui,setUi]=useState<View>(()=>view(gameRef.current,0));
   const playSound=useCallback((kind:'star'|'hurt'|'jump'|'pulse'|'win')=>{
     if(!soundOnRef.current)return;
@@ -316,6 +317,16 @@ export default function MoonkeeperGame(){
     frames.forEach((frame,i)=>ctx.drawImage(frame,(i%cols)*doc.width,Math.floor(i/cols)*doc.height));
     canvas.toBlob(blob=>{if(blob)saveBlob(nameFor(key)+'-sheet.png',blob);},'image/png');
   };
+  const downloadArtPack=async()=>{
+    if(!art||downloadingPack)return;
+    setDownloadingPack(true);setPackError('');
+    try{
+      const {buildGamePack}=await import('../../../lib/game-pack.ts');
+      const {bytes}=buildGamePack(STARDROP_ASSETS.map(asset=>art[asset.key]));
+      saveBlob('stardrop-game-assets.zip',new Blob([bytes],{type:'application/zip'}));
+    }catch(e){setPackError(e instanceof Error?e.message:'Unable to create the game pack.');}
+    finally{setDownloadingPack(false);}
+  };
   return <main className="stardrop">
     <div className="stardrop-stars" aria-hidden="true"/>
     <header className="stardrop-topbar">
@@ -377,6 +388,11 @@ export default function MoonkeeperGame(){
           <div><h2>The asset workbench</h2><p>Not screenshots. Every piece below is generated with Pixel Workshop drawing commands or its seeded effects engine. Download an editable project and import it into the editor, or grab its real frame-by-frame PNG sheet.</p></div>
           <div className="stardrop-art-count"><strong>10</strong><span>EDITABLE ASSETS</span></div>
         </div>
+        <div className="stardrop-pack-banner">
+          <div><strong>✧ Take the whole little world.</strong><span>Ten native Pixel Workshop projects, their PNG sheets, animation clips and atlases. One portable ZIP.</span></div>
+          <button type="button" onClick={()=>void downloadArtPack()} disabled={!art||downloadingPack}>{downloadingPack?'PACKING ASSETS…':'DOWNLOAD COMPLETE ASSET PACK ↓'}</button>
+        </div>
+        {packError&&<p className="stardrop-pack-error" role="alert">{packError}</p>}
         <div className="stardrop-art-grid">
           {STARDROP_ASSETS.map(asset=><article className="stardrop-art" key={asset.key}>
             <div className="stardrop-art-image">{thumbnails[asset.key]&&<img src={thumbnails[asset.key]} alt={asset.label+' pixel-art preview'}/>}</div>

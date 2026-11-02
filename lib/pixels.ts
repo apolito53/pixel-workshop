@@ -1,6 +1,25 @@
-export type Layer = { id: string; name: string; visible: boolean; pixels: number[] };
+export const PIXEL_EFFECT_KINDS = ['embers','sparkles','bubbles','leaves','fire','smoke','explosion','shockwave','lightning','rain','snow','arcane'] as const;
+export type PixelEffectKind=typeof PIXEL_EFFECT_KINDS[number];
+export type StoredEffectRecipe={kind:PixelEffectKind;seed:number;ink:string;speed:number;opacity:number;drift:number};
+export type Layer = { id: string; name: string; visible: boolean; pixels: number[]; effect?: StoredEffectRecipe };
+export function validateEffectRecipe(value:unknown):StoredEffectRecipe{
+ const recipe=value as StoredEffectRecipe;
+ if(!recipe||typeof recipe!=='object'||!PIXEL_EFFECT_KINDS.includes(recipe.kind)||
+  !Number.isInteger(recipe.seed)||recipe.seed<0||recipe.seed>2147483647||
+  !Number.isFinite(recipe.speed)||recipe.speed<.25||recipe.speed>3||
+  !Number.isFinite(recipe.opacity)||recipe.opacity<.1||recipe.opacity>1||
+  !Number.isFinite(recipe.drift)||recipe.drift< -3||recipe.drift>3)
+  throw new Error('Invalid procedural effect recipe.');
+ color(recipe.ink);
+ return {kind:recipe.kind,seed:recipe.seed,ink:recipe.ink,speed:recipe.speed,opacity:recipe.opacity,drift:recipe.drift};
+}
 export type AnimationFrame = { id: string; pixels: Record<string, number[]> };
-export type PixelDocument = { format: 'pixel-workshop/1'; id: string; name: string; width: number; height: number; revision: number; palette: string[]; layers: Layer[]; updatedAt: string; animation?: { fps: number; frames: AnimationFrame[] } };
+export type AnimationClip = { name: string; from: number; to: number; fps: number; mode: 'loop'|'once'|'pingpong' };
+export function clipFrameSequence(clip: AnimationClip): number[] {
+  const frames = Array.from({length:clip.to-clip.from+1},(_,i)=>clip.from+i);
+  return clip.mode==='pingpong'&&frames.length>2?[...frames,...frames.slice(1,-1).reverse()]:frames;
+}
+export type PixelDocument = { format: 'pixel-workshop/1'; id: string; name: string; width: number; height: number; revision: number; palette: string[]; layers: Layer[]; updatedAt: string; animation?: { fps: number; frames: AnimationFrame[]; clips?: AnimationClip[] } };
 export const MAX_ANIMATION_FRAMES = 32;
 export const MAX_ANIMATION_CELLS = 900_000;
 export function frameCount(d: PixelDocument) { return 1 + (d.animation?.frames.length ?? 0); }
@@ -44,6 +63,7 @@ export function validateDocument(input: unknown): PixelDocument {
     if (!l || typeof l.id !== 'string' || !/^[a-z0-9_-]{1,64}$/i.test(l.id) || ids.has(l.id)) throw new Error('Invalid or duplicate layer ID.');
     ids.add(l.id);
     if (typeof l.name !== 'string' || l.name.length>60 || typeof l.visible !== 'boolean' || !Array.isArray(l.pixels) || l.pixels.length !== d.width*d.height || l.pixels.some(p=>!Number.isInteger(p)||p<0||p>0xffffffff)) throw new Error('Invalid layer pixels or metadata.');
+    if(l.effect!==undefined)validateEffectRecipe(l.effect);
   }
   if (!Array.isArray(d.palette) || d.palette.length>128) throw new Error('Palette can contain at most 128 colors.');
   d.palette.forEach(color);
@@ -64,6 +84,21 @@ export function validateDocument(input: unknown): PixelDocument {
         if (!Array.isArray(pixels) || pixels.length !== d.width * d.height ||
           pixels.some(p => !Number.isInteger(p) || p < 0 || p > 0xffffffff))
           throw new Error('Invalid animation cel pixels.');
+      }
+    }
+    if (d.animation.clips !== undefined) {
+      if (!Array.isArray(d.animation.clips) || d.animation.clips.length>32)
+        throw new Error('Animation allows at most 32 named clips.');
+      const names=new Set<string>();
+      for (const clip of d.animation.clips) {
+        if (!clip || typeof clip.name!=='string' || !/^[a-z0-9][a-z0-9 _-]{0,31}$/i.test(clip.name) ||
+          names.has(clip.name.toLowerCase()) ||
+          !Number.isInteger(clip.from)||clip.from<0||clip.from>=frameCount(d) ||
+          !Number.isInteger(clip.to)||clip.to<clip.from||clip.to>=frameCount(d) ||
+          !Number.isInteger(clip.fps)||clip.fps<1||clip.fps>30||
+          !['loop','once','pingpong'].includes(clip.mode))
+          throw new Error('Invalid or duplicate animation clip.');
+        names.add(clip.name.toLowerCase());
       }
     }
     if (frameCount(d) * d.layers.length * d.width * d.height > MAX_ANIMATION_CELLS)
@@ -99,6 +134,29 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
       const fps=requireInt(c.fps,1,30,'fps');
       d.animation ??= {fps,frames:[]};d.animation.fps=fps;continue;
     }
+    if(c.op==='clip_set'){
+      const name=typeof c.name==='string'?c.name.trim():'';
+      if(!/^[a-z0-9][a-z0-9 _-]{0,31}$/i.test(name))throw new Error('Clip name needs 1–32 letters, numbers, spaces, hyphens or underscores.');
+      const from=requireInt(c.from,0,frameCount(d)-1,'from');
+      const to=requireInt(c.to,from,frameCount(d)-1,'to');
+      const fps=requireInt(c.fps??d.animation?.fps??8,1,30,'clip fps');
+      const mode=c.mode??'loop';
+      if(!['loop','once','pingpong'].includes(String(mode)))throw new Error('Invalid clip playback mode.');
+      d.animation??={fps:8,frames:[]};d.animation.clips??=[];
+      const index=d.animation.clips.findIndex(clip=>clip.name.toLowerCase()===name.toLowerCase());
+      if(index===-1&&d.animation.clips.length>=32)throw new Error('Animation allows at most 32 named clips.');
+      const clip:AnimationClip={name,from,to,fps,mode:mode as AnimationClip['mode']};
+      if(index===-1)d.animation.clips.push(clip);
+      else d.animation.clips[index]=clip;
+      continue;
+    }
+    if(c.op==='clip_delete'){
+      const name=String(c.name??'');
+      if(!d.animation?.clips?.some(clip=>clip.name.toLowerCase()===name.toLowerCase()))
+        throw new Error('Animation clip not found.');
+      d.animation.clips=d.animation.clips.filter(clip=>clip.name.toLowerCase()!==name.toLowerCase());
+      continue;
+    }
     if(c.op==='frame_add'){
       if(frameCount(d)>=MAX_ANIMATION_FRAMES)throw new Error('Animation supports up to 32 frames.');
       if((frameCount(d)+1)*d.layers.length*d.width*d.height>MAX_ANIMATION_CELLS)
@@ -117,7 +175,11 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
     }
     if(c.op==='frame_delete'){
       const index=requireInt(c.frame,1,frameCount(d)-1,'frame');
-      d.animation!.frames.splice(index-1,1);continue;
+      d.animation!.frames.splice(index-1,1);
+      if(d.animation!.clips) d.animation!.clips=d.animation!.clips
+        .filter(clip=>clip.from!==index||clip.to!==index)
+        .map(clip=>({...clip,from:clip.from>index?clip.from-1:clip.from,to:clip.to>=index?clip.to-1:clip.to}));
+      continue;
     }
     if(c.op==='add_layer'){
       if(d.layers.length>=8)throw new Error('A project can have up to 8 layers.');
@@ -131,6 +193,8 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
     }
     const targetLayer=c.layer||d.layers[0].id;
     const metadataLayer=d.layers.find(l=>l.id===targetLayer);if(!metadataLayer)throw new Error('Layer not found.');
+    if(c.op==='effect_recipe'){metadataLayer.effect=validateEffectRecipe(c.recipe);continue;}
+    if(c.op==='effect_detach'){delete metadataLayer.effect;continue;}
     if(c.op==='visibility'){if(typeof c.visible!=='boolean')throw new Error('visible must be true or false.');metadataLayer.visible=c.visible;continue;}
     if(c.op==='rename_layer'){metadataLayer.name=String(c.name||'Layer').slice(0,60);continue;}
     if(c.op==='delete_layer'){

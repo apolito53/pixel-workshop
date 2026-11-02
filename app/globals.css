@@ -207,3 +207,60 @@
 .workshop .stardrop-editor-link{margin-left:auto;white-space:nowrap;color:#edc99e;border:1px solid #82664b;border-radius:5px;padding:7px 11px;background:#e7ad720d;font-weight:650}
 .workshop .stardrop-editor-link:hover{background:#e7ad7229;color:#ffebc8}
 @media(max-width:620px){.workshop .stardrop-editor-link{padding:7px 9px}.workshop .stardrop-editor-link span{display:none}}
+
+/* Named animation clips in the compact five-destination inspector. */
+.inspector-tabs{grid-template-columns:repeat(5,minmax(0,1fr));gap:2px}
+.inspector-tab{flex-direction:column;gap:3px;min-height:47px;font-size:9px;padding:6px 1px}
+.clip-section>p{font-size:10px;line-height:1.6;color:#9e9eaa;margin:0 0 15px}
+.clip-list{display:grid;gap:7px;margin-bottom:12px}
+.clip-row{padding:9px 8px;border:1px solid #484451;background:#1c1d25;border-radius:5px}
+.clip-row-heading{display:flex;flex-direction:column;gap:5px}
+.clip-row-heading b{font-size:12px;font-weight:650;color:#ebd3ad;overflow-wrap:anywhere}
+.clip-row-heading small{color:#a4a4b5;font-size:9px;text-transform:capitalize}
+.clip-row-actions{display:flex;gap:4px;margin-top:9px}
+.clip-row-actions button{flex:1;padding:6px 5px;font-size:10px;border:1px solid #494450;border-radius:3px;color:#d7c8da;background:#2c2935}
+.clip-row-actions button:hover{background:#4d3c4c}
+.clip-section .clip-empty{font-style:italic;color:#9b94ab}
+.clip-section .clip-all-frames{margin-bottom:12px;padding-left:0}
+.clip-create-heading{margin:7px 0 13px}
+.clip-section .effect-field{font-size:10px}
+.clip-section .effect-field input,.clip-section .effect-field select{width:110px}
+.clip-section>.secondary{margin-top:12px;justify-content:center;color:#e8cfab}
+
+/* Game pack exporter: per-workspace selection and direct ZIP downloads. */
+.pack-export-block{margin-top:18px;border-top:1px solid #47474d;padding-top:13px}
+.pack-export-block p{margin:0 0 12px;font-size:10px;line-height:1.65;color:#aaa7b0}
+.pack-export-button{justify-content:space-between;border-color:#9a714f;color:#f5d1a3;background:#e7ad720d}
+.pack-export-button:hover{background:#e7ad7227}
+.pack-dialog{max-height:min(90dvh,770px);display:flex;flex-direction:column;gap:12px;width:min(480px,100%);overflow:hidden}
+.pack-dialog h2{margin:6px 0 0}
+.pack-dialog .pack-description{font-size:11px;line-height:1.6;color:#a5a4ae;margin:0}
+.pack-dialog-actions{display:flex;gap:9px;align-items:center}
+.pack-dialog-actions button{padding:8px;border:1px solid #5b5159;border-radius:4px;color:#edc79b;font-size:11px;background:#272027}
+.pack-dialog-actions span{font-size:10px;color:#a9a5b0;margin-left:auto;white-space:nowrap}
+.pack-projects{display:flex;flex-direction:column;gap:4px;min-height:74px;max-height:340px;overflow:auto;border:1px solid #44434b;background:#1e1f24;border-radius:6px;padding:8px}
+.pack-project{display:flex;align-items:center;gap:9px;cursor:pointer;padding:7px 6px;border-radius:4px}
+.pack-project:hover{background:#ffffff09}
+.pack-project input{accent-color:#dfad73;flex-shrink:0;width:15px;height:15px}
+.pack-project span{display:flex;flex-direction:column;gap:3px;min-width:0}
+.pack-project b{font-size:12px;font-weight:600;color:#ded9dd;overflow-wrap:anywhere}
+.pack-project small{font-size:10px;color:#918f9d}
+.pack-download{justify-content:center;min-height:40px;margin-top:4px}
+@media(max-width:600px){.pack-dialog{padding:23px 18px}.pack-dialog-actions{gap:5px}.pack-dialog-actions button{font-size:10px}}
+
+/* Reusable, parameterized procedural effect recipes. */
+.effect-recipe-panel{border-top:1px solid #4d4750;margin-top:19px;padding-top:16px}
+.effect-recipe-panel .section-heading{margin:0 0 12px}
+.effect-recipe-panel p{font-size:10px;line-height:1.65;color:#a69da8;margin:12px 0}
+.effect-regenerate{justify-content:center;color:#ecd1ff;border-color:#6f5a84;background:#9671ba0b}
+.effect-regenerate:hover{background:#9671ba22}
+
+/* Game-ready tile exports and reusable snap-to-grid stamps. */
+.tileset-export-block{border-top:1px solid #44454b;margin-top:17px;padding-top:13px}
+.tileset-export-block p{font-size:10px;line-height:1.65;color:#9f9ca7;margin:0 0 10px}
+.tileset-export-block .secondary{margin-top:9px;justify-content:space-between;font-size:10px}
+.tileset-export-block .effect-field{margin:8px 0}
+.tileset-export-block .effect-field input{width:76px}
+.tileset-export-block .tileset-warning{color:#dcaa7d;margin:8px 0 0}
+.selection-section .stamp-snap-field{margin:13px 0}
+.selection-section .stamp-snap-field select{width:116px}

@@ -1,7 +1,7 @@
 import type { ProjectService } from './project-service.ts';
 import { frameCount, frameView, type PaintCommand } from './pixels.ts';
 import { buildSpriteSheet } from './sprite-sheet.ts';
-import { EFFECT_KINDS, generateEffectCommands, type EffectKind } from './effects.ts';
+import { EFFECT_KINDS, generateEffectCommands, regenerateEffectCommands, type EffectKind } from './effects.ts';
 import { encodePng, encodeRgbaPng } from './png.ts';
 
 const id={type:'string',description:'Project ID returned by create_canvas or list_canvases.'};
@@ -15,12 +15,13 @@ export const toolDefinitions=[
     inputSchema:schema({name:{type:'string'},width:{type:'integer',minimum:1,maximum:256},height:{type:'integer',minimum:1,maximum:256}},['name','width','height'])},
   {name:'get_canvas',description:'Inspect artwork and preview a particular frame (default 0). include_pixels returns editable data.',
     inputSchema:schema({id,frame,include_pixels:{type:'boolean'}},['id']),annotations:{readOnlyHint:true}},
-  {name:'paint',description:'Atomically apply pixel commands. pixel/fill: x,y; line: x,y,x2,y2; rect/ellipse: x,y,width,height,filled; transform: mode move|copy|flip_horizontal|flip_vertical with x,y,width,height,x2,y2; paste: x,y,width,height,pixels (row-major packed RGBA). Pixel commands accept frame:0..31 (default 0) and layer. Animation ops: frame_add {source_frame?,blank?}, frame_delete {frame:1..31}, set_fps {fps:1..30}. Layer operations are shared across all frames: add_layer {id,name}, visibility {layer,visible}, rename_layer {layer,name}, delete_layer {layer}, clear {layer,frame?}, rename {name}, palette {colors}. All edits are one undoable batch and require the current revision.',
+  {name:'paint',description:'Atomically apply pixel commands. pixel/fill: x,y; line: x,y,x2,y2; rect/ellipse: x,y,width,height,filled; transform: mode move|copy|flip_horizontal|flip_vertical with x,y,width,height,x2,y2; paste: x,y,width,height,pixels (row-major packed RGBA). Pixel commands accept frame:0..31 (default 0) and layer. Animation ops: frame_add {source_frame?,blank?}, frame_delete {frame:1..31}, set_fps {fps:1..30}, clip_set {name,from,to,fps,mode:loop|once|pingpong}, clip_delete {name}. FX layer metadata: effect_recipe {layer,recipe:{kind,seed,ink,speed,opacity,drift}} or effect_detach {layer}. Layer operations are shared across all frames: add_layer {id,name}, visibility {layer,visible}, rename_layer {layer,name}, delete_layer {layer}, clear {layer,frame?}, rename {name}, palette {colors}. All edits are one undoable batch and require the current revision.',
     inputSchema:schema({id,revision:rev,commands:{type:'array',minItems:1,maxItems:5000,items:{type:'object',
       properties:{op:{type:'string'},frame,source_frame:frame,fps:{type:'integer',minimum:1,maximum:30},blank:{type:'boolean'},
         layer:{type:'string'},color:{type:'string'},x:{type:'integer'},y:{type:'integer'},x2:{type:'integer'},y2:{type:'integer'},
         width:{type:'integer'},height:{type:'integer'},filled:{type:'boolean'},
-        mode:{type:'string',enum:['move','copy','flip_horizontal','flip_vertical']},
+        mode:{type:'string',enum:['move','copy','flip_horizontal','flip_vertical','loop','once','pingpong']},
+        from:frame,to:frame,recipe:{type:'object'},
         pixels:{type:'array',maxItems:65536,items:{type:'integer',minimum:0,maximum:4294967295}},
         id:{type:'string'},name:{type:'string'},visible:{type:'boolean'},colors:{type:'array',items:{type:'string'}}},
       required:['op'],additionalProperties:false}}},['id','revision','commands'])},
@@ -32,9 +33,16 @@ export const toolDefinitions=[
     inputSchema:schema({id,frame,scale:{type:'integer',minimum:1,maximum:16}},['id']),annotations:{readOnlyHint:true}},
   {name:'export_sprite_sheet',description:'Export a composited PNG sprite sheet and JSON atlas for all frames.',
     inputSchema:schema({id,columns:{type:'integer',minimum:1,maximum:32}},['id']),annotations:{readOnlyHint:true}},
-  {name:'generate_effect',description:'Generate a seeded, editable procedural VFX layer using the shared pixel engine. Kinds: '+EFFECT_KINDS.join(', ')+'.',
+  {name:'generate_effect',description:'Generate a seeded, editable procedural VFX layer and save a recipe so it can be regenerated.',
     inputSchema:schema({id,revision:rev,kind:{type:'string',enum:[...EFFECT_KINDS]},
-      seed:{type:'integer',minimum:0,maximum:2147483647},ink:{type:'string'}},['id','revision','kind','seed','ink'])}
+      seed:{type:'integer',minimum:0,maximum:2147483647},ink:{type:'string'},
+      speed:{type:'number',minimum:0.25,maximum:3},opacity:{type:'number',minimum:0.1,maximum:1},
+      drift:{type:'number',minimum:-3,maximum:3}},['id','revision','kind','seed','ink'])},
+  {name:'regenerate_effect',description:'Regenerate only a saved FX layer from the stored or supplied recipe, preserving other layers and named animation clips. Manually painted pixels inside the FX layer will be overwritten.',
+    inputSchema:schema({id,revision:rev,layer:{type:'string'},kind:{type:'string',enum:[...EFFECT_KINDS]},
+      seed:{type:'integer',minimum:0,maximum:2147483647},ink:{type:'string'},
+      speed:{type:'number',minimum:0.25,maximum:3},opacity:{type:'number',minimum:0.1,maximum:1},
+      drift:{type:'number',minimum:-3,maximum:3}},['id','revision','layer'])}
 ];
 export async function callTool(service:ProjectService,name:string,args:Record<string,unknown>={}) {
   try {
@@ -43,10 +51,24 @@ export async function callTool(service:ProjectService,name:string,args:Record<st
         revision:d.revision,layers:d.layers.map(({id,name,visible})=>({id,name,visible})),frames:frameCount(d)})))}]};
     let doc;
     if(name==='create_canvas')doc=await service.create(args.name as string,args.width as number,args.height as number);
-    else if(['get_canvas','export_png','export_sprite_sheet','generate_effect'].includes(name)) {
+    else if(['get_canvas','export_png','export_sprite_sheet','generate_effect','regenerate_effect'].includes(name)) {
       const original=(await service.get(args.id as string)).entry.doc;
-      doc=name==='generate_effect'?await service.edit(args.id as string,args.revision as number,'paint',
-        generateEffectCommands(original,{kind:args.kind as EffectKind,seed:args.seed as number,ink:args.ink as string})):original;
+      if(name==='generate_effect'){
+        doc=await service.edit(args.id as string,args.revision as number,'paint',
+          generateEffectCommands(original,{kind:args.kind as EffectKind,seed:args.seed as number,ink:args.ink as string,
+            speed:args.speed as number|undefined,opacity:args.opacity as number|undefined,drift:args.drift as number|undefined}));
+      }else if(name==='regenerate_effect'){
+        const layer=original.layers.find(l=>l.id===args.layer);
+        if(!layer?.effect)throw new Error('Layer has no saved procedural effect.');
+        doc=await service.edit(args.id as string,args.revision as number,'paint',
+          regenerateEffectCommands(original,layer.id,{
+            kind:(args.kind??layer.effect.kind) as EffectKind,seed:(args.seed??layer.effect.seed) as number,
+            ink:(args.ink??layer.effect.ink) as string,
+            speed:(args.speed??layer.effect.speed) as number,
+            opacity:(args.opacity??layer.effect.opacity) as number,
+            drift:(args.drift??layer.effect.drift) as number,
+          }));
+      }else doc=original;
     }
     else if(name==='paint'||name==='undo'||name==='redo')
       doc=await service.edit(args.id as string,args.revision as number,name,args.commands as PaintCommand[]);
@@ -63,7 +85,7 @@ export async function callTool(service:ProjectService,name:string,args:Record<st
       return {content:[{type:'text' as const,text:JSON.stringify(sheet.atlas)},
         {type:'image' as const,mimeType:'image/png',data:encodeRgbaPng(sheet.bytes,sheet.width,sheet.height).toString('base64')}]};
     }
-    const summary={...doc,layers:doc.layers.map(l=>args.include_pixels?l:{id:l.id,name:l.name,visible:l.visible}),
+    const summary={...doc,layers:doc.layers.map(l=>args.include_pixels?l:{id:l.id,name:l.name,visible:l.visible,...(l.effect?{effect:l.effect}:{})}),
       animation:doc.animation?{fps:doc.animation.fps,
         frames:doc.animation.frames.map(f=>args.include_pixels?f:{id:f.id})}:undefined,
       frameCount:frameCount(doc)};

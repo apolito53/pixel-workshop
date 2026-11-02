@@ -1,7 +1,8 @@
-import { composite, frameCount, frameView, requireInt, type PixelDocument } from './pixels.ts';
+import { clipFrameSequence, composite, frameCount, frameView, requireInt, type AnimationClip, type PixelDocument } from './pixels.ts';
 
 export type AtlasFrame = { index: number; x: number; y: number; width: number; height: number; durationMs: number };
-export type SpriteAtlas = { format: 'pixel-workshop-atlas/1'; image: string; width: number; height: number; frameWidth: number; frameHeight: number; fps: number; frames: AtlasFrame[] };
+export type AtlasClip = AnimationClip & { frames: number[] };
+export type SpriteAtlas = { format: 'pixel-workshop-atlas/1'; image: string; width: number; height: number; frameWidth: number; frameHeight: number; fps: number; frames: AtlasFrame[]; clips?: AtlasClip[] };
 export function buildSpriteSheet(d: PixelDocument, columns = Math.min(8, frameCount(d))) {
   const count = frameCount(d);
   requireInt(columns, 1, count, 'columns');
@@ -21,7 +22,8 @@ export function buildSpriteSheet(d: PixelDocument, columns = Math.min(8, frameCo
   }
   const atlas: SpriteAtlas = {
     format:'pixel-workshop-atlas/1',image:d.name.replace(/[^a-z0-9_-]/gi,'-')+'-sheet.png',
-    width,height,frameWidth:d.width,frameHeight:d.height,fps:d.animation?.fps ?? 8,frames
+    width,height,frameWidth:d.width,frameHeight:d.height,fps:d.animation?.fps ?? 8,frames,
+    ...(d.animation?.clips?.length?{clips:d.animation.clips.map(clip=>({...clip,frames:clipFrameSequence(clip)}))}:{})
   };
   return {width,height,bytes,atlas};
 }
