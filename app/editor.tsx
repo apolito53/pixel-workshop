@@ -11,6 +11,8 @@ import {guideSteps,type GuideScope} from '../lib/workshop-guide.ts';
 import WorkshopGuide from './workshop-tour.tsx';
 import ColorWorkbench from './color-workbench.tsx';
 import QuickColorGrid from './quick-color-grid.tsx';
+import StampWorkbench from './stamp-workbench.tsx';
+import {STAMP_LIBRARY_LIMIT,loadStamps,captureStamp,stampCommand,positionStamp,stampRgba,addSavedStamp,type StampAsset} from '../lib/stamp-library.ts';
 import {isHexInk,normalizeInk,rememberInk,rgbHex,splitProjectPalette,withOpacity,withRgb} from '../lib/color-workflow.ts';
 type Snapshot=EditorSnapshot;
 type Tool='select'|'pencil'|'eraser'|'fill'|'picker'|'line'|'rect'|'ellipse'|'stamp';
@@ -44,7 +46,7 @@ function FrameThumbnail({doc,index}:{doc:PixelDocument;index:number}){
  },[doc,index]);
  return <canvas ref={ref} className="frame-thumbnail" aria-hidden="true"/>;
 }
-export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}={}){
+export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspace?:()=>void;workspaceId?:string}={}){
  const [guide,setGuide]=useState<{mode:'off'|'menu'|'tour';scope:GuideScope;index:number}>({mode:'off',scope:'all',index:0});
  const guideToggleRef=useRef<HTMLButtonElement>(null);
  const guidePreviousRef=useRef<{tab:InspectorTab;inspectorOpen:boolean;drawOpen:boolean}|null>(null);
@@ -64,6 +66,10 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const [quickColorsOpen,setQuickColorsOpen]=useState(false);
  const quickColorsRef=useRef<HTMLDivElement>(null),quickColorsButtonRef=useRef<HTMLButtonElement>(null);
  const [stampSnap,setStampSnap]=useState(0),[tileSize,setTileSize]=useState(16);
+ const [activeStamp,setActiveStamp]=useState<StampAsset|null>(null),[stampCapture,setStampCapture]=useState(false);
+ const [stampName,setStampName]=useState(''),[stampLibrary,setStampLibrary]=useState<StampAsset[]>([]);
+ const stampCaptureDrag=useRef<{start:{x:number;y:number};region:PixelRegion;layer:string;frame:number}|null>(null);
+ const stampPreviewRef=useRef<HTMLCanvasElement>(null);
  const [effectSpeed,setEffectSpeed]=useState(1),[effectOpacity,setEffectOpacity]=useState(1),[effectDrift,setEffectDrift]=useState(0),[effectTarget,setEffectTarget]=useState<string|null>(null);
  const [packModal,setPackModal]=useState(false),[packIds,setPackIds]=useState<string[]>([]);
  const [clipOriginal,setClipOriginal]=useState<string|null>(null);
@@ -72,6 +78,34 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const previewPosition=useRef(0);
  const guideStep=guide.mode==='tour'?guideSteps(guide.scope)[guide.index]:undefined;
  const queue=useRef<EditQueue|null>(null),viewport=useRef<HTMLDivElement>(null),selectionDrag=useRef<{base:Snapshot;start:{x:number;y:number};source:PixelRegion|null;region:PixelRegion;layer:string;frame:number}|null>(null),canvas=useRef<HTMLCanvasElement>(null),preview=useRef<HTMLCanvasElement>(null),file=useRef<HTMLInputElement>(null),current=useRef(snap),locked=useRef(false),stroke=useRef<{base:Snapshot;start:{x:number;y:number};last:{x:number;y:number};ops:PaintCommand[];frame:number}|null>(null);
+ const stampStoreKey='pixel-workshop-stamps-v1-'+(workspaceId||'local');
+ useEffect(()=>{
+  try{const saved=localStorage.getItem(stampStoreKey);setStampLibrary(saved?loadStamps(JSON.parse(saved)):[]);}
+  catch{setStampLibrary([]);}
+  setActiveStamp(null);setStampCapture(false);
+ },[stampStoreKey]);
+ const persistStampLibrary=(items:StampAsset[])=>{
+  setStampLibrary(items);
+  try{localStorage.setItem(stampStoreKey,JSON.stringify(items));}
+  catch{setNotice('Stamp available for this session; browser storage is unavailable.');}
+ };
+ const selectStamp=(stamp:StampAsset)=>{
+  setActiveStamp(stamp);setStampName(stamp.name);setStampCapture(false);setSelection(null);setTool('stamp');
+ };
+ const chooseTool=(next:Tool)=>{setTool(next);if(next==='stamp'&&!activeStamp)setStampCapture(true);};
+ const beginStampCapture=()=>{
+  setTool('stamp');setStampCapture(true);setSelection(null);setPlaying(false);
+  if(mobileLayout)setInspectorOpen(false);
+ };
+ const saveStampToLibrary=()=>{
+  if(!activeStamp)return;
+  try{
+   const updated=addSavedStamp(stampLibrary,activeStamp,stampName);
+   persistStampLibrary(updated);setActiveStamp(updated.find(stamp=>stamp.id===activeStamp.id)!);
+   setNotice('Reusable stamp saved to this browser workspace.');
+  }catch(e){setError((e as Error).message);}
+ };
+ const deleteSavedStamp=(id:string)=>persistStampLibrary(stampLibrary.filter(s=>s.id!==id));
  const selectInk=useCallback((nextInk:string,track=true)=>{
   if(!isHexInk(nextInk))return;
   const next=normalizeInk(nextInk);
@@ -107,6 +141,12 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   };
  },[quickColorsOpen]);
  useEffect(()=>{if(guide.mode!=='off')setQuickColorsOpen(false);},[guide.mode]);
+ useEffect(()=>{
+  const canvas=stampPreviewRef.current;
+  if(!canvas||!activeStamp||tool!=='stamp'||stampCapture)return;
+  canvas.width=activeStamp.width;canvas.height=activeStamp.height;
+  canvas.getContext('2d')?.putImageData(new ImageData(stampRgba(activeStamp),activeStamp.width,activeStamp.height),0,0);
+ },[activeStamp,tool,stampCapture,hover]);
  const resetPan=useCallback(()=>{
   if(gestureFrame.current!==null)cancelAnimationFrame(gestureFrame.current);
   gestureFrame.current=null;
@@ -299,6 +339,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   return {width:rect.width,height:rect.height,center:{x:rect.left+rect.width/2,y:rect.top+rect.height/2}};
  };
  const cancelActiveStroke=()=>{
+  if(stampCaptureDrag.current){stampCaptureDrag.current=null;setSelection(null);}
   const st=stroke.current,drag=selectionDrag.current;
   if(!st&&!drag)return;
   stroke.current=null;selectionDrag.current=null;
