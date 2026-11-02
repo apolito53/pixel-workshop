@@ -3,6 +3,9 @@ import {useCallback,useEffect,useRef,useState,type PointerEvent as PE} from 'rea
 import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound,Stamp,BookOpen} from 'lucide-react';
 import {applyCommands,clipFrameSequence,composite,frameCount,frameView,readRegion,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
+import {MAX_ANIMATION_CELLS} from '../lib/pixels.ts';
+import {compareEffectFrame,type FxComparison} from '../lib/fx-preview.ts';
+import FxComparisonPanel from './fx-comparison.tsx';
 import {generateEffectCommands,regenerateEffectCommands,hasFreeEffectLayerSlot,type EffectKind,EFFECT_KINDS,EFFECT_GROUPS,EFFECT_PRESETS} from '../lib/effects.ts';
 import {EditQueue,type EditorSnapshot,type QueueState} from '../lib/edit-queue.ts';
 import {beginPinch,movePinch,finishPinch,touchMidpoint,type GesturePoint,type PinchStart,type PinchView,type GestureViewport} from '../lib/touch-gestures.ts';
@@ -72,6 +75,8 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  const stampCaptureDrag=useRef<{start:{x:number;y:number};region:PixelRegion;layer:string;frame:number}|null>(null);
  const stampPreviewRef=useRef<HTMLCanvasElement>(null);
  const [effectSpeed,setEffectSpeed]=useState(1),[effectOpacity,setEffectOpacity]=useState(1),[effectDrift,setEffectDrift]=useState(0),[effectTarget,setEffectTarget]=useState<string|null>(null);
+ const [fxPreview,setFxPreview]=useState<{key:string;comparison:FxComparison}|null>(null);
+ const [preserveFx,setPreserveFx]=useState(true),[confirmFxOverwrite,setConfirmFxOverwrite]=useState(false);
  const [packModal,setPackModal]=useState(false),[packIds,setPackIds]=useState<string[]>([]);
  const [clipRangeSelection,setClipRangeSelection]=useState<ClipRange|null>(null);
  const [rangeSelectMode,setRangeSelectMode]=useState(false);
@@ -168,7 +173,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   const d=state.snapshot.doc;setList(items=>items.map(p=>p.id===d.id?{...p,name:d.name,revision:d.revision,updatedAt:d.updatedAt}:p));
  },[present]);
  const adopt=useCallback((s:Snapshot)=>{
-  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);setPreviewClip(null);setEffectTarget(null);setClipOriginal(null);setClipName('idle');setClipFrom(0);setClipTo(0);setClipRangeSelection(null);setRangeSelectMode(false);clipDragRef.current=null;resetPan();setFitMode(true);}
+  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);setPreviewClip(null);setEffectTarget(null);setFxPreview(null);setConfirmFxOverwrite(false);setClipOriginal(null);setClipName('idle');setClipFrom(0);setClipTo(0);setClipRangeSelection(null);setRangeSelectMode(false);clipDragRef.current=null;resetPan();setFitMode(true);}
   queue.current?.dispose();queue.current=new EditQueue(s,request=>api<Snapshot>('projects/'+s.doc.id,request),showQueue);
   setSaveState({pending:0,saving:false,error:null});present(s);
  },[present,showQueue,resetPan]);
@@ -619,13 +624,35 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
    setEffectSpeed(recipe.speed);setEffectOpacity(recipe.opacity);setEffectDrift(recipe.drift);
   }
  };
+ const previewEffectChanges=()=>{
+  const doc=current.current?.doc;if(!doc||!effectTarget)return;
+  try{
+   const selected=Math.min(frame,frameCount(doc)-1);
+   const comparison=compareEffectFrame(doc,effectTarget,selected,{
+    kind:effectKind,seed:effectSeed,ink,speed:effectSpeed,opacity:effectOpacity,drift:effectDrift
+   });
+   setFxPreview({key:JSON.stringify([doc.id,doc.revision,effectTarget,selected,effectKind,effectSeed,ink,effectSpeed,effectOpacity,effectDrift]),comparison});
+   setNotice('Preview ready. Artwork has not changed.');
+  }catch(e){setError((e as Error).message);}
+ };
  const regenerateEffect=async()=>{
   const doc=current.current?.doc;if(!doc||!effectTarget)return;
   try{
-   const commands=regenerateEffectCommands(doc,effectTarget,{
-    kind:effectKind,seed:effectSeed,ink,speed:effectSpeed,opacity:effectOpacity,drift:effectDrift,
-   });
-   if(await commit(commands)){setFrame(0);setSelection(null);setPlaying(true);setNotice('Regenerated effect from saved settings');}
+   const selected=Math.min(frame,frameCount(doc)-1);
+   const key=JSON.stringify([doc.id,doc.revision,effectTarget,selected,effectKind,effectSeed,ink,effectSpeed,effectOpacity,effectDrift]);
+   if(fxPreview?.key!==key)throw new Error('Preview your changes before regenerating.');
+   const preserve=preserveFx&&canBackUpFx;
+   if(!preserve&&!confirmFxOverwrite)throw new Error('Confirm regeneration without a backup before continuing.');
+   const commands:PaintCommand[]=[
+    ...(preserve?[{op:'duplicate_layer',layer:effectTarget,id:'fx-backup-'+crypto.randomUUID().slice(0,8),name:'Original FX Backup'}]:[]),
+    ...regenerateEffectCommands(doc,effectTarget,{
+     kind:effectKind,seed:effectSeed,ink,speed:effectSpeed,opacity:effectOpacity,drift:effectDrift,
+    })
+   ];
+   if(await commit(commands)){
+    setFxPreview(null);setConfirmFxOverwrite(false);setFrame(0);setSelection(null);setPlaying(true);
+    setNotice(preserve?'Regenerated effect; original preserved in a hidden backup layer.':'Regenerated effect without a backup.');
+   }
   }catch(e){setError((e as Error).message);}
  };
  const openGuide=useCallback(()=>{
@@ -667,6 +694,10 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   if(inspectorRef.current)inspectorRef.current.scrollTop=0;
  };
  const d=snap?.doc,activeFrame=d?Math.min(frame,frameCount(d)-1):0,displayError=error||saveState.error?.message;
+ const canBackUpFx=!!(d&&d.layers.length<8&&frameCount(d)*(d.layers.length+1)*d.width*d.height<=MAX_ANIMATION_CELLS&&
+  4*d.width*d.height*frameCount(d)<=2_000_000);
+ const previewKey=JSON.stringify([d?.id,d?.revision,effectTarget,activeFrame,effectKind,effectSeed,ink,effectSpeed,effectOpacity,effectDrift]);
+ const validFxPreview=fxPreview?.key===previewKey?fxPreview.comparison:null;
  const stampCanFit=!!(d&&activeStamp&&activeStamp.width<=d.width&&activeStamp.height<=d.height);
  const stampHover=stampCanFit&&hover&&tool==='stamp'&&!stampCapture?
   positionStamp(d!,activeStamp!,hover.x,hover.y,stampSnap):null;
