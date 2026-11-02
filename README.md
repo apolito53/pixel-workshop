@@ -79,7 +79,7 @@ The Draw panel now explains four different kinds of colors instead of presenting
 - **Suggested companions:** deterministic highlights, shadows, nearby hues, a complement, and an artwork-aware accent. Each suggestion is labeled with its purpose; no random color generator or network service is involved.
 - **Saved project colors:** explicit swatches stored with this canvas's `.pixel.json`. Click **Save current color** to keep one, or remove the selected saved swatch. Neither the recent colors nor the suggestions are ever saved automatically.
 
-**New blank canvases start with no saved palette.** Existing canvases retain every saved color, including the 24 original default swatches if they came from the older editor. The Draw panel identifies that legacy set and offers an optional one-click removal that preserves any colors added afterward. Removing a palette swatch does not erase pixels already painted with that color. The underlying project format is unchanged.
+**New blank canvases start with no saved palette.** Existing canvases retain every saved color, including the 24 original default swatches if they came from the older editor. The Draw panel now keeps those 24 automatic swatches in a **collapsed Original starter swatches** section, separate from the favorites you explicitly save. You can expand them, pin one as a favorite, or optionally remove the original set without touching its painted pixels or any colors you added. Removing a palette swatch does not erase pixels already painted with that color. The underlying project format is unchanged.
 
 ## Animation workbench
 
