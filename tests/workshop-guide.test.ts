@@ -32,12 +32,14 @@ test('every guide target maps to an actual reachable editor control',()=>{
  assert.ok(editor.includes("setInspectorTab(guideStep.panel)"));
  assert.ok(editor.includes("setInspectorOpen(mobileLayout)"));
  assert.ok(editor.includes("setDrawToolsOpen(compactDrawTools)"));
+ assert.ok(editor.includes("guide.mode!=='off'&&!modal&&!packModal&&<WorkshopGuide"));
 });
 test('guide never alters artwork or discloses workspace credentials',()=>{
  assert.ok(!component.includes("fetch("));
  assert.ok(!component.includes("applyCommands("));
  assert.ok(!component.includes("issueWorkspaceToken("));
  assert.ok(!component.includes("localStorage.setItem"));
+ assert.ok(editor.includes("if(e.key==='Escape'&&(modal||packModal))"));
  assert.ok(editor.includes("localStorage.setItem('pixel-workshop-guide-seen-v1','1')"));
  assert.ok(component.includes("onClose={onClose}"));
 });

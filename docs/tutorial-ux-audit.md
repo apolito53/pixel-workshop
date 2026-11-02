@@ -37,7 +37,7 @@ The findings below come from tracing real editor UI code, documenting every work
 
 ## Guide implementation decisions
 
-**Non-destructive:** Opening, skipping or finishing the tour does not create or modify assets. A "try it" prompt simply invites the person to use the real app. The guide never requests or generates workspace tokens.
+**Non-destructive:** Opening, skipping or finishing the tour does not create or modify assets. A "try it" prompt simply invites the person to use the real app. The guide never requests or generates workspace tokens. Normal drawing shortcuts remain available while the walkthrough is open; project creation and game-pack dialogs temporarily suspend the guide and return to the current step when closed.
 
 **Adaptive:** Steps programmatically reveal the relevant inspector tab or drawing drawer. Highlights use actual DOM anchor geometry, with viewport-safe cards, a compact-screen dock, and a fallback when contextual controls (such as a not-yet-created effect recipe) are unavailable.
 
