@@ -64,3 +64,7 @@ A direct review from the person commissioning the tool exposed a gap the first t
 **Design constraints:** suggesting must not modify project state, interfere with undo/redo, falsely imply that random colors belong to an artwork, or mutate previously saved documents. Art-derived colors follow the active frame, use only visible composite pixels, and ignore effectively transparent cells. This intentionally stops short of AI image analysis or automatic palette replacement.
 
 **Further exploration:** editable/preset palette names, smarter gamut-aware suggestions, a palette-importer for ASE/GPL, user-selectable color harmony strategies, and optional project-wide dominant-color analysis across animation frames. These are not included in the current change.
+
+### Legacy starter colors, second usability pass
+
+A user opening an old canvas would still have seen twenty-four automatic starter swatches under the heading "Saved project colors", even though new canvases started empty. This contradicted the redesigned interface and the user's original complaint. The old swatches are now preserved in a **collapsed, clearly labeled legacy section**. Saved favorites show only deliberately pinned colors; a starter swatch can be pinned without removing the original legacy record. The user can explicitly discard the starter set if they no longer want it, and no painted pixels are touched.

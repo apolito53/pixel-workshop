@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {applyCommands,createDocument,DEFAULT_PALETTE,frameView,validateDocument} from '../lib/pixels.ts';
-import {artworkColors,isHexInk,normalizeInk,opacityPercent,rememberInk,rgbHex,suggestColors,withOpacity,withRgb} from '../lib/color-workflow.ts';
+import {artworkColors,isHexInk,normalizeInk,opacityPercent,rememberInk,rgbHex,splitProjectPalette,suggestColors,withOpacity,withRgb} from '../lib/color-workflow.ts';
 
 test('new canvases start without unexplained saved swatches, while imports keep legacy palettes',()=>{
  const fresh=createDocument('Fresh',16,16);
@@ -97,4 +97,25 @@ test('the color interface has a real always-reachable picker and separate projec
  assert.ok(workbench.includes('onClick={onSave}'));
  assert.ok(css.includes('.toolbar-ink-picker'));
  assert.ok(css.includes('.workbench-swatch-grid'));
+});
+
+test('original 24 starter swatches appear only in a collapsed legacy section, not saved favorites',()=>{
+ const initial=[...DEFAULT_PALETTE];
+ assert.deepEqual(splitProjectPalette(initial),{legacy:initial,saved:[]});
+ assert.deepEqual(splitProjectPalette([]),{legacy:[],saved:[]});
+ const pinned=[...initial,'#112233',DEFAULT_PALETTE[2]];
+ assert.deepEqual(splitProjectPalette(pinned).legacy,initial);
+ assert.deepEqual(splitProjectPalette(pinned).saved,['#112233',DEFAULT_PALETTE[2]]);
+ assert.deepEqual(splitProjectPalette(['#123456','#abcdef']),{legacy:[],saved:['#123456','#abcdef']});
+ const workbench=readFileSync(new URL('../app/color-workbench.tsx',import.meta.url),'utf8');
+ const editor=readFileSync(new URL('../app/editor.tsx',import.meta.url),'utf8');
+ const css=readFileSync(new URL('../app/globals.css',import.meta.url),'utf8');
+ assert.ok(workbench.includes('<details className="workbench-legacy">'));
+ assert.ok(workbench.includes('Original starter swatches'));
+ assert.ok(workbench.includes('24 from the older editor'));
+ assert.ok(workbench.includes('const {legacy,saved}=splitProjectPalette(stored)'));
+ assert.ok(workbench.includes('onPick={onPick} label="Original starter swatch"'));
+ assert.ok(editor.includes('const {legacy,saved}=splitProjectPalette(doc.palette)'));
+ assert.ok(css.includes('.workbench-legacy summary'));
+ assert.ok(!css.includes('.workbench-legacy button{border:'));
 });
