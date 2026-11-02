@@ -57,5 +57,5 @@ test('field guide explains new interactive workflows',()=>{
  assert.ok(guide.includes("id:'stamps'"));
  assert.ok(guide.includes("target:'stamp-workbench'"));
  assert.ok(guide.includes("target:'clip-range'"));
- assert.ok(guide.includes('preserves all original FX'));
+ assert.ok(guide.includes('hidden backup layer'));
 });
