@@ -463,13 +463,13 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
    if(await commit(commands)){setFrame(0);setSelection(null);setPlaying(true);setNotice('Regenerated effect from saved settings');}
   }catch(e){setError((e as Error).message);}
  };
- const openGuide=()=>{
+ const openGuide=useCallback(()=>{
   if(guide.mode==='off')guidePreviousRef.current={tab:inspectorTab,inspectorOpen,drawOpen:drawToolsOpen};
   try{localStorage.setItem('pixel-workshop-guide-seen-v1','1');}catch{}
   setInspectorOpen(false);setDrawToolsOpen(false);
   setGuide({mode:'menu',scope:'all',index:0});
- };
- const closeGuide=()=>{
+ },[guide.mode,inspectorTab,inspectorOpen,drawToolsOpen]);
+ const closeGuide=useCallback(()=>{
   const previous=guidePreviousRef.current;
   setGuide({mode:'off',scope:'all',index:0});
   if(previous){
@@ -477,16 +477,16 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
    setDrawToolsOpen(previous.drawOpen&&compactDrawTools);
   }else{setInspectorOpen(false);setDrawToolsOpen(false);}
   guidePreviousRef.current=null;
-  requestAnimationFrame(()=>guideToggleRef.current?.focus());
- };
- const startGuide=(scope:GuideScope)=>setGuide({mode:'tour',scope,index:0});
- const moveGuide=(direction:-1|1)=>{
+  requestAnimationFrame(()=>{if(previous?.drawOpen&&compactDrawTools)drawToolsCloseRef.current?.focus();else if(previous?.inspectorOpen&&mobileLayout)drawerCloseRef.current?.focus();else guideToggleRef.current?.focus();});
+ },[mobileLayout,compactDrawTools]);
+ const startGuide=useCallback((scope:GuideScope)=>setGuide({mode:'tour',scope,index:0}),[]);
+ const moveGuide=useCallback((direction:-1|1)=>{
   setGuide(old=>old.mode!=='tour'?old:{...old,index:Math.max(0,Math.min(guideSteps(old.scope).length-1,old.index+direction))});
- };
- const guideMenu=()=>{
+ },[]);
+ const guideMenu=useCallback(()=>{
   setInspectorOpen(false);setDrawToolsOpen(false);
   setGuide(old=>({...old,mode:'menu'}));
- };
+ },[]);
  const closeDrawTools=()=>{setDrawToolsOpen(false);drawToolsToggleRef.current?.focus();};
  const closeMobileInspector=()=>{setInspectorOpen(false);drawerToggleRef.current?.focus();};
  const manageWorkspace=async()=>{
