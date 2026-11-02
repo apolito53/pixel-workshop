@@ -561,7 +561,14 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  className={'small-toggle draw-tools-toggle '+(drawToolsOpen?'on':'')}
  aria-controls="pixel-drawing-tools" aria-expanded={compactDrawTools&&drawToolsOpen} aria-haspopup="dialog"
  aria-label="Open drawing tools" onClick={()=>{setInspectorOpen(false);setDrawToolsOpen(v=>!v);}}>
- <Pencil size={17}/><span>Draw tools</span></button><span className="eyebrow">{(drawerToolLabels[tool]??tools.find(t=>t[0]===tool)?.[2]??'Draw').toUpperCase()} <span className="muted">/ 1 PX</span></span>{['rect','ellipse'].includes(tool)&&<label className="fill-option"><input type="checkbox" checked={filled} onChange={e=>setFilled(e.target.checked)}/>Filled</label>}<span className="spacer"/><button type="button" ref={drawerToggleRef} className={'small-toggle mobile-inspector-toggle '+(inspectorOpen?'on':'')}
+ <Pencil size={17}/><span>Draw tools</span></button><span className="eyebrow">{(drawerToolLabels[tool]??tools.find(t=>t[0]===tool)?.[2]??'Draw').toUpperCase()} <span className="muted">/ 1 PX</span></span>
+ <label className="toolbar-ink-picker" data-guide="current-color" title="Choose your drawing color">
+  <span className="toolbar-color-label">COLOR</span>
+  <span className="toolbar-ink-chip" aria-hidden="true"><i style={{backgroundColor:ink}}/></span>
+  <input type="color" aria-label="Choose current drawing color" value={rgbHex(ink)}
+   onChange={e=>selectInk(withRgb(ink,e.target.value))}/>
+  <span className="toolbar-ink-code">{ink.toUpperCase()}</span>
+ </label>{['rect','ellipse'].includes(tool)&&<label className="fill-option"><input type="checkbox" checked={filled} onChange={e=>setFilled(e.target.checked)}/>Filled</label>}<span className="spacer"/><button type="button" ref={drawerToggleRef} className={'small-toggle mobile-inspector-toggle '+(inspectorOpen?'on':'')}
  aria-controls="pixel-inspector" aria-expanded={mobileLayout&&inspectorOpen} aria-haspopup="dialog"
  onClick={()=>{setDrawToolsOpen(false);setInspectorOpen(v=>!v);}}><SlidersHorizontal size={17}/><span>Panels</span></button><span className="canvas-hint">ONE CELL = ONE PIXEL.</span></div><div className="canvas-scroll" ref={viewport} onPointerDownCapture={touchDown}
  onPointerMoveCapture={touchMove} onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd}><div className="canvas-mat">{d?<div className="canvas-frame" data-guide="canvas" style={touchNavigationActive?{
