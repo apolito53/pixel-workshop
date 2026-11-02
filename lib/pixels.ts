@@ -206,13 +206,14 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
     const selectedFrame=c.frame===undefined?0:requireInt(c.frame,0,frameCount(d)-1,'frame');
     const l=frameView(d,selectedFrame).layers.find(l=>l.id===targetLayer)!;
     if(c.op==='clear'){l.pixels.fill(0);spend(l.pixels.length);continue;}
-    if(c.op==='transform'||c.op==='paste'){
+    if(c.op==='transform'||c.op==='paste'||c.op==='stamp'){
       const x=requireInt(c.x,0,d.width-1,'x'),y=requireInt(c.y,0,d.height-1,'y');
       const w=requireInt(c.width,1,d.width-x,'width'),h=requireInt(c.height,1,d.height-y,'height');
       spend(w*h*3);
       let pixels:number[],tx=x,ty=y;
-      if(c.op==='paste'){
-        if(!Array.isArray(c.pixels)||c.pixels.length!==w*h||c.pixels.some(p=>!Number.isInteger(p)||p<0||p>0xffffffff))throw new Error('Paste needs width × height packed RGBA pixels.');
+      if(c.op==='paste'||c.op==='stamp'){
+        if(c.op==='stamp'&&w*h>4096)throw new Error('Stamp exceeds the 4096-pixel brush budget.');
+        if(!Array.isArray(c.pixels)||c.pixels.length!==w*h||c.pixels.some(p=>!Number.isInteger(p)||p<0||p>0xffffffff))throw new Error('Stamp or paste needs width × height packed RGBA pixels.');
         pixels=c.pixels as number[];
       }else{
         if(!['move','copy','flip_horizontal','flip_vertical'].includes(String(c.mode)))throw new Error('Unknown transform mode.');
@@ -224,7 +225,8 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
       }
       for(let yy=0;yy<h;yy++)for(let xx=0;xx<w;xx++){
         const sx=c.op==='transform'&&c.mode==='flip_horizontal'?w-1-xx:xx,sy=c.op==='transform'&&c.mode==='flip_vertical'?h-1-yy:yy;
-        l.pixels[(ty+yy)*d.width+tx+xx]=pixels[sy*w+sx];
+        const packed=pixels[sy*w+sx];
+        if(c.op!=='stamp'||(packed&255)>0)l.pixels[(ty+yy)*d.width+tx+xx]=packed;
       }
       continue;
     }
