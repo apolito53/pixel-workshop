@@ -197,6 +197,21 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
     if(c.op==='effect_detach'){delete metadataLayer.effect;continue;}
     if(c.op==='visibility'){if(typeof c.visible!=='boolean')throw new Error('visible must be true or false.');metadataLayer.visible=c.visible;continue;}
     if(c.op==='rename_layer'){metadataLayer.name=String(c.name||'Layer').slice(0,60);continue;}
+    if(c.op==='duplicate_layer'){
+      if(d.layers.length>=8)throw new Error('Cannot preserve a layer: all eight slots are used.');
+      if(frameCount(d)*(d.layers.length+1)*d.width*d.height>MAX_ANIMATION_CELLS)
+        throw new Error('Cannot preserve a layer: animation pixel budget reached.');
+      const id=String(c.id||'backup-'+d.layers.length);
+      if(!/^[a-z0-9_-]{1,64}$/i.test(id)||d.layers.some(l=>l.id===id))
+        throw new Error('Choose a unique backup layer ID.');
+      spend(d.width*d.height*frameCount(d));
+      const backup:Layer={...metadataLayer,id,name:String(c.name||metadataLayer.name+' Backup').slice(0,60),
+       pixels:[...metadataLayer.pixels]};
+      delete backup.effect; // A backup is a frozen snapshot, not another live effect recipe.
+      d.layers.splice(d.layers.indexOf(metadataLayer)+1,0,backup);
+      for(const cel of d.animation?.frames??[])cel.pixels[id]=[...cel.pixels[metadataLayer.id]];
+      continue;
+    }
     if(c.op==='delete_layer'){
       if(d.layers.length===1)throw new Error('Keep at least one layer.');
       d.layers=d.layers.filter(x=>x.id!==metadataLayer.id);
