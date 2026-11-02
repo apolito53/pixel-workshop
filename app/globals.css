@@ -207,3 +207,22 @@
 .workshop .stardrop-editor-link{margin-left:auto;white-space:nowrap;color:#edc99e;border:1px solid #82664b;border-radius:5px;padding:7px 11px;background:#e7ad720d;font-weight:650}
 .workshop .stardrop-editor-link:hover{background:#e7ad7229;color:#ffebc8}
 @media(max-width:620px){.workshop .stardrop-editor-link{padding:7px 9px}.workshop .stardrop-editor-link span{display:none}}
+
+/* Named animation clips in the compact five-destination inspector. */
+.inspector-tabs{grid-template-columns:repeat(5,minmax(0,1fr));gap:2px}
+.inspector-tab{flex-direction:column;gap:3px;min-height:47px;font-size:9px;padding:6px 1px}
+.clip-section>p{font-size:10px;line-height:1.6;color:#9e9eaa;margin:0 0 15px}
+.clip-list{display:grid;gap:7px;margin-bottom:12px}
+.clip-row{padding:9px 8px;border:1px solid #484451;background:#1c1d25;border-radius:5px}
+.clip-row-heading{display:flex;flex-direction:column;gap:5px}
+.clip-row-heading b{font-size:12px;font-weight:650;color:#ebd3ad;overflow-wrap:anywhere}
+.clip-row-heading small{color:#a4a4b5;font-size:9px;text-transform:capitalize}
+.clip-row-actions{display:flex;gap:4px;margin-top:9px}
+.clip-row-actions button{flex:1;padding:6px 5px;font-size:10px;border:1px solid #494450;border-radius:3px;color:#d7c8da;background:#2c2935}
+.clip-row-actions button:hover{background:#4d3c4c}
+.clip-section .clip-empty{font-style:italic;color:#9b94ab}
+.clip-section .clip-all-frames{margin-bottom:12px;padding-left:0}
+.clip-create-heading{margin:7px 0 13px}
+.clip-section .effect-field{font-size:10px}
+.clip-section .effect-field input,.clip-section .effect-field select{width:110px}
+.clip-section>.secondary{margin-top:12px;justify-content:center;color:#e8cfab}
