@@ -71,3 +71,15 @@ test('desktop toolbar keeps all shortcuts and the compact drawer lets the canvas
   assert.ok(css.includes('.canvas-area{width:0;flex:1 1 0;min-width:0}'));
   assert.ok(css.includes('.rail-tool-label{display:block'));
 });
+
+test('drawer uses concise tile labels and never ellipsizes tool names', () => {
+  assert.ok(editor.includes("drawerToolLabels:Partial<Record<Tool,string>>={stamp:'Stamp'}"));
+  assert.ok(editor.includes('aria-label={label} aria-pressed={tool===id}'));
+  assert.ok(editor.includes('title={`${label} (${key})`}'));
+  assert.ok(editor.includes('{drawerToolLabels[id]??label}'));
+  const labelStyle = css.match(/\\.rail-tool-label\\{([^}]*)\\}/);
+  assert.ok(labelStyle, 'drawer label rule exists');
+  assert.ok(labelStyle[1].includes('white-space:normal'), 'labels wrap if necessary');
+  assert.ok(labelStyle[1].includes('overflow:visible'), 'labels are not clipped');
+  assert.ok(!labelStyle[1].includes('text-overflow:ellipsis'), 'ellipsis is disallowed');
+});
