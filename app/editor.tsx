@@ -49,8 +49,20 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  const guidePreviousRef=useRef<{tab:InspectorTab;inspectorOpen:boolean;drawOpen:boolean}|null>(null);
  const [recentColors,setRecentColors]=useState<string[]>([]);
  const [recentLoaded,setRecentLoaded]=useState(false);
- const recentKey='pixel-workshop-recent-v1:'+ (workspaceId??'local');
+ const [recentKey,setRecentKey]=useState<string|null>(null);
+ // The workspace ID is an invite secret. Never persist it in a localStorage key.
  useEffect(()=>{
+  let alive=true;
+  (async()=>{
+   const bytes=new TextEncoder().encode(workspaceId??'local');
+   const hash=await crypto.subtle.digest('SHA-256',bytes);
+   const suffix=Array.from(new Uint8Array(hash).slice(0,12),n=>n.toString(16).padStart(2,'0')).join('');
+   if(alive)setRecentKey('pixel-workshop-recent-v1:'+suffix);
+  })().catch(()=>{if(alive)setRecentKey(null);});
+  return()=>{alive=false;};
+ },[workspaceId]);
+ useEffect(()=>{
+  if(!recentKey)return;
   setRecentLoaded(false);
   try{
    const json=JSON.parse(localStorage.getItem(recentKey)??'[]') as unknown;
@@ -60,7 +72,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   setRecentLoaded(true);
  },[recentKey]);
  useEffect(()=>{
-  if(!recentLoaded)return;
+  if(!recentLoaded||!recentKey)return;
   try{localStorage.setItem(recentKey,JSON.stringify(recentColors));}catch{}
  },[recentKey,recentColors,recentLoaded]);
  const rememberInk=useCallback((value:string)=>{
