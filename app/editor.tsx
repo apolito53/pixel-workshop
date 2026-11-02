@@ -1,7 +1,7 @@
 'use client';
 import {useCallback,useEffect,useRef,useState,type PointerEvent as PE} from 'react';
 import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound,Stamp,BookOpen} from 'lucide-react';
-import {applyCommands,clipFrameSequence,composite,frameCount,frameView,readRegion,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
+import {applyCommands,clipFrameSequence,composite,DEFAULT_PALETTE,frameCount,frameView,readRegion,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
 import {generateEffectCommands,regenerateEffectCommands,hasFreeEffectLayerSlot,type EffectKind,EFFECT_KINDS,EFFECT_GROUPS,EFFECT_PRESETS} from '../lib/effects.ts';
 import {EditQueue,type EditorSnapshot,type QueueState} from '../lib/edit-queue.ts';
@@ -9,6 +9,8 @@ import {beginPinch,movePinch,finishPinch,touchMidpoint,type GesturePoint,type Pi
 import {INSPECTOR_TABS,inspectorTabForKey,type InspectorTab} from '../lib/inspector-tabs.ts';
 import {guideSteps,type GuideScope} from '../lib/workshop-guide.ts';
 import WorkshopGuide from './workshop-tour.tsx';
+import ColorWorkbench from './color-workbench.tsx';
+import {isHexInk,normalizeInk,rememberInk,rgbHex,withOpacity,withRgb} from '../lib/color-workflow.ts';
 type Snapshot=EditorSnapshot;
 type Tool='select'|'pencil'|'eraser'|'fill'|'picker'|'line'|'rect'|'ellipse'|'stamp';
 const tools=[['pencil',Pencil,'Pencil','B'],['eraser',Eraser,'Eraser','E'],['fill',PaintBucket,'Fill','G'],['picker',Pipette,'Eyedropper','I'],['line',Minus,'Line','L'],['rect',Square,'Rectangle','R'],['ellipse',Circle,'Ellipse','O'],['select',Scan,'Select / move','V'],['stamp',Stamp,'Stamp copied pixels','S']] as const;
@@ -57,7 +59,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const [compactDrawTools,setCompactDrawTools]=useState(false),[drawToolsOpen,setDrawToolsOpen]=useState(false);
  const inspectorRef=useRef<HTMLElement>(null),drawerToggleRef=useRef<HTMLButtonElement>(null),drawerCloseRef=useRef<HTMLButtonElement>(null);
  const drawToolsRef=useRef<HTMLElement>(null),drawToolsToggleRef=useRef<HTMLButtonElement>(null),drawToolsCloseRef=useRef<HTMLButtonElement>(null);
- const [frame,setFrame]=useState(0),[playing,setPlaying]=useState(false),[onion,setOnion]=useState(false),[effectKind,setEffectKind]=useState<EffectKind>('embers'),[effectSeed,setEffectSeed]=useState(53),[snap,setSnap]=useState<Snapshot|null>(null),[list,setList]=useState<PixelDocument[]>([]),[tool,setTool]=useState<Tool>('pencil'),[ink,setInk]=useState('#f6da92'),[layer,setLayer]=useState('base'),[zoom,setZoom]=useState(10),[grid,setGrid]=useState(true),[filled,setFilled]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState('Opening workspace…'),[error,setError]=useState(''),[cursor,setCursor]=useState('X —   Y —'),[hover,setHover]=useState<{x:number;y:number}|null>(null),[modal,setModal]=useState(false),[name,setName]=useState('Untitled sprite'),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[scale,setScale]=useState(1),[selection,setSelection]=useState<PixelRegion|null>(null),[clipboard,setClipboard]=useState<{width:number;height:number;pixels:number[]}|null>(null),[previewScale,setPreviewScale]=useState(1),[fitMode,setFitMode]=useState(true),[saveState,setSaveState]=useState<Pick<QueueState,'pending'|'saving'|'error'>>({pending:0,saving:false,error:null});
+ const [frame,setFrame]=useState(0),[playing,setPlaying]=useState(false),[onion,setOnion]=useState(false),[effectKind,setEffectKind]=useState<EffectKind>('embers'),[effectSeed,setEffectSeed]=useState(53),[snap,setSnap]=useState<Snapshot|null>(null),[list,setList]=useState<PixelDocument[]>([]),[tool,setTool]=useState<Tool>('pencil'),[ink,setInk]=useState('#f6da92'),[hexDraft,setHexDraft]=useState('#f6da92'),[recentColors,setRecentColors]=useState<string[]>([]),[layer,setLayer]=useState('base'),[zoom,setZoom]=useState(10),[grid,setGrid]=useState(true),[filled,setFilled]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState('Opening workspace…'),[error,setError]=useState(''),[cursor,setCursor]=useState('X —   Y —'),[hover,setHover]=useState<{x:number;y:number}|null>(null),[modal,setModal]=useState(false),[name,setName]=useState('Untitled sprite'),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[scale,setScale]=useState(1),[selection,setSelection]=useState<PixelRegion|null>(null),[clipboard,setClipboard]=useState<{width:number;height:number;pixels:number[]}|null>(null),[previewScale,setPreviewScale]=useState(1),[fitMode,setFitMode]=useState(true),[saveState,setSaveState]=useState<Pick<QueueState,'pending'|'saving'|'error'>>({pending:0,saving:false,error:null});
  const [stampSnap,setStampSnap]=useState(0),[tileSize,setTileSize]=useState(16);
  const [effectSpeed,setEffectSpeed]=useState(1),[effectOpacity,setEffectOpacity]=useState(1),[effectDrift,setEffectDrift]=useState(0),[effectTarget,setEffectTarget]=useState<string|null>(null);
  const [packModal,setPackModal]=useState(false),[packIds,setPackIds]=useState<string[]>([]);
@@ -67,6 +69,20 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const previewPosition=useRef(0);
  const guideStep=guide.mode==='tour'?guideSteps(guide.scope)[guide.index]:undefined;
  const queue=useRef<EditQueue|null>(null),viewport=useRef<HTMLDivElement>(null),selectionDrag=useRef<{base:Snapshot;start:{x:number;y:number};source:PixelRegion|null;region:PixelRegion;layer:string;frame:number}|null>(null),canvas=useRef<HTMLCanvasElement>(null),preview=useRef<HTMLCanvasElement>(null),file=useRef<HTMLInputElement>(null),current=useRef(snap),locked=useRef(false),stroke=useRef<{base:Snapshot;start:{x:number;y:number};last:{x:number;y:number};ops:PaintCommand[];frame:number}|null>(null);
+ const selectInk=useCallback((nextInk:string,track=true)=>{
+  if(!isHexInk(nextInk))return;
+  const next=normalizeInk(nextInk);
+  setInk(next);setHexDraft(next);
+  if(track)setRecentColors(colors=>rememberInk(colors,next));
+ },[]);
+ const onHexDraft=(value:string)=>{
+  setHexDraft(value);
+  if(isHexInk(value))selectInk(value);
+ };
+ const finishHexDraft=()=>{
+  if(isHexInk(hexDraft))selectInk(hexDraft);
+  else setHexDraft(ink);
+ };
  const resetPan=useCallback(()=>{
   if(gestureFrame.current!==null)cancelAnimationFrame(gestureFrame.current);
   gestureFrame.current=null;
@@ -345,7 +361,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
    present({...s,doc:applyCommands(s.doc,targetFrame(ops,target))});
   }else void commit(ops);
   return;
- }if(tool==='picker'){const rgba=composite(frameView(s.doc,Math.min(frame,frameCount(s.doc)-1))),i=(p.y*s.doc.width+p.x)*4;if(rgba[i+3])setInk('#'+Array.from(rgba.slice(i,i+3)).map(v=>v.toString(16).padStart(2,'0')).join(''));return;}if(tool==='fill'){
+ }if(tool==='picker'){const rgba=composite(frameView(s.doc,Math.min(frame,frameCount(s.doc)-1))),i=(p.y*s.doc.width+p.x)*4;if(rgba[i+3])selectInk('#'+Array.from(rgba.slice(i,i+3)).map(v=>v.toString(16).padStart(2,'0')).join('')+(rgba[i+3]<255?rgba[i+3].toString(16).padStart(2,'0'):''));return;}if(tool==='fill'){
   const ops:PaintCommand[]=[{op:'fill',layer,color:ink,...p}];
   if(e.pointerType==='touch'){
    // Defer the save until release so a second finger can cancel a tentative fill.
@@ -406,6 +422,20 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
    setNotice('Exported animation atlas JSON');
   }catch(e){setError((e as Error).message);}
  };
+ const saveProjectInk=async()=>{
+  const doc=current.current?.doc;
+  if(!doc||!isHexInk(ink)||doc.palette.length>=128||doc.palette.some(c=>normalizeInk(c)===normalizeInk(ink)))return;
+  await commit([{op:'palette',colors:[...doc.palette,normalizeInk(ink)]}]);
+ };
+ const removeProjectInk=async(color:string)=>{
+  const doc=current.current?.doc;if(!doc||!isHexInk(color))return;
+  await commit([{op:'palette',colors:doc.palette.filter(c=>normalizeInk(c)!==normalizeInk(color))}]);
+ };
+ const removeLegacySwatches=async()=>{
+  const doc=current.current?.doc;if(!doc)return;
+  if(!DEFAULT_PALETTE.every((c,i)=>doc.palette[i]&&normalizeInk(doc.palette[i])===normalizeInk(c)))return;
+  await commit([{op:'palette',colors:doc.palette.slice(DEFAULT_PALETTE.length)}]);
+ };
  const exportTiles=async()=>{
   const doc=current.current?.doc;if(!doc)return;
   try{
@@ -450,7 +480,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   const recipe=current.current?.doc.layers.find(l=>l.id===id)?.effect;
   setEffectTarget(id||null);
   if(recipe){
-   setEffectKind(recipe.kind);setEffectSeed(recipe.seed);setInk(recipe.ink);
+   setEffectKind(recipe.kind);setEffectSeed(recipe.seed);selectInk(recipe.ink);
    setEffectSpeed(recipe.speed);setEffectOpacity(recipe.opacity);setEffectDrift(recipe.drift);
   }
  };
@@ -525,7 +555,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
     <button type="button" className="tool history-tool" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!snap?.canUndo||busy} onClick={()=>void commit([],undefined,'undo')}><Undo2 size={19}/><span className="rail-history-label">Undo</span></button>
     <button type="button" className="tool history-tool" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={!snap?.canRedo||busy} onClick={()=>void commit([],undefined,'redo')}><Redo2 size={19}/><span className="rail-history-label">Redo</span></button>
   </div>
-  <label className="rail-color-picker" title="Change drawing color"><span className="rail-ink" style={{background:ink}} aria-hidden="true"/><span className="rail-color-label">Color · {ink.toUpperCase()}</span><input type="color" aria-label="Choose quick drawing color" value={ink.slice(0,7)} onChange={e=>setInk(e.target.value)}/></label>
+  <label className="rail-color-picker" title="Change drawing color"><span className="rail-ink" style={{background:ink}} aria-hidden="true"/><span className="rail-color-label">Color · {ink.toUpperCase()}</span><input type="color" aria-label="Choose quick drawing color" value={rgbHex(ink)} onChange={e=>selectInk(withRgb(ink,e.target.value))}/></label>
  </aside>
  <section className="canvas-area" aria-label="Canvas workspace"><div className="canvas-toolbar"><button type="button" ref={drawToolsToggleRef}
  className={'small-toggle draw-tools-toggle '+(drawToolsOpen?'on':'')}
@@ -581,7 +611,11 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  </nav>
  <div className="inspector-panel" id="inspector-panel-draw" role="tabpanel" aria-labelledby="inspector-tab-draw" tabIndex={0} hidden={inspectorTab!=='draw'}>
  <section className="inspector-section preview-section"><div className="section-heading"><span>PREVIEW</span><div className="preview-scales">{[1,2].map(s=><button key={s} aria-label={`Preview at ${s}×`} aria-pressed={previewScale===s} className={previewScale===s?'active':''} onClick={()=>setPreviewScale(s)}>{s}×</button>)}</div></div><div className="navigator"><canvas ref={preview} aria-label="Artwork preview"/></div><div className="preview-caption"><span>{d?.name||'Your artwork'}</span><span>{d?`${d.width} × ${d.height}`:''}</span></div></section>
- <section className="inspector-section"><div className="section-heading"><span>COLOR</span><span className="muted">RGBA</span></div><div className="color-controls" data-guide="palette"><label className="color-picker" style={{background:ink}}><input type="color" aria-label="Choose drawing color" value={ink.slice(0,7)} onChange={e=>setInk(e.target.value)}/></label><input className="hex-input" aria-label="Hex drawing color" value={ink} maxLength={9} onChange={e=>setInk(e.target.value)} onBlur={()=>{if(!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(ink))setInk('#f6da92');}}/><button className="icon-button" aria-label="Add current color to palette" disabled={busy||!d||d.palette.includes(ink)} onClick={()=>void commit([{op:'palette',colors:[...(d?.palette||[]),ink]}])}><Plus size={15}/></button></div><div className="section-heading palette-heading"><span>WORKSHOP PALETTE</span><span className="muted">{d?.palette.length||24}</span></div><div className="palette">{d?.palette.map((c,i)=><button key={c+i} aria-label={`Use color ${c}`} title={c} style={{background:c}} className={'swatch '+(c===ink?'selected':'')} onClick={()=>setInk(c)}/>)}</div></section>
+ <ColorWorkbench doc={d??null} frame={activeFrame} ink={ink} hexDraft={hexDraft} recent={recentColors} busy={busy}
+  onPick={selectInk} onDraft={onHexDraft} onCommitHex={finishHexDraft}
+  onOpacity={percent=>selectInk(withOpacity(ink,percent),false)}
+  onSave={()=>void saveProjectInk()} onRemove={hex=>void removeProjectInk(hex)}
+  onRemoveStarters={()=>void removeLegacySwatches()}/>
  <details className="inspector-section selection-section inspector-disclosure">
  <summary className="section-heading inspector-summary" data-guide="selection"><span>SELECTION</span><span className="inspector-summary-end"><span className="muted">{selection?`${selection.width} × ${selection.height}`:'V'}</span><ChevronDown size={15}/></span></summary><div className="selection-actions"><button disabled={!selection||busy} onClick={copySelection} title="Copy (Ctrl+C)"><Copy size={14}/>Copy</button><button disabled={!clipboard||busy} onClick={()=>setTool('stamp')} title="Use copied pixels as a stamp"><Stamp size={14}/>Stamp</button><button disabled={!clipboard||busy} onClick={pasteSelection} title="Paste (Ctrl+V)"><ClipboardPaste size={14}/>Paste</button><button disabled={!selection||busy} onClick={()=>transformSelection('flip_horizontal')} title="Flip horizontally"><FlipHorizontal2 size={14}/>Flip H</button><button disabled={!selection||busy} onClick={()=>transformSelection('flip_vertical')} title="Flip vertically"><FlipVertical2 size={14}/>Flip V</button><button disabled={!selection||busy} onClick={clearSelection} title="Clear selected pixels (Delete)"><Trash2 size={14}/>Clear</button><button disabled={!selection||busy} onClick={()=>setSelection(null)}><X size={14}/>Deselect</button></div><label className="effect-field stamp-snap-field">Stamp grid<select aria-label="Stamp grid snapping" value={stampSnap} onChange={e=>setStampSnap(Number(e.target.value))}><option value={0}>Any pixel</option><option value={8}>8px grid</option><option value={16}>16px grid</option><option value={32}>32px grid</option></select></label><p className="selection-help">Select with V, copy a region, then choose Stamp (S) to place it repeatedly. Grid snapping makes fast tile painting easier.</p></details>
  </div>
@@ -601,7 +635,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
    <p className="effect-description" aria-live="polite">{EFFECT_PRESETS[effectKind].description}</p>
    <div className="effect-color-row"><span>Suggested color</span><button type="button" className="effect-color-button"
      aria-label={'Use suggested '+EFFECT_PRESETS[effectKind].label+' color '+EFFECT_PRESETS[effectKind].suggestedInk}
-     onClick={()=>setInk(EFFECT_PRESETS[effectKind].suggestedInk)}
+     onClick={()=>selectInk(EFFECT_PRESETS[effectKind].suggestedInk)}
      title="Set drawing color to this effect’s suggested tint">
      <i style={{background:EFFECT_PRESETS[effectKind].suggestedInk}} aria-hidden="true"/>{EFFECT_PRESETS[effectKind].suggestedInk.toUpperCase()}
    </button></div>
