@@ -600,3 +600,11 @@
 .fx-overwrite-confirm{padding:10px;background:#80414a19;border:1px solid #98576377;
  border-radius:5px;color:#f4c4bf}
 .effect-regenerate:disabled{opacity:.38}
+
+/* New timeline selection controls need room without clipping the frame strip. */
+.timeline{height:184px;min-height:0}
+.timeline-header{flex-wrap:wrap;align-content:center;row-gap:5px;min-height:52px}
+.timeline-controls{min-width:0;gap:5px}
+.timeline-track{min-height:84px;flex:1 1 auto}
+@media(max-width:800px){.timeline{height:206px}.timeline-header{padding:6px 9px}}
+@media(max-width:450px){.timeline{height:220px}.timeline-controls{justify-content:flex-start}}

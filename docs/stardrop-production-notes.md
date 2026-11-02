@@ -61,3 +61,6 @@ Implement **game pack export + named animation clips**, then do another dogfood 
 **Still outstanding:** A true tilemap/collision editor with autotiling and scrolling scenes, cross-project prefab/stamp libraries, richer effect lifetimes/particle controls and a node compositor, deduplicated/binary project storage, canvas budgets beyond 256 px, bulk contact-sheet/scene preview, and first-class in-chat installation of the remote workspace MCP connector. Those are distinct workstreams rather than claims that this patch solves them.
 
 **Design principle:** Keep original pixels and their editable layers intact; package game-ready artifacts without forcing users to surrender source format or manually reconstruct playback metadata.
+
+### Interactive production workflow pass (2026-11-02)
+Stamp captures regions directly and preserves transparency during placement, with a per-browser reusable asset gallery. Animation clips can be selected by dragging across thumbnail frames. Procedural FX now show a non-mutating before/after preview and can retain the original FX layer as a hidden backup. Automated tests exercise the native stamping engine, clip range geometry, effect previews and every-frame backups.
