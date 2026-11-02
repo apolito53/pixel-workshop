@@ -45,3 +45,19 @@ The cell-precise drawing engine, layered compositing, additive paint operations,
 ### Recommended next milestone
 
 Implement **game pack export + named animation clips**, then do another dogfood build with a scrolling level, enemy attack animations and real tiles. Those two features would eliminate a remarkable amount of glue code and surface a wider class of usability problems.
+
+---
+
+## Implementation follow-up (2026-11-02)
+
+**Delivered in `feat/game-production-workflow`:**
+
+- **Named clips:** First-class, optional `animation.clips` metadata; atomic clip operations in the drawing engine and MCP paint tool; loop, once and ping-pong playback in the editor; atlas includes named playback sequences. Frame deletion reindexes ranges or removes a clip that loses its sole cel.
+- **Portable game packs:** A ZIP/STORE writer and one-click workspace exporter collect editable source documents, RGBA sprite sheets, clip-aware atlases and a root manifest. Stardrop's asset workbench itself demonstrates the same exporter on all ten native assets.
+- **Editable procedural recipes:** Generated layers retain validated seed, color, speed, opacity and horizontal-drift parameters; the FX tab reloads and regenerates a chosen effect layer, and MCP now exposes `regenerate_effect`. This preserves other artwork while replacing pixels within the selected effect layer.
+- **Tile foundations and reused stamps:** Export uniform transparent-aware tileset bundles with row-major IDs. Copy a selection and use the **Stamp** brush repeatedly, optionally snapped to an 8/16/32 pixel grid. All placements remain native edits.
+- **Backwards compatibility and verification:** Existing `pixel-workshop/1` documents remain valid, with optional metadata fields. Automated tests cover clips, ZIP structure and CRC, effect regeneration, MCP behavior, and tile atlases.
+
+**Still outstanding:** A true tilemap/collision editor with autotiling and scrolling scenes, cross-project prefab/stamp libraries, richer effect lifetimes/particle controls and a node compositor, deduplicated/binary project storage, canvas budgets beyond 256 px, bulk contact-sheet/scene preview, and first-class in-chat installation of the remote workspace MCP connector. Those are distinct workstreams rather than claims that this patch solves them.
+
+**Design principle:** Keep original pixels and their editable layers intact; package game-ready artifacts without forcing users to surrender source format or manually reconstruct playback metadata.
