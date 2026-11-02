@@ -56,7 +56,7 @@ All browser API calls and remote MCP tool calls are authorized on the server. Th
 
 ## Browser workspace
 
-The inspector uses five tabs: **Draw** (preview, color palette, stamps and collapsible Selection), **Layers**, **FX**, **Clips**, and **Export**. At desktop widths, it remains an always-visible right-hand pane. At **800 CSS pixels or narrower**, the canvas gets the available width and a **Tools** button opens the inspector as a dismissible right-side drawer. The drawer has a close control, an outside-click backdrop, Escape-to-close, focus management, and independent scrolling inside the active tab. The artwork, selected frame, and edit queue are unchanged when closing or reopening it. Keyboard users can switch tabs with Left/Right, Home and End.
+The inspector uses five tabs: **Draw** (preview, color workbench, stamps and collapsible Selection), **Layers**, **FX**, **Clips**, and **Export**. At desktop widths, it remains an always-visible right-hand pane. At **800 CSS pixels or narrower**, the canvas gets the available width and a **Tools** button opens the inspector as a dismissible right-side drawer. The drawer has a close control, an outside-click backdrop, Escape-to-close, focus management, and independent scrolling inside the active tab. The artwork, selected frame, and edit queue are unchanged when closing or reopening it. Keyboard users can switch tabs with Left/Right, Home and End.
 
 On touchscreens (including landscape phones) and narrow viewports (**800 CSS pixels or narrower**), **one finger draws** while **two fingers drag the canvas or pinch to zoom** around the midpoint of the gesture, including when the canvas fits onscreen. Pinching scales smoothly while touching, then snaps to the editor's crisp integer zoom on release. **Fit** recenters the canvas and restores automatic zoom. Landing a second finger cancels a tentative stroke rather than accidentally saving it; touch flood-fill is likewise committed only on release. Browser-level touch scrolling and pinch zoom are disabled inside the art viewport, not elsewhere in the page.
 
@@ -67,6 +67,18 @@ Painting and session undo/redo update locally immediately. Completed strokes que
 Failed saves pause the queue without discarding the drawing. Retry uses the same request ID so a lost response cannot duplicate a stroke; conflicting external/MCP edits offer Save a copy. The page warns before leaving with pending edits. The current project and project list refresh every three seconds while idle to reflect MCP edits; polling cannot overwrite queued or active strokes.
 
 Undo and Redo now sit underneath the drawing and grid tools in the left toolbar, rather than in the document bar. On shorter screens the painting tools scroll independently, keeping Undo/Redo reachable; the existing Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z shortcuts remain available.
+
+## First-class color workbench
+
+A prominent **Current color** swatch next to the canvas tools opens a real RGB color picker, RGBA/hex input, and opacity slider in one click. The full color workbench remains available in **Draw**. It separates color sources so nothing looks arbitrarily selected:
+
+- **From this artwork:** the most common visible colors in the active animation frame. Transparent pixels are ignored.
+- **Recently chosen:** your latest eight color choices, remembered in this browser *for this workspace*, never shared across anonymous workspaces.
+- **Suggested colors:** deterministic light, dark, neighboring, muted and contrast tones based on the currently drawn colors. On a blank canvas they are derived from Current color instead. Suggestions evolve as you paint, but never automatically change the active color or document.
+- **Saved palette:** colors you deliberately save for this project. New canvases begin with no saved swatches; adding or removing them is an undoable project edit.
+- **Original starter swatches:** a collapsed, clearly labeled collection of colors embedded by older versions, preserved for backward compatibility rather than passed off as personalized suggestions.
+
+Changing the Current color affects subsequent strokes only. Existing pixels and artwork are never recolored by the recommendation engine, and no AI service, external palette API or network access is involved.
 
 ## Animation workbench
 

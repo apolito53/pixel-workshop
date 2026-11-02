@@ -52,3 +52,15 @@ Automated tests check that every guide target exists, every chapter has useful s
 Next recommended dogfood task: recruit a fresh browser session and ask someone to create a sprite, duplicate a frame, make a named clip, generate sparkles, regenerate safely, and export a game pack **without verbal assistance**. Record their first hesitation at every step; prioritize friction they actually encounter over theoretical UI additions.
 
 **Most valuable immediate follow-up:** stamp discoverability and clip-range selection. Those required the most conceptual explanation while writing the tour.
+
+---
+
+## Follow-up: color-picker redesign (2026-11-02)
+
+The tutorial investigation surfaced another significant usability failure, confirmed by direct feedback: the editor initialized **every** new canvas with 24 unrelated swatches and displayed them as though they represented a curated project palette, while the actual RGB picker was in a submenu. That made the color UI harder to understand than the drawing tools themselves.
+
+**Implemented:** a primary Current Color control in the canvas toolbar, immediate access to RGB/hex/alpha, recent user choices scoped by workspace, intentionally saved project favorites, actual colors sampled from the selected frame, and suggestions derived deterministically from those pixels or the current color on a blank canvas. New canvases have an empty Saved palette. Old default colors remain intact, but are explicitly described as legacy starter swatches and are collapsed by default. Guide copy is updated.
+
+**Remaining:** color harmony style selection (complementary/triadic/analogous presets), palette import/export, explicit eyedropper magnification on touch, optional multi-project shared palettes, and a fully integrated palette generator that understands reference images or style constraints. The current local algorithm is intentionally small, predictable and editable by the artist.
+
+**Follow-up test:** ask a new user to pick a custom color, draw two contrasting regions, compare Suggested and Used colors, save and remove one favorite, and switch workspaces. A successful flow should need no explanation of where the real picker lives.
