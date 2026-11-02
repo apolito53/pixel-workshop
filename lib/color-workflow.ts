@@ -47,20 +47,23 @@ const distance=(a:string,b:string)=>{
 export function artworkColors(doc:PixelDocument,frame=0,limit=8):ArtworkColor[]{
  if(!Number.isInteger(frame)||frame<0||frame>=frameCount(doc))return [];
  const rgba=composite(frameView(doc,frame));
- const counts=new Map<string,{pixelCount:number;weighted:number;maxAlpha:number}>();
+ // Pack RGB as an integer in this hot loop. Allocating a hex string for
+ // every output pixel would noticeably slow down live suggestions on big cels.
+ const counts=new Map<number,{pixelCount:number;weighted:number;maxAlpha:number}>();
  for(let i=0;i<rgba.length;i+=4){
   const a=rgba[i+3];
   if(a<24)continue;
-  const key='#'+byte(rgba[i])+byte(rgba[i+1])+byte(rgba[i+2]);
+  const key=(rgba[i]<<16)|(rgba[i+1]<<8)|rgba[i+2];
   const old=counts.get(key);
   if(old){old.pixelCount++;old.weighted+=a;old.maxAlpha=Math.max(old.maxAlpha,a);}
   else counts.set(key,{pixelCount:1,weighted:a,maxAlpha:a});
  }
- const ordered=[...counts].sort((a,b)=>b[1].weighted-a[1].weighted||a[0].localeCompare(b[0]));
+ const ordered=[...counts].sort((a,b)=>b[1].weighted-a[1].weighted||a[0]-b[0]);
  const result:ArtworkColor[]=[];
  for(const [key,item] of ordered){
-  if(result.some(existing=>distance(existing.hex,key)<23))continue;
-  result.push({hex:normalizeInk(key+(item.maxAlpha<255?byte(item.maxAlpha):'')),pixelCount:item.pixelCount});
+  const hex='#'+key.toString(16).padStart(6,'0');
+  if(result.some(existing=>distance(existing.hex,hex)<23))continue;
+  result.push({hex:normalizeInk(hex+(item.maxAlpha<255?byte(item.maxAlpha):'')),pixelCount:item.pixelCount});
   if(result.length>=Math.max(1,Math.min(12,limit)))break;
  }
  return result;
