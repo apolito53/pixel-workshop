@@ -560,3 +560,21 @@
  .stamp-context{gap:2px}
  .stamp-context select{max-width:42px}
 }
+
+
+/* The animation range is visible and selectable, not just numeric fields. */
+.timeline-range-toggle.on{color:#f4dfb5;border-color:#c8a37b;background:#ca995a22}
+.timeline-create-clip{color:#eed4b5!important;border-color:#aa8a62!important;background:#d8ac7622!important}
+.frame-tile{position:relative}
+.frame-tile.range-selected{border-color:#deb77b!important;background:#ddad6724!important;box-shadow:inset 0 0 0 1px #deb77b75}
+.frame-tile.range-selected:focus-visible{outline:2px solid #fff0cf;outline-offset:1px}
+.frame-clip-indicators{display:flex;justify-content:center;gap:2px;min-height:5px;
+ position:absolute;bottom:3px;left:3px;right:3px;pointer-events:none}
+.frame-clip-indicator{display:block;height:4px;min-width:4px;flex:1;border-radius:2px;
+ box-shadow:0 0 2px #0007}
+.timeline-controls{flex-wrap:wrap}
+@media(max-width:620px){
+ .timeline-controls .timeline-range-toggle,.timeline-controls .timeline-create-clip{
+  font-size:10px!important;min-height:30px;white-space:nowrap}
+ .frame-clip-indicators{bottom:2px}
+}
