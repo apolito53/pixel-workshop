@@ -786,7 +786,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
     <Scan size={14}/>{rangeSelectMode?'Drag across frames':'Select clip range'}</button>
    {clipRangeSelection&&<button type="button" className="small-toggle timeline-create-clip"
     disabled={busy||playing} onClick={openClipFromRange}>
-    <Plus size={14}/>Create clip ({clipRangeSelection.from+1}–{clipRangeSelection.to+1})</button}>
+    <Plus size={14}/>Create clip ({clipRangeSelection.from+1}–{clipRangeSelection.to+1})</button>}
     </div>
   </div>
   <div className="timeline-track" data-guide="timeline-track"
