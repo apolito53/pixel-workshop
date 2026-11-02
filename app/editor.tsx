@@ -890,8 +890,25 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
      <option value="">Choose a layer</option>
      {d.layers.filter(l=>l.effect).map(l=><option key={l.id} value={l.id}>{l.name}</option>)}
     </select></label>
-    <p>Select an FX layer to load its recipe above, then regenerate with new settings. Other layers stay untouched. Manual pixel edits inside the FX layer are replaced.</p>
-    <button type="button" className="secondary full effect-regenerate" disabled={busy||!d.layers.some(l=>l.id===effectTarget&&l.effect)} onClick={()=>void regenerateEffect()}><Sparkles size={14}/>Regenerate selected FX layer</button>
+    <p>Choose a stored FX recipe, tweak its settings above, and compare before changing the artwork. Regeneration replaces hand-edited pixels inside this FX layer.</p>
+    <button type="button" className="secondary full effect-preview-button"
+     disabled={busy||!d.layers.some(l=>l.id===effectTarget&&l.effect)}
+     onClick={previewEffectChanges}><Eye size={14}/>Preview before &amp; after</button>
+    {validFxPreview&&<FxComparisonPanel comparison={validFxPreview}/>}
+    {fxPreview&&!validFxPreview&&<p className="fx-preview-stale">Settings or artwork changed. Preview again to continue.</p>}
+    <label className="fx-backup-choice">
+     <input type="checkbox" checked={preserveFx&&canBackUpFx} disabled={!canBackUpFx||busy}
+      onChange={e=>{setPreserveFx(e.target.checked);setConfirmFxOverwrite(false);}}/>
+     <span>Preserve original as a hidden backup layer</span>
+    </label>
+    {!canBackUpFx&&<p className="fx-backup-warning">No room for a backup layer or pixel budget. You can still regenerate, but must explicitly confirm replacing the original.</p>}
+    {(!canBackUpFx||!preserveFx)&&<label className="fx-overwrite-confirm">
+     <input type="checkbox" checked={confirmFxOverwrite} onChange={e=>setConfirmFxOverwrite(e.target.checked)}/>
+     <span>I understand the original FX pixels will be replaced without a backup.</span>
+    </label>}
+    <button type="button" className="secondary full effect-regenerate"
+     disabled={busy||!validFxPreview||!d.layers.some(l=>l.id===effectTarget&&l.effect)||((!canBackUpFx||!preserveFx)&&!confirmFxOverwrite)}
+     onClick={()=>void regenerateEffect()}><Sparkles size={14}/>Apply previewed effect</button>
    </div>}
   </section>
  </div>
