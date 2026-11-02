@@ -156,3 +156,41 @@ test('all generators become undoable pixel layers without altering existing art'
     assert.deepEqual(validateDocument(JSON.parse(JSON.stringify(withFx))),withFx,kind);
   }
 });
+
+test('named animation clips survive import and export with independent playback modes',()=>{
+ const d=applyCommands(createDocument('Clips',4,4),[
+  {op:'frame_add'},{op:'frame_add'},{op:'frame_add'},{op:'frame_add'},
+  {op:'clip_set',name:'Idle',from:0,to:1,fps:4,mode:'loop'},
+  {op:'clip_set',name:'Walk',from:1,to:4,fps:12,mode:'pingpong'},
+  {op:'clip_set',name:'Blink',from:3,to:4,fps:6,mode:'once'},
+ ]);
+ assert.equal(d.animation?.clips?.length,3);
+ const atlas=buildSpriteSheet(d,2).atlas;
+ assert.deepEqual(atlas.clips?.find(c=>c.name==='Walk')?.frames,[1,2,3,4,3,2]);
+ assert.deepEqual(atlas.clips?.find(c=>c.name==='Blink')?.frames,[3,4]);
+ assert.equal(atlas.clips?.find(c=>c.name==='Idle')?.fps,4);
+ assert.deepEqual(validateDocument(JSON.parse(JSON.stringify(d))),d);
+ const updated=applyCommands(d,[{op:'clip_set',name:'WALK',from:0,to:3,fps:10,mode:'once'}]);
+ assert.equal(updated.animation?.clips?.length,3,'clip names are case-insensitively unique');
+ assert.equal(updated.animation?.clips?.find(c=>c.name==='WALK')?.to,3);
+ assert.equal(applyCommands(updated,[{op:'clip_delete',name:'blink'}]).animation?.clips?.length,2);
+});
+test('deleting animation frames updates or removes named clip ranges atomically',()=>{
+ const d=applyCommands(createDocument('Clip deletion',4,4),[
+  {op:'frame_add'},{op:'frame_add'},{op:'frame_add'},
+  {op:'clip_set',name:'Long',from:1,to:3,fps:8,mode:'loop'},
+  {op:'clip_set',name:'Only',from:2,to:2,fps:8,mode:'once'},
+ ]);
+ const changed=applyCommands(d,[{op:'frame_delete',frame:2}]);
+ assert.deepEqual(changed.animation?.clips,[{name:'Long',from:1,to:2,fps:8,mode:'loop'}]);
+ assert.deepEqual(validateDocument(JSON.parse(JSON.stringify(changed))),changed);
+});
+test('invalid clip metadata and impossible clip edits cannot damage originals',()=>{
+ const d=applyCommands(createDocument('Clip validation',4,4),[{op:'frame_add'},{op:'clip_set',name:'Idle',from:0,to:1,fps:4,mode:'loop'}]);
+ for(const bad of [{...d.animation!.clips![0],from:5},{...d.animation!.clips![0],fps:0},{...d.animation!.clips![0],mode:'infinite'}]){
+  const copy=structuredClone(d);copy.animation!.clips=[bad as typeof d.animation.clips[number]];
+  assert.throws(()=>validateDocument(copy),/Invalid or duplicate animation clip/);
+ }
+ assert.throws(()=>applyCommands(d,[{op:'clip_set',name:'Invalid',from:1,to:8,fps:8}]),/to/);
+ assert.equal(d.animation?.clips?.length,1);
+});

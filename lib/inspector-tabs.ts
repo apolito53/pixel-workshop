@@ -1,8 +1,9 @@
-/** The four inspector destinations are mutually exclusive, including on narrow screens. */
+/** Inspector destinations are mutually exclusive, including on narrow screens. */
 export const INSPECTOR_TABS = [
   { id: 'draw', label: 'Draw' },
   { id: 'layers', label: 'Layers' },
   { id: 'effects', label: 'FX' },
+  { id: 'animation', label: 'Clips' },
   { id: 'export', label: 'Export' },
 ] as const;
 
