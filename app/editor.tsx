@@ -47,7 +47,9 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const gestureFrame=useRef<number|null>(null);
  const suppressTouchDrawing=useRef(false);
  const [mobileLayout,setMobileLayout]=useState(false),[touchCapable,setTouchCapable]=useState(false),[inspectorOpen,setInspectorOpen]=useState(false);
+ const [compactDrawTools,setCompactDrawTools]=useState(false),[drawToolsOpen,setDrawToolsOpen]=useState(false);
  const inspectorRef=useRef<HTMLElement>(null),drawerToggleRef=useRef<HTMLButtonElement>(null),drawerCloseRef=useRef<HTMLButtonElement>(null);
+ const drawToolsRef=useRef<HTMLElement>(null),drawToolsToggleRef=useRef<HTMLButtonElement>(null),drawToolsCloseRef=useRef<HTMLButtonElement>(null);
  const [frame,setFrame]=useState(0),[playing,setPlaying]=useState(false),[onion,setOnion]=useState(false),[effectKind,setEffectKind]=useState<EffectKind>('embers'),[effectSeed,setEffectSeed]=useState(53),[snap,setSnap]=useState<Snapshot|null>(null),[list,setList]=useState<PixelDocument[]>([]),[tool,setTool]=useState<Tool>('pencil'),[ink,setInk]=useState('#f6da92'),[layer,setLayer]=useState('base'),[zoom,setZoom]=useState(10),[grid,setGrid]=useState(true),[filled,setFilled]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState('Opening workspace…'),[error,setError]=useState(''),[cursor,setCursor]=useState('X —   Y —'),[hover,setHover]=useState<{x:number;y:number}|null>(null),[modal,setModal]=useState(false),[name,setName]=useState('Untitled sprite'),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[scale,setScale]=useState(1),[selection,setSelection]=useState<PixelRegion|null>(null),[clipboard,setClipboard]=useState<{width:number;height:number;pixels:number[]}|null>(null),[previewScale,setPreviewScale]=useState(1),[fitMode,setFitMode]=useState(true),[saveState,setSaveState]=useState<Pick<QueueState,'pending'|'saving'|'error'>>({pending:0,saving:false,error:null});
  const [stampSnap,setStampSnap]=useState(0),[tileSize,setTileSize]=useState(16);
  const [effectSpeed,setEffectSpeed]=useState(1),[effectOpacity,setEffectOpacity]=useState(1),[effectDrift,setEffectDrift]=useState(0),[effectTarget,setEffectTarget]=useState<string|null>(null);
@@ -126,6 +128,38 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   update();media.addEventListener('change',update);
   return()=>media.removeEventListener('change',update);
  },[]);
+ // A narrow viewport OR a short desktop window needs the same drawer.
+ // The separate height condition fixes the hidden/partially clipped Stamp tool.
+ useEffect(()=>{
+  const media=window.matchMedia('(max-width: 800px), (max-height: 860px)');
+  const update=()=>{
+   setCompactDrawTools(media.matches);
+   if(!media.matches)setDrawToolsOpen(false);
+  };
+  update();media.addEventListener('change',update);
+  return()=>media.removeEventListener('change',update);
+ },[]);
+ useEffect(()=>{
+  if(!compactDrawTools||!drawToolsOpen)return;
+  drawToolsCloseRef.current?.focus();
+  const handle=(e:KeyboardEvent)=>{
+   if(e.key==='Escape'){
+    e.preventDefault();e.stopImmediatePropagation();
+    setDrawToolsOpen(false);drawToolsToggleRef.current?.focus();return;
+   }
+   if(e.key==='Tab'){
+    const focusable=Array.from(drawToolsRef.current?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]),input:not([disabled]),select:not([disabled]),a[href],[tabindex="0"]')??[])
+      .filter(el=>el.getClientRects().length>0);
+    if(!focusable.length)return;
+    const first=focusable[0],last=focusable[focusable.length-1];
+    if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+    else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+   }
+  };
+  window.addEventListener('keydown',handle,true);
+  return()=>window.removeEventListener('keydown',handle,true);
+ },[compactDrawTools,drawToolsOpen]);
  useEffect(()=>{
   const panel=inspectorRef.current?.querySelector<HTMLElement>('.inspector-panel:not([hidden])');
   if(panel)panel.scrollTop=0;
@@ -397,6 +431,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
    if(await commit(commands)){setFrame(0);setSelection(null);setPlaying(true);setNotice('Regenerated effect from saved settings');}
   }catch(e){setError((e as Error).message);}
  };
+ const closeDrawTools=()=>{setDrawToolsOpen(false);drawToolsToggleRef.current?.focus();};
  const closeMobileInspector=()=>{setInspectorOpen(false);drawerToggleRef.current?.focus();};
  const manageWorkspace=async()=>{
   try{
@@ -412,21 +447,34 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const d=snap?.doc,activeFrame=d?Math.min(frame,frameCount(d)-1):0,displayError=error||saveState.error?.message;
  return <main className="workshop"><header className="app-header"><a className="brand" href="/"><span className="brand-mark">{Array.from({length:9},(_,i)=><i key={i}/>)}</span><span>pixel<span className="brand-light">workshop</span><small>A LITTLE ROOM TO MAKE THINGS</small></span></a>{onManageWorkspace&&<button type="button" className="text-button workspace-header-button" aria-label="Manage workspace" title="Workspace and agent connection" onClick={()=>void manageWorkspace()}><KeyRound size={16}/><span>Workspace</span></button>}<div className="header-meta"><span className="version">WORKSPACE / 01</span><span className="connection"><i/> MCP enabled</span></div><button className="primary" disabled={!d||busy} onClick={()=>void png()}><Download size={15}/>Export PNG</button></header>
  <div className="document-bar"><div className="document-switch"><FolderOpen size={15}/><select aria-label="Open saved project" value={d?.id||''} disabled={busy} onChange={e=>void open(e.target.value)}>{!d&&<option>Opening workspace…</option>}{list.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><ChevronDown size={13}/></div><span className="document-size">{d?`${d.width} × ${d.height} px`:'—'}</span><span className="separator"/><button className="text-button" disabled={busy} onClick={()=>setModal(true)}><FilePlus size={15}/>New canvas</button><button className="text-button open-file" disabled={busy} onClick={()=>file.current?.click()}><FolderOpen size={15}/>Open project</button><a className="text-button stardrop-editor-link" href="/play/moonkeeper" title="Play Stardrop, a game made with Pixel Workshop">✧ <span>Play Stardrop</span></a></div>
- <div className="work-area" data-tools-open={mobileLayout&&inspectorOpen}><aside className="tool-rail" aria-label="Drawing tools">
+ <div className="work-area" data-tools-open={mobileLayout&&inspectorOpen} data-draw-open={compactDrawTools&&drawToolsOpen}>
+ <button type="button" className="draw-tools-backdrop" tabIndex={-1} aria-label="Dismiss drawing tools" onClick={closeDrawTools}/>
+ <aside id="pixel-drawing-tools" className="tool-rail" ref={drawToolsRef} aria-label="Drawing tools"
+  role={compactDrawTools&&drawToolsOpen?'dialog':undefined}
+  aria-modal={compactDrawTools&&drawToolsOpen?true:undefined}
+  aria-hidden={compactDrawTools&&!drawToolsOpen}
+  inert={compactDrawTools&&!drawToolsOpen}>
+  <div className="draw-tools-header"><span><Pencil size={16}/>Drawing tools</span>
+    <button type="button" ref={drawToolsCloseRef} aria-label="Close drawing tools" onClick={closeDrawTools}><X size={19}/></button>
+  </div>
   <div className="rail-paint-tools">
-    {tools.map(([id,Icon,label,key])=><button key={id} className={'tool '+(tool===id?'active':'')} aria-label={label} aria-pressed={tool===id} title={`${label} (${key})`} onClick={()=>setTool(id)}><Icon size={19}/></button>)}
+    {tools.map(([id,Icon,label,key])=><button key={id} className={'tool '+(tool===id?'active':'')} aria-label={label} aria-pressed={tool===id} title={`${label} (${key})`} onClick={()=>{setTool(id);if(compactDrawTools)closeDrawTools();}}><Icon size={19}/><span className="rail-tool-label">{label}</span></button>)}
     <div className="rail-rule"/>
-    <button className={'tool '+(grid?'active':'')} aria-label="Toggle grid" aria-pressed={grid} onClick={()=>setGrid(v=>!v)}><Grid2X2 size={19}/></button>
+    <button type="button" className={'tool '+(grid?'active':'')} aria-label="Toggle grid" aria-pressed={grid} onClick={()=>setGrid(v=>!v)}><Grid2X2 size={19}/><span className="rail-tool-label">Grid</span></button>
   </div>
   <div className="rail-history" role="group" aria-label="Edit history">
-    <button type="button" className="tool history-tool" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!snap?.canUndo||busy} onClick={()=>void commit([],undefined,'undo')}><Undo2 size={19}/></button>
-    <button type="button" className="tool history-tool" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={!snap?.canRedo||busy} onClick={()=>void commit([],undefined,'redo')}><Redo2 size={19}/></button>
+    <button type="button" className="tool history-tool" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!snap?.canUndo||busy} onClick={()=>void commit([],undefined,'undo')}><Undo2 size={19}/><span className="rail-history-label">Undo</span></button>
+    <button type="button" className="tool history-tool" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={!snap?.canRedo||busy} onClick={()=>void commit([],undefined,'redo')}><Redo2 size={19}/><span className="rail-history-label">Redo</span></button>
   </div>
-  <div className="rail-ink" style={{background:ink}}/>
+  <label className="rail-color-picker" title="Change drawing color"><span className="rail-ink" style={{background:ink}} aria-hidden="true"/><span className="rail-color-label">Color · {ink.toUpperCase()}</span><input type="color" aria-label="Choose quick drawing color" value={ink.slice(0,7)} onChange={e=>setInk(e.target.value)}/></label>
  </aside>
- <section className="canvas-area" aria-label="Canvas workspace"><div className="canvas-toolbar"><span className="eyebrow">{tools.find(t=>t[0]===tool)?.[2].toUpperCase()} <span className="muted">/ 1 PX</span></span>{['rect','ellipse'].includes(tool)&&<label className="fill-option"><input type="checkbox" checked={filled} onChange={e=>setFilled(e.target.checked)}/>Filled</label>}<span className="spacer"/><button type="button" ref={drawerToggleRef} className={'small-toggle mobile-inspector-toggle '+(inspectorOpen?'on':'')}
+ <section className="canvas-area" aria-label="Canvas workspace"><div className="canvas-toolbar"><button type="button" ref={drawToolsToggleRef}
+ className={'small-toggle draw-tools-toggle '+(drawToolsOpen?'on':'')}
+ aria-controls="pixel-drawing-tools" aria-expanded={compactDrawTools&&drawToolsOpen} aria-haspopup="dialog"
+ aria-label="Open drawing tools" onClick={()=>{setInspectorOpen(false);setDrawToolsOpen(v=>!v);}}>
+ <Pencil size={17}/><span>Draw tools</span></button><span className="eyebrow">{tools.find(t=>t[0]===tool)?.[2].toUpperCase()} <span className="muted">/ 1 PX</span></span>{['rect','ellipse'].includes(tool)&&<label className="fill-option"><input type="checkbox" checked={filled} onChange={e=>setFilled(e.target.checked)}/>Filled</label>}<span className="spacer"/><button type="button" ref={drawerToggleRef} className={'small-toggle mobile-inspector-toggle '+(inspectorOpen?'on':'')}
  aria-controls="pixel-inspector" aria-expanded={mobileLayout&&inspectorOpen} aria-haspopup="dialog"
- onClick={()=>setInspectorOpen(v=>!v)}><SlidersHorizontal size={17}/>Tools</button><span className="canvas-hint">ONE CELL = ONE PIXEL.</span></div><div className="canvas-scroll" ref={viewport} onPointerDownCapture={touchDown}
+ onClick={()=>{setDrawToolsOpen(false);setInspectorOpen(v=>!v);}}><SlidersHorizontal size={17}/><span>Panels</span></button><span className="canvas-hint">ONE CELL = ONE PIXEL.</span></div><div className="canvas-scroll" ref={viewport} onPointerDownCapture={touchDown}
  onPointerMoveCapture={touchMove} onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd}><div className="canvas-mat">{d?<div className="canvas-frame" style={touchNavigationActive?{
  transform:`translate3d(${canvasPan.x}px,${canvasPan.y}px,0) scale(${pinchScale})`
 }:undefined}><span className="canvas-coordinate top-left">0, 0</span><canvas ref={canvas} className="pixel-canvas" aria-label={`${d.name}, ${d.width} by ${d.height} pixel canvas`} style={{width:d.width*zoom,height:d.height*zoom,backgroundSize:`${zoom*2}px ${zoom*2}px`}} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={()=>{if(selectionDrag.current){setSelection(selectionDrag.current.source);present(selectionDrag.current.base);selectionDrag.current=null;}if(stroke.current){present(stroke.current.base);stroke.current=null;}}} onPointerLeave={()=>{setHover(null);if(!stroke.current&&!selectionDrag.current)setCursor('X —   Y —');}}/>{hover&&zoom>=3&&tool!=='select'&&<div className="cell-cursor" aria-hidden="true" style={{left:hover.x*zoom,top:hover.y*zoom,width:zoom,height:zoom}}/>}{selection&&<div className="selection-marquee" style={{left:selection.x*zoom,top:selection.y*zoom,width:selection.width*zoom,height:selection.height*zoom}}/>}<span className="canvas-coordinate bottom-right">{d.width}, {d.height}</span></div>:<div className="loading-canvas"><Grid2X2 size={32}/><span>Opening your pixel workshop…</span>{error&&<button onClick={()=>location.reload()}>Try again</button>}</div>}</div></div>{d&&<div className="timeline" aria-label="Animation timeline">
