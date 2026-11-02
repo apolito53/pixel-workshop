@@ -70,10 +70,11 @@ Undo and Redo remain beneath the drawing controls on roomy screens; on short or 
 
 ## Color workbench
 
-**Current color is always visible beside the canvas.** Click its color swatch to open your operating system's color picker without opening the right inspector. On compact screens it remains a clickable square. The Draw panel provides exact `#RRGGBB`/`#RRGGBBAA` entry and an **Opacity** slider; selecting another RGB hue preserves the current alpha.
+**Current color is always visible beside the canvas, alongside a Quick palette button.** Click its color swatch to open your operating system's color picker without opening the right inspector. On compact screens it remains a clickable square. The Draw panel provides exact `#RRGGBB`/`#RRGGBBAA` entry and an **Opacity** slider; selecting another RGB hue preserves the current alpha.
 
-The Draw panel now explains four different kinds of colors instead of presenting unexplained swatches:
+The Draw panel separates five kinds of colors instead of mixing fixed swatches, recommendations, and saved favorites:
 
+- **Quick colors:** 24 familiar, fixed swatches grouped into neutrals, basic spectrum colors, and earth/accents. These are always available, never random, and never saved automatically. You can select them directly in Draw or open the **Quick** palette next to the main canvas picker; they change RGB hue without resetting your brush opacity.
 - **Recently picked:** the last eight colors chosen in this editor session, not saved to the project.
 - **In your artwork:** the most-used visible colors in the selected animation frame, refreshed as pixels change. Hidden layers and transparent pixels do not contribute.
 - **Suggested companions:** deterministic highlights, shadows, nearby hues, a complement, and an artwork-aware accent. Each suggestion is labeled with its purpose; no random color generator or network service is involved.

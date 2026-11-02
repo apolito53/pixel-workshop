@@ -10,6 +10,7 @@ import {INSPECTOR_TABS,inspectorTabForKey,type InspectorTab} from '../lib/inspec
 import {guideSteps,type GuideScope} from '../lib/workshop-guide.ts';
 import WorkshopGuide from './workshop-tour.tsx';
 import ColorWorkbench from './color-workbench.tsx';
+import QuickColorGrid from './quick-color-grid.tsx';
 import {isHexInk,normalizeInk,rememberInk,rgbHex,splitProjectPalette,withOpacity,withRgb} from '../lib/color-workflow.ts';
 type Snapshot=EditorSnapshot;
 type Tool='select'|'pencil'|'eraser'|'fill'|'picker'|'line'|'rect'|'ellipse'|'stamp';
@@ -60,6 +61,8 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const inspectorRef=useRef<HTMLElement>(null),drawerToggleRef=useRef<HTMLButtonElement>(null),drawerCloseRef=useRef<HTMLButtonElement>(null);
  const drawToolsRef=useRef<HTMLElement>(null),drawToolsToggleRef=useRef<HTMLButtonElement>(null),drawToolsCloseRef=useRef<HTMLButtonElement>(null);
  const [frame,setFrame]=useState(0),[playing,setPlaying]=useState(false),[onion,setOnion]=useState(false),[effectKind,setEffectKind]=useState<EffectKind>('embers'),[effectSeed,setEffectSeed]=useState(53),[snap,setSnap]=useState<Snapshot|null>(null),[list,setList]=useState<PixelDocument[]>([]),[tool,setTool]=useState<Tool>('pencil'),[ink,setInk]=useState('#f6da92'),[hexDraft,setHexDraft]=useState('#f6da92'),[recentColors,setRecentColors]=useState<string[]>([]),[layer,setLayer]=useState('base'),[zoom,setZoom]=useState(10),[grid,setGrid]=useState(true),[filled,setFilled]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState('Opening workspace…'),[error,setError]=useState(''),[cursor,setCursor]=useState('X —   Y —'),[hover,setHover]=useState<{x:number;y:number}|null>(null),[modal,setModal]=useState(false),[name,setName]=useState('Untitled sprite'),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[scale,setScale]=useState(1),[selection,setSelection]=useState<PixelRegion|null>(null),[clipboard,setClipboard]=useState<{width:number;height:number;pixels:number[]}|null>(null),[previewScale,setPreviewScale]=useState(1),[fitMode,setFitMode]=useState(true),[saveState,setSaveState]=useState<Pick<QueueState,'pending'|'saving'|'error'>>({pending:0,saving:false,error:null});
+ const [quickColorsOpen,setQuickColorsOpen]=useState(false);
+ const quickColorsRef=useRef<HTMLDivElement>(null),quickColorsButtonRef=useRef<HTMLButtonElement>(null);
  const [stampSnap,setStampSnap]=useState(0),[tileSize,setTileSize]=useState(16);
  const [effectSpeed,setEffectSpeed]=useState(1),[effectOpacity,setEffectOpacity]=useState(1),[effectDrift,setEffectDrift]=useState(0),[effectTarget,setEffectTarget]=useState<string|null>(null);
  const [packModal,setPackModal]=useState(false),[packIds,setPackIds]=useState<string[]>([]);
@@ -83,6 +86,27 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   if(isHexInk(hexDraft))selectInk(hexDraft);
   else setHexDraft(ink);
  };
+ // The toolbar palette is intentionally nonmodal; a click outside or Escape
+ // closes it, while keyboard users can Tab through real swatch buttons.
+ useEffect(()=>{
+  if(!quickColorsOpen)return;
+  const outside=(e:PointerEvent)=>{
+   if(!quickColorsRef.current?.contains(e.target as Node))setQuickColorsOpen(false);
+  };
+  const escape=(e:KeyboardEvent)=>{
+   if(e.key==='Escape'){
+    e.preventDefault();e.stopImmediatePropagation();
+    setQuickColorsOpen(false);quickColorsButtonRef.current?.focus();
+   }
+  };
+  document.addEventListener('pointerdown',outside,true);
+  window.addEventListener('keydown',escape,true);
+  return()=>{
+   document.removeEventListener('pointerdown',outside,true);
+   window.removeEventListener('keydown',escape,true);
+  };
+ },[quickColorsOpen]);
+ useEffect(()=>{if(guide.mode!=='off')setQuickColorsOpen(false);},[guide.mode]);
  const resetPan=useCallback(()=>{
   if(gestureFrame.current!==null)cancelAnimationFrame(gestureFrame.current);
   gestureFrame.current=null;
@@ -574,7 +598,27 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   <input type="color" aria-label="Choose current drawing color" value={rgbHex(ink)}
    onChange={e=>selectInk(withRgb(ink,e.target.value))}/>
   <span className="toolbar-ink-code">{ink.toUpperCase()}</span>
- </label>{['rect','ellipse'].includes(tool)&&<label className="fill-option"><input type="checkbox" checked={filled} onChange={e=>setFilled(e.target.checked)}/>Filled</label>}<span className="spacer"/><button type="button" ref={drawerToggleRef} className={'small-toggle mobile-inspector-toggle '+(inspectorOpen?'on':'')}
+ </label>
+ <div className="toolbar-quick-anchor" ref={quickColorsRef}>
+  <button type="button" ref={quickColorsButtonRef}
+   className={'small-toggle toolbar-quick-toggle'+(quickColorsOpen?' on':'')}
+   aria-label="Open standard quick colors" title="24 standard quick colors"
+   aria-expanded={quickColorsOpen} aria-haspopup="dialog" aria-controls="quick-colors-popover"
+   onClick={()=>setQuickColorsOpen(open=>!open)}>
+   <Palette size={17}/><span>Quick</span>
+  </button>
+  {quickColorsOpen&&<div id="quick-colors-popover" className="toolbar-quick-popover"
+   role="dialog" aria-label="Standard quick colors" aria-modal="false">
+   <div className="toolbar-quick-header">
+    <strong>Quick Colors</strong><button type="button" aria-label="Close quick colors"
+     onClick={()=>{setQuickColorsOpen(false);quickColorsButtonRef.current?.focus();}}><X size={16}/></button>
+   </div>
+   <p>Familiar, fixed swatches. Choose one instantly; your saved palette stays untouched.</p>
+   <QuickColorGrid ink={ink} onPick={hex=>{
+    selectInk(hex);setQuickColorsOpen(false);quickColorsButtonRef.current?.focus();
+   }}/>
+  </div>}
+ </div>{['rect','ellipse'].includes(tool)&&<label className="fill-option"><input type="checkbox" checked={filled} onChange={e=>setFilled(e.target.checked)}/>Filled</label>}<span className="spacer"/><button type="button" ref={drawerToggleRef} className={'small-toggle mobile-inspector-toggle '+(inspectorOpen?'on':'')}
  aria-controls="pixel-inspector" aria-expanded={mobileLayout&&inspectorOpen} aria-haspopup="dialog"
  onClick={()=>{setDrawToolsOpen(false);setInspectorOpen(v=>!v);}}><SlidersHorizontal size={17}/><span>Panels</span></button><span className="canvas-hint">ONE CELL = ONE PIXEL.</span></div><div className="canvas-scroll" ref={viewport} onPointerDownCapture={touchDown}
  onPointerMoveCapture={touchMove} onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd}><div className="canvas-mat">{d?<div className="canvas-frame" data-guide="canvas" style={touchNavigationActive?{

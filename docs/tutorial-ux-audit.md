@@ -68,3 +68,11 @@ A direct review from the person commissioning the tool exposed a gap the first t
 ### Legacy starter colors, second usability pass
 
 A user opening an old canvas would still have seen twenty-four automatic starter swatches under the heading "Saved project colors", even though new canvases started empty. This contradicted the redesigned interface and the user's original complaint. The old swatches are now preserved in a **collapsed, clearly labeled legacy section**. Saved favorites show only deliberately pinned colors; a starter swatch can be pinned without removing the original legacy record. The user can explicitly discard the starter set if they no longer want it, and no painted pixels are touched.
+
+### Quick colors restored as a separate tool (2026-11-02)
+
+Follow-up user feedback identified another important distinction: an **explicit standard color picker and a familiar fixed swatch set serve different needs**. The earlier redesign correctly removed *unexplained* automatic swatches from project palettes, but inadvertently removed the easy access to black, white, red, blue, and other staples that people expect from drawing software.
+
+**Implemented:** a separate, always-present **Quick Colors** set of 24 conventional RGB swatches, grouped into Neutrals, Basic colors, and Earth & accents. It appears immediately below the active color/opacity controls in Draw and can also be opened from a compact Quick button beside the main canvas picker. Selecting a fixed swatch preserves the current brush opacity. Swatches do not change with the artwork, do not use randomness, and do not modify project-saved colors unless the artist explicitly saves one.
+
+The new hierarchy is intentional: **picker** for any precise hue; **quick colors** for familiar staples; **recent/artwork** colors for reuse; **suggested** colors for exploration; **saved** colors for persistence. This improves discoverability without reversing the decision to keep new documents' saved palettes empty.
