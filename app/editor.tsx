@@ -99,7 +99,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   catch{setNotice('Stamp available for this session; browser storage is unavailable.');}
  };
  const selectStamp=(stamp:StampAsset)=>{
-  setActiveStamp(stamp);setStampName(stamp.name);setStampCapture(false);setSelection(null);setTool('stamp');
+  setActiveStamp(stamp);setStampName(stamp.name);setStampCapture(false);setSelection(null);setTool('stamp');if(mobileLayout)setInspectorOpen(false);
  };
  const chooseTool=(next:Tool)=>{setTool(next);if(next==='stamp'&&!activeStamp)setStampCapture(true);};
  const beginStampCapture=()=>{
@@ -497,6 +497,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   if(!rangeSelectMode||playing||e.button!==0)return;
   e.preventDefault();
   clipDragRef.current=index;setClipRangeSelection({from:index,to:index});
+  if(clipOriginal){setClipFrom(index);setClipTo(index);}
   e.currentTarget.parentElement?.setPointerCapture(e.pointerId);
  };
  const dragClipRange=(e:PE<HTMLDivElement>)=>{
@@ -508,7 +509,9 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   for(let i=0;i<frames.length;i++){
    if(e.clientX<=frames[i].getBoundingClientRect().right){hovered=i;break;}
   }
-  setClipRangeSelection(clipRange(clipDragRef.current,hovered,frameCount(current.current.doc)));
+  const range=clipRange(clipDragRef.current,hovered,frameCount(current.current.doc));
+  setClipRangeSelection(range);
+  if(clipOriginal){setClipFrom(range.from);setClipTo(range.to);}
  };
  const finishClipRange=(e:PE<HTMLDivElement>)=>{
   if(clipDragRef.current===null)return;
@@ -785,8 +788,10 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
     onClick={()=>{setRangeSelectMode(active=>!active);clipDragRef.current=null;}}>
     <Scan size={14}/>{rangeSelectMode?'Drag across frames':'Select clip range'}</button>
    {clipRangeSelection&&<button type="button" className="small-toggle timeline-create-clip"
-    disabled={busy||playing} onClick={openClipFromRange}>
-    <Plus size={14}/>Create clip ({clipRangeSelection.from+1}–{clipRangeSelection.to+1})</button>}
+    disabled={busy||playing} onClick={clipOriginal?()=>{
+      setClipFrom(clipRangeSelection.from);setClipTo(clipRangeSelection.to);setInspectorTab('animation');setInspectorOpen(mobileLayout);
+     }:openClipFromRange}>
+    <Plus size={14}/>{clipOriginal?'Use selected range':'Create clip'} ({clipRangeSelection.from+1}–{clipRangeSelection.to+1})</button>}
     </div>
   </div>
   <div className="timeline-track" data-guide="timeline-track"
@@ -805,7 +810,10 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
      }}
      onClick={e=>{
       if(stroke.current||selectionDrag.current||rangeSelectMode)return;
-      if(e.shiftKey){setClipRangeSelection(clipRange(clipRangeSelection?.from??activeFrame,i,frameCount(d)));return;}
+      if(e.shiftKey){const range=clipRange(clipRangeSelection?.from??activeFrame,i,frameCount(d));
+       setClipRangeSelection(range);
+       if(clipOriginal){setClipFrom(range.from);setClipTo(range.to);}
+       return;}
       setFrame(i);setPreviewClip(null);setSelection(null);
      }}>
       <FrameThumbnail doc={d} index={i}/><span>{String(i+1).padStart(2,'0')}</span>
@@ -851,7 +859,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   onSave={()=>void saveProjectInk()} onRemove={hex=>void removeProjectInk(hex)}
   onRemoveStarters={()=>void removeLegacySwatches()}/>
  <details className="inspector-section selection-section inspector-disclosure">
- <summary className="section-heading inspector-summary" data-guide="selection"><span>SELECTION</span><span className="inspector-summary-end"><span className="muted">{selection?`${selection.width} × ${selection.height}`:'V'}</span><ChevronDown size={15}/></span></summary><div className="selection-actions"><button disabled={!selection||busy} onClick={copySelection} title="Copy (Ctrl+C)"><Copy size={14}/>Copy</button><button disabled={!clipboard||busy} onClick={()=>chooseTool('stamp')} title="Use copied pixels as a stamp"><Stamp size={14}/>Stamp</button><button disabled={!clipboard||busy} onClick={pasteSelection} title="Paste (Ctrl+V)"><ClipboardPaste size={14}/>Paste</button><button disabled={!selection||busy} onClick={()=>transformSelection('flip_horizontal')} title="Flip horizontally"><FlipHorizontal2 size={14}/>Flip H</button><button disabled={!selection||busy} onClick={()=>transformSelection('flip_vertical')} title="Flip vertically"><FlipVertical2 size={14}/>Flip V</button><button disabled={!selection||busy} onClick={clearSelection} title="Clear selected pixels (Delete)"><Trash2 size={14}/>Clear</button><button disabled={!selection||busy} onClick={()=>setSelection(null)}><X size={14}/>Deselect</button></div><label className="effect-field stamp-snap-field">Stamp grid<select aria-label="Stamp grid snapping" value={stampSnap} onChange={e=>setStampSnap(Number(e.target.value))}><option value={0}>Any pixel</option><option value={8}>8px grid</option><option value={16}>16px grid</option><option value={32}>32px grid</option></select></label><p className="selection-help">Select with V, copy a region, then choose Stamp (S) to place it repeatedly. Grid snapping makes fast tile painting easier.</p></details>
+ <summary className="section-heading inspector-summary" data-guide="selection"><span>SELECTION</span><span className="inspector-summary-end"><span className="muted">{selection?`${selection.width} × ${selection.height}`:'V'}</span><ChevronDown size={15}/></span></summary><div className="selection-actions"><button disabled={!selection||busy} onClick={copySelection} title="Copy (Ctrl+C)"><Copy size={14}/>Copy</button><button disabled={!clipboard||busy} onClick={()=>chooseTool('stamp')} title="Use copied pixels as a stamp"><Stamp size={14}/>Stamp</button><button disabled={!clipboard||busy} onClick={pasteSelection} title="Paste (Ctrl+V)"><ClipboardPaste size={14}/>Paste</button><button disabled={!selection||busy} onClick={()=>transformSelection('flip_horizontal')} title="Flip horizontally"><FlipHorizontal2 size={14}/>Flip H</button><button disabled={!selection||busy} onClick={()=>transformSelection('flip_vertical')} title="Flip vertically"><FlipVertical2 size={14}/>Flip V</button><button disabled={!selection||busy} onClick={clearSelection} title="Clear selected pixels (Delete)"><Trash2 size={14}/>Clear</button><button disabled={!selection||busy} onClick={()=>setSelection(null)}><X size={14}/>Deselect</button></div><p className="selection-help">Select with V, drag to move, or copy and paste. Stamp (S) can now capture artwork directly; its snap controls live beside the canvas, and saved stamps are below.</p></details>
  <StampWorkbench active={activeStamp} library={stampLibrary} name={stampName} onName={setStampName}
   onSelect={selectStamp} onCapture={beginStampCapture} onSave={saveStampToLibrary}
   onDelete={deleteSavedStamp} canSave={!!activeStamp&&(stampLibrary.length<STAMP_LIBRARY_LIMIT||
