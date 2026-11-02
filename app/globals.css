@@ -312,8 +312,9 @@
  .rail-paint-tools>.rail-rule{display:none}
  .rail-paint-tools>.tool{width:100%;height:62px;min-width:0;min-height:0;
   display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px;padding:6px 3px}
- .rail-tool-label{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  font-size:10px;line-height:1.2;color:inherit}
+ .rail-tool-label{display:block;max-width:100%;white-space:normal;overflow:visible;
+  overflow-wrap:break-word;text-overflow:clip;text-align:center;
+  font-size:10px;line-height:1.25;color:inherit}
  .rail-history{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch;
   width:100%;flex:0 0 auto;gap:8px;padding:10px 12px;border-top:1px solid var(--line)}
  .rail-history .history-tool{display:flex;flex-direction:row;justify-content:center;gap:9px;
@@ -336,7 +337,7 @@
 @media(max-height:530px){
  .draw-tools-header{min-height:43px}
  .rail-paint-tools{padding:8px;gap:6px}
- .rail-paint-tools>.tool{height:55px;gap:3px}
+ .rail-paint-tools>.tool{height:62px;gap:3px}
  .rail-history{padding:7px 8px}
  .rail-history .history-tool{height:35px}
  .rail-color-picker{height:41px;margin:0 8px 8px}
