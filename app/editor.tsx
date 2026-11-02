@@ -52,6 +52,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const [stampSnap,setStampSnap]=useState(0),[tileSize,setTileSize]=useState(16);
  const [effectSpeed,setEffectSpeed]=useState(1),[effectOpacity,setEffectOpacity]=useState(1),[effectDrift,setEffectDrift]=useState(0),[effectTarget,setEffectTarget]=useState<string|null>(null);
  const [packModal,setPackModal]=useState(false),[packIds,setPackIds]=useState<string[]>([]);
+ const [clipOriginal,setClipOriginal]=useState<string|null>(null);
  const [clipName,setClipName]=useState('idle'),[clipFrom,setClipFrom]=useState(0),[clipTo,setClipTo]=useState(0),[clipFps,setClipFps]=useState(8),[clipMode,setClipMode]=useState<AnimationClip['mode']>('loop');
  const [previewClip,setPreviewClip]=useState<string|null>(null);
  const previewPosition=useRef(0);
@@ -308,12 +309,17 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  };
  const saveClip=async()=>{
   const doc=current.current?.doc;if(!doc)return;
-  if(await commit([{op:'clip_set',name:clipName.trim(),from:clipFrom,to:clipTo,fps:clipFps,mode:clipMode}])){
-   setNotice('Saved animation clip');
+  const proposed=clipName.trim();
+  const changingName=clipOriginal&&clipOriginal.toLowerCase()!==proposed.toLowerCase();
+  if(changingName&&doc.animation?.clips?.some(clip=>clip.name.toLowerCase()===proposed.toLowerCase())){
+   setError('Another clip already uses that name.');return;
   }
+  const commands:PaintCommand[]=changingName?[{op:'clip_delete',name:clipOriginal!}]:[];
+  commands.push({op:'clip_set',name:proposed,from:clipFrom,to:clipTo,fps:clipFps,mode:clipMode});
+  if(await commit(commands)){setClipOriginal(null);setNotice('Saved animation clip');}
  };
  const editClip=(clip:AnimationClip)=>{
-  setClipName(clip.name);setClipFrom(clip.from);setClipTo(clip.to);setClipFps(clip.fps);setClipMode(clip.mode);
+  setClipOriginal(clip.name);setClipName(clip.name);setClipFrom(clip.from);setClipTo(clip.to);setClipFps(clip.fps);setClipMode(clip.mode);
  };
  const playClip=(clip:AnimationClip)=>{
   previewPosition.current=0;setPreviewClip(clip.name);setFrame(clip.from);setPlaying(true);
@@ -525,7 +531,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
     </div>)}
    </div>:<p className="clip-empty">No clips yet. Define one using the frame numbers below.</p>}
    <button type="button" className="text-button clip-all-frames" onClick={()=>{setPreviewClip(null);setPlaying(false);}} disabled={!previewClip}>Stop clip preview · play all frames</button>
-   <div className="section-heading clip-create-heading"><span>DEFINE A CLIP</span></div>
+   <div className="section-heading clip-create-heading"><span>{clipOriginal?'EDIT CLIP':'DEFINE A CLIP'}</span><button type="button" className="text-button" onClick={()=>{setClipOriginal(null);setClipName('new-clip');setClipFrom(Math.min(frame,frameCount(d||current.current!.doc)-1));setClipTo(Math.min(frame,frameCount(d||current.current!.doc)-1));}}>New</button></div>
    <label className="effect-field">Name<input aria-label="Animation clip name" value={clipName} onChange={e=>setClipName(e.target.value)} maxLength={32}/></label>
    <label className="effect-field">First frame<input aria-label="Clip start frame" type="number" min={1} max={d?frameCount(d):1} value={clipFrom+1} onChange={e=>setClipFrom(Number(e.target.value)-1)}/></label>
    <label className="effect-field">Last frame<input aria-label="Clip end frame" type="number" min={1} max={d?frameCount(d):1} value={clipTo+1} onChange={e=>setClipTo(Number(e.target.value)-1)}/></label>
