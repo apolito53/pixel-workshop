@@ -3,7 +3,7 @@ import {useCallback,useEffect,useRef,useState,type PointerEvent as PE} from 'rea
 import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound} from 'lucide-react';
 import {applyCommands,clipFrameSequence,composite,frameCount,frameView,readRegion,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
-import {generateEffectCommands,hasFreeEffectLayerSlot,type EffectKind,EFFECT_KINDS,EFFECT_GROUPS,EFFECT_PRESETS} from '../lib/effects.ts';
+import {generateEffectCommands,regenerateEffectCommands,hasFreeEffectLayerSlot,type EffectKind,EFFECT_KINDS,EFFECT_GROUPS,EFFECT_PRESETS} from '../lib/effects.ts';
 import {EditQueue,type EditorSnapshot,type QueueState} from '../lib/edit-queue.ts';
 import {beginPinch,movePinch,finishPinch,touchMidpoint,type GesturePoint,type PinchStart,type PinchView,type GestureViewport} from '../lib/touch-gestures.ts';
 import {INSPECTOR_TABS,inspectorTabForKey,type InspectorTab} from '../lib/inspector-tabs.ts';
@@ -49,6 +49,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const [mobileLayout,setMobileLayout]=useState(false),[touchCapable,setTouchCapable]=useState(false),[inspectorOpen,setInspectorOpen]=useState(false);
  const inspectorRef=useRef<HTMLElement>(null),drawerToggleRef=useRef<HTMLButtonElement>(null),drawerCloseRef=useRef<HTMLButtonElement>(null);
  const [frame,setFrame]=useState(0),[playing,setPlaying]=useState(false),[onion,setOnion]=useState(false),[effectKind,setEffectKind]=useState<EffectKind>('embers'),[effectSeed,setEffectSeed]=useState(53),[snap,setSnap]=useState<Snapshot|null>(null),[list,setList]=useState<PixelDocument[]>([]),[tool,setTool]=useState<Tool>('pencil'),[ink,setInk]=useState('#f6da92'),[layer,setLayer]=useState('base'),[zoom,setZoom]=useState(10),[grid,setGrid]=useState(true),[filled,setFilled]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState('Opening workspace…'),[error,setError]=useState(''),[cursor,setCursor]=useState('X —   Y —'),[hover,setHover]=useState<{x:number;y:number}|null>(null),[modal,setModal]=useState(false),[name,setName]=useState('Untitled sprite'),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[scale,setScale]=useState(1),[selection,setSelection]=useState<PixelRegion|null>(null),[clipboard,setClipboard]=useState<{width:number;height:number;pixels:number[]}|null>(null),[previewScale,setPreviewScale]=useState(1),[fitMode,setFitMode]=useState(true),[saveState,setSaveState]=useState<Pick<QueueState,'pending'|'saving'|'error'>>({pending:0,saving:false,error:null});
+ const [effectSpeed,setEffectSpeed]=useState(1),[effectOpacity,setEffectOpacity]=useState(1),[effectDrift,setEffectDrift]=useState(0),[effectTarget,setEffectTarget]=useState<string|null>(null);
  const [packModal,setPackModal]=useState(false),[packIds,setPackIds]=useState<string[]>([]);
  const [clipName,setClipName]=useState('idle'),[clipFrom,setClipFrom]=useState(0),[clipTo,setClipTo]=useState(0),[clipFps,setClipFps]=useState(8),[clipMode,setClipMode]=useState<AnimationClip['mode']>('loop');
  const [previewClip,setPreviewClip]=useState<string|null>(null);
@@ -71,7 +72,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   const d=state.snapshot.doc;setList(items=>items.map(p=>p.id===d.id?{...p,name:d.name,revision:d.revision,updatedAt:d.updatedAt}:p));
  },[present]);
  const adopt=useCallback((s:Snapshot)=>{
-  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);setPreviewClip(null);resetPan();setFitMode(true);}
+  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);setPreviewClip(null);setEffectTarget(null);resetPan();setFitMode(true);}
   queue.current?.dispose();queue.current=new EditQueue(s,request=>api<Snapshot>('projects/'+s.doc.id,request),showQueue);
   setSaveState({pending:0,saving:false,error:null});present(s);
  },[present,showQueue,resetPan]);
@@ -344,10 +345,27 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const addEffect=async()=>{
   const doc=current.current?.doc;if(!doc)return;
   try{
-   const commands=generateEffectCommands(doc,{kind:effectKind,seed:effectSeed,ink});
+   const commands=generateEffectCommands(doc,{kind:effectKind,seed:effectSeed,ink,speed:effectSpeed,opacity:effectOpacity,drift:effectDrift});
    if(await commit(commands)){
-    setLayer(String(commands[0].id));setFrame(0);setSelection(null);setPlaying(true);
+    setLayer(String(commands[0].id));setEffectTarget(String(commands[0].id));setFrame(0);setSelection(null);setPlaying(true);
    }
+  }catch(e){setError((e as Error).message);}
+ };
+ const chooseEffectLayer=(id:string)=>{
+  const recipe=current.current?.doc.layers.find(l=>l.id===id)?.effect;
+  setEffectTarget(id||null);
+  if(recipe){
+   setEffectKind(recipe.kind);setEffectSeed(recipe.seed);setInk(recipe.ink);
+   setEffectSpeed(recipe.speed);setEffectOpacity(recipe.opacity);setEffectDrift(recipe.drift);
+  }
+ };
+ const regenerateEffect=async()=>{
+  const doc=current.current?.doc;if(!doc||!effectTarget)return;
+  try{
+   const commands=regenerateEffectCommands(doc,effectTarget,{
+    kind:effectKind,seed:effectSeed,ink,speed:effectSpeed,opacity:effectOpacity,drift:effectDrift,
+   });
+   if(await commit(commands)){setFrame(0);setSelection(null);setPlaying(true);setNotice('Regenerated effect from saved settings');}
   }catch(e){setError((e as Error).message);}
  };
  const closeMobileInspector=()=>{setInspectorOpen(false);drawerToggleRef.current?.focus();};
@@ -452,9 +470,21 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
      <i style={{background:EFFECT_PRESETS[effectKind].suggestedInk}} aria-hidden="true"/>{EFFECT_PRESETS[effectKind].suggestedInk.toUpperCase()}
    </button></div>
    <label className="effect-field">Seed<input aria-label="Effect random seed" type="number" min={0} max={2147483647} value={effectSeed} onChange={e=>setEffectSeed(Number(e.target.value))}/></label>
+   <label className="effect-field">Speed<input aria-label="Effect speed" type="number" min={0.25} max={3} step={0.25} value={effectSpeed} onChange={e=>setEffectSpeed(Number(e.target.value))}/></label>
+   <label className="effect-field">Opacity<input aria-label="Effect opacity" type="number" min={0.1} max={1} step={0.1} value={effectOpacity} onChange={e=>setEffectOpacity(Number(e.target.value))}/></label>
+   <label className="effect-field">Drift<input aria-label="Effect horizontal drift" type="number" min={-3} max={3} step={0.25} value={effectDrift} onChange={e=>setEffectDrift(Number(e.target.value))}/></label>
    {d&&<p className="effect-capacity" aria-live="polite">{d.layers.length} / 8 layer slots used · {hasFreeEffectLayerSlot(d)?'Ready to generate':'Delete a layer to make room'}</p>}
    <button className="secondary full effect-generate" disabled={busy||!hasFreeEffectLayerSlot(d)} title={!hasFreeEffectLayerSlot(d)?'All eight layer slots are occupied. Use a layer trash icon to free one.':'Generate an effect without stopping playback'} onClick={()=>void addEffect()}><Sparkles size={14}/>Generate editable effect</button>
    {d&&!hasFreeEffectLayerSlot(d)&&<button type="button" className="text-button effects-manage-link" onClick={()=>activateInspectorTab('layers')}><Layers size={14}/>Manage layers to free a slot</button>}
+   {d?.layers.some(l=>l.effect)&&<div className="effect-recipe-panel">
+    <div className="section-heading"><span>RE-EDIT AN EFFECT</span></div>
+    <label className="effect-field">FX layer<select aria-label="Choose effect layer to regenerate" value={d.layers.some(l=>l.id===effectTarget&&l.effect)?effectTarget??'':''} onChange={e=>chooseEffectLayer(e.target.value)}>
+     <option value="">Choose a layer</option>
+     {d.layers.filter(l=>l.effect).map(l=><option key={l.id} value={l.id}>{l.name}</option>)}
+    </select></label>
+    <p>Select an FX layer to load its recipe above, then regenerate with new settings. Other layers stay untouched. Manual pixel edits inside the FX layer are replaced.</p>
+    <button type="button" className="secondary full effect-regenerate" disabled={busy||!d.layers.some(l=>l.id===effectTarget&&l.effect)} onClick={()=>void regenerateEffect()}><Sparkles size={14}/>Regenerate selected FX layer</button>
+   </div>}
   </section>
  </div>
  <div className="inspector-panel" id="inspector-panel-animation" role="tabpanel" aria-labelledby="inspector-tab-animation" tabIndex={0} hidden={inspectorTab!=='animation'}>
