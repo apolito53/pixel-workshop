@@ -206,7 +206,7 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
         throw new Error('Choose a unique backup layer ID.');
       spend(d.width*d.height*frameCount(d));
       const backup:Layer={...metadataLayer,id,name:String(c.name||metadataLayer.name+' Backup').slice(0,60),
-       pixels:[...metadataLayer.pixels]};
+       visible:false,pixels:[...metadataLayer.pixels]};
       delete backup.effect; // A backup is a frozen snapshot, not another live effect recipe.
       d.layers.splice(d.layers.indexOf(metadataLayer)+1,0,backup);
       for(const cel of d.animation?.frames??[])cel.pixels[id]=[...cel.pixels[metadataLayer.id]];
