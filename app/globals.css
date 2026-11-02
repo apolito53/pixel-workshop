@@ -226,3 +226,24 @@
 .clip-section .effect-field{font-size:10px}
 .clip-section .effect-field input,.clip-section .effect-field select{width:110px}
 .clip-section>.secondary{margin-top:12px;justify-content:center;color:#e8cfab}
+
+/* Game pack exporter: per-workspace selection and direct ZIP downloads. */
+.pack-export-block{margin-top:18px;border-top:1px solid #47474d;padding-top:13px}
+.pack-export-block p{margin:0 0 12px;font-size:10px;line-height:1.65;color:#aaa7b0}
+.pack-export-button{justify-content:space-between;border-color:#9a714f;color:#f5d1a3;background:#e7ad720d}
+.pack-export-button:hover{background:#e7ad7227}
+.pack-dialog{max-height:min(90dvh,770px);display:flex;flex-direction:column;gap:12px;width:min(480px,100%);overflow:hidden}
+.pack-dialog h2{margin:6px 0 0}
+.pack-dialog .pack-description{font-size:11px;line-height:1.6;color:#a5a4ae;margin:0}
+.pack-dialog-actions{display:flex;gap:9px;align-items:center}
+.pack-dialog-actions button{padding:8px;border:1px solid #5b5159;border-radius:4px;color:#edc79b;font-size:11px;background:#272027}
+.pack-dialog-actions span{font-size:10px;color:#a9a5b0;margin-left:auto;white-space:nowrap}
+.pack-projects{display:flex;flex-direction:column;gap:4px;min-height:74px;max-height:340px;overflow:auto;border:1px solid #44434b;background:#1e1f24;border-radius:6px;padding:8px}
+.pack-project{display:flex;align-items:center;gap:9px;cursor:pointer;padding:7px 6px;border-radius:4px}
+.pack-project:hover{background:#ffffff09}
+.pack-project input{accent-color:#dfad73;flex-shrink:0;width:15px;height:15px}
+.pack-project span{display:flex;flex-direction:column;gap:3px;min-width:0}
+.pack-project b{font-size:12px;font-weight:600;color:#ded9dd;overflow-wrap:anywhere}
+.pack-project small{font-size:10px;color:#918f9d}
+.pack-download{justify-content:center;min-height:40px;margin-top:4px}
+@media(max-width:600px){.pack-dialog{padding:23px 18px}.pack-dialog-actions{gap:5px}.pack-dialog-actions button{font-size:10px}}
