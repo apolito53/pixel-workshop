@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {PNG} from 'pngjs';
 import {applyCommands,createDocument,color,composite,frameCount,frameView,readRegion,validateDocument,type AnimationClip} from '../lib/pixels.ts';
-import {EFFECT_KINDS,EFFECT_PRESETS,EFFECT_GROUPS,effectPixels,generateEffectCommands,hasFreeEffectLayerSlot} from '../lib/effects.ts';
+import {EFFECT_KINDS,EFFECT_PRESETS,EFFECT_GROUPS,effectPixels,generateEffectCommands,regenerateEffectCommands,hasFreeEffectLayerSlot} from '../lib/effects.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
 import {encodeRgbaPng} from '../lib/png.ts';
 import {encodeBrowserRgba} from '../lib/browser-png.ts';
@@ -193,4 +193,31 @@ test('invalid clip metadata and impossible clip edits cannot damage originals',(
  }
  assert.throws(()=>applyCommands(d,[{op:'clip_set',name:'Invalid',from:1,to:8,fps:8}]),/to/);
  assert.equal(d.animation?.clips?.length,1);
+});
+
+test('saved VFX recipes survive import and can be regenerated without touching other artwork',()=>{
+ const d=applyCommands(createDocument('Reusable VFX',32,32),[{op:'pixel',x:0,y:0,color:'#abcdef'}]);
+ const recipe={kind:'sparkles' as const,seed:53,ink:'#ffd8aa',speed:1,opacity:1,drift:0};
+ const first=applyCommands(d,generateEffectCommands(d,recipe));
+ const fx=first.layers.find(l=>l.effect)!;
+ assert.ok(fx,'created FX layer must remember its recipe');
+ assert.deepEqual(fx.effect,recipe);
+ const modified=applyCommands(first,regenerateEffectCommands(first,fx.id,{...recipe,seed:117,speed:2,opacity:.5,drift:1}));
+ assert.equal(modified.layers.length,2);
+ assert.equal(modified.layers[0].pixels[0],color('#abcdef'));
+ assert.equal(frameCount(modified),frameCount(first));
+ assert.equal(modified.layers.find(l=>l.id===fx.id)?.effect?.seed,117);
+ assert.equal(modified.layers.find(l=>l.id===fx.id)?.effect?.speed,2);
+ assert.notDeepEqual(composite(frameView(first,3)),composite(frameView(modified,3)));
+ assert.deepEqual(validateDocument(JSON.parse(JSON.stringify(modified))),modified);
+ assert.throws(()=>regenerateEffectCommands(d,'base',recipe),/generated effect layer/);
+});
+test('invalid procedural recipes cannot be imported or attached',()=>{
+ const doc=createDocument('Recipe validation',8,8);
+ assert.throws(()=>applyCommands(doc,[{op:'effect_recipe',layer:'base',recipe:{
+  kind:'sparkles',seed:12,ink:'#fffddd',speed:0,opacity:1,drift:0
+ }}]),/Invalid procedural/);
+ const copy=structuredClone(doc);
+ copy.layers[0].effect={kind:'sparkles',seed:4,ink:'#fffddd',speed:1,opacity:1,drift:99};
+ assert.throws(()=>validateDocument(copy),/Invalid procedural/);
 });
