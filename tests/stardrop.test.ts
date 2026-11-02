@@ -40,3 +40,14 @@ test('asset generation is deterministic at the pixel level',()=>{
     }
   }
 });
+
+test('Stardrop ships real animation clips and can export its entire art pack',async()=>{
+ const {buildGamePack}=await import('../lib/game-pack.ts');
+ assert.deepEqual(assets.moonkeeper.animation?.clips?.map(clip=>clip.name),['idle','walk','jump']);
+ assert.equal(assets.shade.animation?.clips?.[0].name,'float');
+ assert.equal(assets.burst.animation?.clips?.[0].mode,'once');
+ const pack=buildGamePack(STARDROP_ASSETS.map(asset=>assets[asset.key]));
+ assert.equal(pack.manifest.assets.length,10);
+ assert.equal(pack.manifest.assets.find(asset=>asset.name==='The Moonkeeper')?.clips.length,3);
+ assert.equal(new DataView(pack.bytes.buffer).getUint32(0,true),0x04034b50);
+});
