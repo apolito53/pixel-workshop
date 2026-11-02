@@ -114,3 +114,17 @@
 @media(prefers-reduced-motion:reduce){
  .workshop-guide-spotlight,.guide-progress span{transition:none}
 }
+
+/* The guide entry remains reachable in the crowded mobile app header. */
+@media(max-width:530px){
+ .app-header .workspace-header-button{padding:8px;min-width:35px;justify-content:center}
+ .app-header .workspace-header-button span{display:none}
+ .app-header .guide-header-button{padding:8px;min-width:35px;justify-content:center}
+ .app-header>.primary{font-size:0;padding:8px;min-width:36px;justify-content:center;gap:0}
+ .app-header>.primary svg{width:17px;height:17px;flex-shrink:0}
+}
+@media(max-width:370px){
+ .app-header{gap:6px;padding:0 8px}
+ .app-header .brand{font-size:16px}
+ .app-header .brand small{font-size:6px}
+}
