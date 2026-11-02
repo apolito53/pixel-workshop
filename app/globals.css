@@ -264,3 +264,83 @@
 .tileset-export-block .tileset-warning{color:#dcaa7d;margin:8px 0 0}
 .selection-section .stamp-snap-field{margin:13px 0}
 .selection-section .stamp-snap-field select{width:116px}
+
+
+/* Adaptive drawing tools: preserve the full-height rail only when it truly fits.
+   Small screens AND short desktop windows use a scrollable, three-column drawer.
+   Undo/Redo and color stay pinned below its independently scrolling tool grid. */
+.draw-tools-header,.draw-tools-toggle,.draw-tools-backdrop,.rail-tool-label,.rail-history-label,.rail-color-label{display:none}
+.rail-color-picker{display:flex;align-items:center;justify-content:center;position:relative;flex-shrink:0;
+ width:34px;height:34px;cursor:pointer}
+.rail-color-picker .rail-ink{width:24px;height:24px;margin:0;display:block;flex-shrink:0;
+ border:3px solid #474447;box-shadow:3px 3px 0 #121315;border-radius:2px}
+.rail-color-picker input[type=color]{position:absolute;inset:0;display:block;width:100%;height:100%;
+ margin:0;padding:0;opacity:0;cursor:pointer}
+.rail-color-picker:focus-within{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+
+@media(max-width:800px), (max-height:860px){
+ .work-area{position:relative;min-width:0;overflow:hidden}
+ .canvas-area{width:0;flex:1 1 0;min-width:0}
+ .canvas-toolbar{gap:10px}
+ .draw-tools-toggle{display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  flex-shrink:0;min-height:38px;padding:8px 12px;border:1px solid #765c3f;border-radius:5px;
+  background:#e7ad7213;color:var(--accent);font-size:12px;font-weight:600}
+ .draw-tools-toggle:hover:not(:disabled){background:#e7ad7228}
+ .draw-tools-backdrop{position:absolute;inset:0;z-index:9;display:none;
+  border:0;border-radius:0;background:#000a;cursor:pointer}
+ .work-area[data-draw-open="true"] .draw-tools-backdrop{display:block}
+ .work-area .tool-rail{position:absolute;top:0;left:0;bottom:0;z-index:10;
+  width:min(310px,calc(100% - 48px));height:100%;max-height:100%;min-height:0;
+  display:flex;align-items:stretch;flex-direction:column;gap:0;padding:0;
+  background:#222326;border-right:1px solid #575259;box-shadow:12px 0 42px #0009;
+  overflow:hidden;visibility:hidden;pointer-events:none;
+  transform:translateX(-105%);transition:transform .2s ease,visibility .2s}
+ .work-area[data-draw-open="true"] .tool-rail{visibility:visible;pointer-events:auto;transform:translateX(0)}
+ .draw-tools-header{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  min-height:50px;padding:6px 12px 6px 17px;border-bottom:1px solid var(--line);flex-shrink:0}
+ .draw-tools-header span{display:flex;align-items:center;gap:9px;color:var(--accent);
+  font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
+ .draw-tools-header button{display:flex;align-items:center;justify-content:center;width:36px;height:36px;
+  border-radius:5px;color:#dcdbd7}
+ .draw-tools-header button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+ .rail-paint-tools{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-content:start;
+  align-items:stretch;justify-items:stretch;width:100%;flex:1 1 auto;min-height:0;gap:8px;
+  padding:14px 12px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-width:thin;scrollbar-color:#57525a transparent;touch-action:pan-y}
+ .rail-paint-tools::-webkit-scrollbar{display:block;width:5px}
+ .rail-paint-tools::-webkit-scrollbar-thumb{background:#57525a;border-radius:10px}
+ .rail-paint-tools>.rail-rule{display:none}
+ .rail-paint-tools>.tool{width:100%;height:62px;min-width:0;min-height:0;
+  display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px;padding:6px 3px}
+ .rail-tool-label{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:10px;line-height:1.2;color:inherit}
+ .rail-history{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch;
+  width:100%;flex:0 0 auto;gap:8px;padding:10px 12px;border-top:1px solid var(--line)}
+ .rail-history .history-tool{display:flex;flex-direction:row;justify-content:center;gap:9px;
+  width:100%;height:42px}
+ .rail-history-label{display:inline;font-size:11px;font-weight:600}
+ .rail-color-picker{justify-content:flex-start;gap:12px;width:auto;height:48px;
+  margin:0 12px 12px;padding:8px 12px;border:1px solid #484248;border-radius:5px;
+  background:#1c1d21}
+ .rail-color-picker .rail-ink{margin:0}
+ .rail-color-label{display:inline;color:#d4c9c1;font:11px ui-monospace,monospace}
+}
+@media(max-width:560px){
+ .canvas-toolbar{gap:7px;padding:0 8px}
+ .canvas-toolbar .eyebrow{font-size:8px;letter-spacing:.7px;white-space:nowrap}
+ .canvas-hint{display:none}
+ .draw-tools-toggle,.mobile-inspector-toggle{width:40px;min-width:40px;min-height:38px;
+  padding:0;justify-content:center}
+ .draw-tools-toggle span,.mobile-inspector-toggle span{display:none}
+}
+@media(max-height:530px){
+ .draw-tools-header{min-height:43px}
+ .rail-paint-tools{padding:8px;gap:6px}
+ .rail-paint-tools>.tool{height:55px;gap:3px}
+ .rail-history{padding:7px 8px}
+ .rail-history .history-tool{height:35px}
+ .rail-color-picker{height:41px;margin:0 8px 8px}
+}
+@media(prefers-reduced-motion:reduce){
+ .work-area .tool-rail{transition:none}
+}

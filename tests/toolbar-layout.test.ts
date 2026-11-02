@@ -7,7 +7,7 @@ const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8')
 
 test('Undo and Redo are uniquely located below the drawing tools, not in the document bar', () => {
   const barStart = editor.indexOf('<div className="document-bar">');
-  const railStart = editor.indexOf('<aside className="tool-rail"');
+  const railStart = editor.indexOf('<aside id="pixel-drawing-tools" className="tool-rail"');
   const railEnd = editor.indexOf('</aside>', railStart);
   assert.ok(barStart !== -1 && railStart > barStart && railEnd > railStart);
   const bar = editor.slice(barStart, railStart);
@@ -36,4 +36,38 @@ test('history rail retains existing enablement, callbacks and keyboard shortcuts
   assert.ok(editor.includes("e.shiftKey?'redo':'undo'"));
   assert.ok(css.includes('.rail-paint-tools{') && css.includes('overflow-y:auto'));
   assert.ok(css.includes('.rail-history{'));
+});
+
+test('draw tool drawer is adaptive, scrollable, and keeps history and color accessible', () => {
+  assert.ok(editor.includes('data-draw-open={compactDrawTools&&drawToolsOpen}'));
+  assert.ok(editor.includes("window.matchMedia('(max-width: 800px), (max-height: 860px)')"));
+  assert.ok(css.includes('@media(max-width:800px), (max-height:860px)'));
+  assert.ok(css.includes('.work-area[data-draw-open="true"] .tool-rail'));
+  assert.ok(css.includes('grid-template-columns:repeat(3,minmax(0,1fr))'));
+  assert.ok(css.includes('overflow-y:auto'));
+  assert.ok(css.includes('.rail-history{display:grid'));
+  assert.ok(css.includes('.rail-color-picker{justify-content:flex-start'));
+  assert.ok(editor.includes('aria-label="Choose quick drawing color"'));
+  assert.ok(editor.includes('role={compactDrawTools&&drawToolsOpen?\'dialog\':undefined}'));
+  assert.ok(editor.includes('inert={compactDrawTools&&!drawToolsOpen}'));
+});
+
+test('drawing drawer and inspector cannot cover one another', () => {
+  assert.ok(editor.includes('setInspectorOpen(false);setDrawToolsOpen(v=>!v);'));
+  assert.ok(editor.includes('setDrawToolsOpen(false);setInspectorOpen(v=>!v);'));
+  assert.ok(editor.includes('className="draw-tools-backdrop"'));
+  assert.ok(editor.includes('aria-label="Close drawing tools"'));
+  assert.ok(editor.includes('drawToolsToggleRef.current?.focus()'));
+  assert.ok(editor.includes("if(e.key==='Escape')"));
+  assert.ok(editor.includes("if(e.key==='Tab')"));
+  assert.ok(editor.includes("if(compactDrawTools)closeDrawTools()"));
+});
+
+test('desktop toolbar keeps all shortcuts and the compact drawer lets the canvas expand', () => {
+  assert.ok(editor.includes("['stamp',Stamp,'Stamp copied pixels','S']"));
+  assert.ok(editor.includes('ref={drawToolsCloseRef}'));
+  assert.ok(editor.includes('ref={drawToolsToggleRef}'));
+  assert.ok(editor.includes('aria-controls="pixel-drawing-tools"'));
+  assert.ok(css.includes('.canvas-area{width:0;flex:1 1 0;min-width:0}'));
+  assert.ok(css.includes('.rail-tool-label{display:block'));
 });
