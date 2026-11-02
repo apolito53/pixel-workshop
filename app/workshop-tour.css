@@ -1,0 +1,130 @@
+/* Pixel Workshop field guide: user-invoked, non-destructive, accessible onboarding. */
+.workshop-guide-menu-backdrop{
+ position:fixed;inset:0;z-index:1500;display:flex;align-items:center;justify-content:center;
+ padding:18px;background:#080b12cf;backdrop-filter:blur(5px);
+}
+.workshop-guide-menu,.workshop-guide-card{
+ --guide-cream:#f6dfba;--guide-muted:#b9b6c1;--guide-glow:#e8ad72;
+ background:linear-gradient(140deg,#2c2a35,#20232f 68%,#1c2230);
+ color:#eee9e6;border:1px solid #7e66758c;box-shadow:0 25px 90px #07080bdb;
+ border-radius:12px;outline:none;
+}
+.workshop-guide-menu{width:min(680px,100%);max-height:min(91dvh,810px);display:flex;flex-direction:column;overflow:hidden}
+.guide-menu-header{height:54px;min-height:54px;display:flex;align-items:center;justify-content:space-between;
+ padding:0 20px;border-bottom:1px solid #81708342}
+.guide-eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:10px;font-weight:850;
+ letter-spacing:.17em;color:#e7bf91}
+.guide-close{width:31px;height:31px;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;
+ border:1px solid #73667760;border-radius:5px;color:#ddd2db}
+.guide-close:hover{color:#fff1d5;background:#ffffff14}
+.guide-menu-scroll{overflow-y:auto;overscroll-behavior:contain;min-height:0;padding:24px 27px 25px}
+.guide-menu-welcome{text-align:center;display:flex;flex-direction:column;align-items:center;gap:11px}
+.guide-moon{font-size:30px;color:#e9c591;text-shadow:0 0 26px #e9bd78a6}
+.guide-menu-welcome h2{font:normal clamp(30px,6vw,45px)/1.12 Georgia,serif;letter-spacing:-.045em;color:#ffefdb;margin:0}
+.guide-menu-welcome p{font-size:13px;line-height:1.7;max-width:520px;color:#bfbbca;margin:0}
+.guide-start-all{display:flex;align-items:center;justify-content:center;gap:11px;
+ width:min(330px,100%);margin-top:6px;background:linear-gradient(140deg,#f7d9a7,#d6a891);
+ color:#222033;border:1px solid #fff2d7;border-radius:6px;padding:13px 16px;
+ font-size:12px;letter-spacing:.02em;font-weight:800}
+.guide-start-all:hover{background:#ffebc9;transform:translateY(-1px)}
+.guide-start-all svg:last-child{margin-left:auto}
+.guide-readtime{font-size:10px;color:#a8a3b2}
+.guide-chapters-header{display:flex;justify-content:space-between;gap:10px;
+ border-top:1px solid #78677b59;margin:27px 0 12px;padding-top:20px;
+ color:#c8b19d;font-size:9px;letter-spacing:.15em;font-weight:850}
+.guide-chapters-header span:last-child{color:#89879c}
+.guide-chapter-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.guide-chapter{display:flex;align-items:center;gap:10px;min-width:0;min-height:77px;text-align:left;
+ padding:11px;border:1px solid #56505f;border-radius:7px;background:#292a39a8}
+.guide-chapter:hover{background:#3a3445;border-color:#bd927f}
+.guide-chapter-icon{display:flex;align-items:center;justify-content:center;flex-shrink:0;
+ width:37px;height:37px;border-radius:6px;color:#f0c79d;background:#d3a57914;border:1px solid #a67e5c35}
+.guide-chapter-description{display:flex;flex-direction:column;min-width:0;gap:4px}
+.guide-chapter-description b{font-size:12px;font-weight:750;color:#eee2db}
+.guide-chapter-description small{font-size:10px;line-height:1.45;color:#aaa6b8}
+.guide-chapter-count{margin-left:auto;display:flex;align-items:center;flex-shrink:0;gap:4px;
+ color:#caa889;font:10px ui-monospace,monospace}
+.guide-menu-footnote{font-size:11px;line-height:1.6;text-align:center;color:#8c899b;margin:21px auto 0;max-width:540px}
+.workshop-guide-shade{position:fixed;inset:0;z-index:1000;pointer-events:none;background:#0b0d1980}
+.workshop-guide-spotlight{position:fixed;z-index:1001;pointer-events:none;
+ border:2px solid #f4d39f;border-radius:9px;box-shadow:0 0 0 9999px #06091338,0 0 0 5px #e2b57a38,
+ 0 0 30px #efb7757a,inset 0 0 19px #efb7753b;transition:left .2s ease,top .2s ease,width .2s ease,height .2s ease}
+.workshop-guide-card{position:fixed;z-index:1003;display:flex;flex-direction:column;max-height:min(475px,calc(100dvh - 24px));overflow:hidden}
+.guide-card-top{display:flex;align-items:center;justify-content:space-between;gap:10px;
+ min-height:47px;padding:7px 13px 7px 16px;border-bottom:1px solid #7d65724b}
+.guide-card-top .guide-eyebrow{font-size:9px}
+.guide-progress{height:3px;background:#4a4352;flex-shrink:0}
+.guide-progress span{display:block;height:100%;background:linear-gradient(90deg,#b789b0,#f3d499);transition:width .2s}
+.guide-card-scroll{padding:16px 20px 17px;overflow:auto;min-height:0;overscroll-behavior:contain}
+.guide-card-count{font:10px ui-monospace,monospace;letter-spacing:.13em;color:#b9a0ac;margin-bottom:8px}
+.workshop-guide-card h2{font:normal 26px/1.1 Georgia,serif;color:#ffefd8;letter-spacing:-.025em;margin:0 0 12px}
+.workshop-guide-card p{font-size:12px;line-height:1.62;color:#c8c4d0;margin:0}
+.guide-practice{display:flex;align-items:flex-start;gap:9px;border:1px solid #87765c5c;
+ border-radius:6px;background:#e7b67d0c;color:#e1d5c0;padding:10px;margin-top:14px;font-size:11px;line-height:1.52}
+.guide-practice svg{color:#f1c18c;flex-shrink:0;margin-top:2px}
+.workshop-guide-card .guide-fallback{font-size:10px;margin-top:8px;color:#ecb995}
+.guide-card-actions{display:flex;align-items:center;gap:7px;padding:11px 13px;
+ border-top:1px solid #77677a5c;flex-shrink:0}
+.guide-card-spacer{flex:1}
+.guide-link{font-size:11px;color:#c1acd0;padding:8px 4px}
+.guide-link:hover{color:#ffe4c5}
+.guide-nav{display:flex;align-items:center;justify-content:center;gap:6px;
+ font-size:11px;font-weight:750;border:1px solid #73657d;border-radius:5px;padding:9px 10px}
+.guide-back{color:#ddd0d8;background:#3e3646}
+.guide-next{color:#222036;background:#f0d3ad;border-color:#f0d3ad}
+.guide-next:hover{background:#fff0d7}
+.guide-nav:disabled{opacity:.32}
+.guide-card-footnote{font-size:9px;letter-spacing:.07em;text-align:center;
+ color:#89879a;border-top:1px solid #60526837;padding:7px}
+.guide-header-button{display:inline-flex;align-items:center;gap:7px;flex-shrink:0;
+ color:#f2d3a7;border:1px solid #9a784f8e;border-radius:5px;padding:8px 10px;
+ background:#d5a16b14;font-size:11px;font-weight:700}
+.guide-header-button:hover{background:#e7ad722f}
+[data-guide]{scroll-margin:18px}
+@media(max-width:800px){
+ .guide-header-button{padding:8px}
+ .guide-header-button span{display:none}
+}
+@media(max-width:620px){
+ .workshop-guide-menu-backdrop{padding:8px}
+ .workshop-guide-menu{max-height:95dvh}
+ .guide-menu-scroll{padding:18px 17px}
+ .guide-menu-welcome p{font-size:12px}
+ .guide-menu-welcome h2{font-size:34px}
+ .guide-chapter-grid{grid-template-columns:1fr;gap:7px}
+ .guide-chapter{min-height:65px}
+ .guide-chapter-icon{width:33px;height:33px}
+ .guide-chapters-header{margin-top:22px}
+ .workshop-guide-card{max-height:min(53dvh,345px);border-radius:9px}
+ .guide-card-top{min-height:38px}
+ .guide-card-scroll{padding:10px 14px}
+ .guide-card-count{font-size:9px;margin-bottom:5px}
+ .workshop-guide-card h2{font-size:21px;margin-bottom:7px}
+ .workshop-guide-card p{font-size:11px;line-height:1.46}
+ .guide-practice{font-size:10px;margin-top:9px;padding:8px}
+ .guide-card-actions{padding:7px 8px}
+ .guide-nav{padding:7px 8px;font-size:10px}
+ .guide-card-footnote{display:none}
+}
+@media(max-height:580px){
+ .workshop-guide-card{max-height:50dvh}
+ .guide-card-scroll{padding-top:8px;padding-bottom:8px}
+ .guide-practice{margin-top:7px;padding:7px}
+}
+@media(prefers-reduced-motion:reduce){
+ .workshop-guide-spotlight,.guide-progress span{transition:none}
+}
+
+/* The guide entry remains reachable in the crowded mobile app header. */
+@media(max-width:530px){
+ .app-header .workspace-header-button{padding:8px;min-width:35px;justify-content:center}
+ .app-header .workspace-header-button span{display:none}
+ .app-header .guide-header-button{padding:8px;min-width:35px;justify-content:center}
+ .app-header>.primary{font-size:0;padding:8px;min-width:36px;justify-content:center;gap:0}
+ .app-header>.primary svg{width:17px;height:17px;flex-shrink:0}
+}
+@media(max-width:370px){
+ .app-header{gap:6px;padding:0 8px}
+ .app-header .brand{font-size:16px}
+ .app-header .brand small{font-size:6px}
+}

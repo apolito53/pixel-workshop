@@ -1,12 +1,14 @@
 'use client';
 import {useCallback,useEffect,useRef,useState,type PointerEvent as PE} from 'react';
-import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound,Stamp} from 'lucide-react';
+import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound,Stamp,BookOpen} from 'lucide-react';
 import {applyCommands,clipFrameSequence,composite,frameCount,frameView,readRegion,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
 import {generateEffectCommands,regenerateEffectCommands,hasFreeEffectLayerSlot,type EffectKind,EFFECT_KINDS,EFFECT_GROUPS,EFFECT_PRESETS} from '../lib/effects.ts';
 import {EditQueue,type EditorSnapshot,type QueueState} from '../lib/edit-queue.ts';
 import {beginPinch,movePinch,finishPinch,touchMidpoint,type GesturePoint,type PinchStart,type PinchView,type GestureViewport} from '../lib/touch-gestures.ts';
 import {INSPECTOR_TABS,inspectorTabForKey,type InspectorTab} from '../lib/inspector-tabs.ts';
+import {guideSteps,type GuideScope} from '../lib/workshop-guide.ts';
+import WorkshopGuide from './workshop-tour.tsx';
 type Snapshot=EditorSnapshot;
 type Tool='select'|'pencil'|'eraser'|'fill'|'picker'|'line'|'rect'|'ellipse'|'stamp';
 const tools=[['pencil',Pencil,'Pencil','B'],['eraser',Eraser,'Eraser','E'],['fill',PaintBucket,'Fill','G'],['picker',Pipette,'Eyedropper','I'],['line',Minus,'Line','L'],['rect',Square,'Rectangle','R'],['ellipse',Circle,'Ellipse','O'],['select',Scan,'Select / move','V'],['stamp',Stamp,'Stamp copied pixels','S']] as const;
@@ -40,6 +42,9 @@ function FrameThumbnail({doc,index}:{doc:PixelDocument;index:number}){
  return <canvas ref={ref} className="frame-thumbnail" aria-hidden="true"/>;
 }
 export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}={}){
+ const [guide,setGuide]=useState<{mode:'off'|'menu'|'tour';scope:GuideScope;index:number}>({mode:'off',scope:'all',index:0});
+ const guideToggleRef=useRef<HTMLButtonElement>(null);
+ const guidePreviousRef=useRef<{tab:InspectorTab;inspectorOpen:boolean;drawOpen:boolean}|null>(null);
  const [inspectorTab,setInspectorTab]=useState<InspectorTab>('draw');
  const [canvasPan,setCanvasPan]=useState<GesturePoint>({x:0,y:0});
  const [pinchScale,setPinchScale]=useState(1);
@@ -60,6 +65,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const [clipName,setClipName]=useState('idle'),[clipFrom,setClipFrom]=useState(0),[clipTo,setClipTo]=useState(0),[clipFps,setClipFps]=useState(8),[clipMode,setClipMode]=useState<AnimationClip['mode']>('loop');
  const [previewClip,setPreviewClip]=useState<string|null>(null);
  const previewPosition=useRef(0);
+ const guideStep=guide.mode==='tour'?guideSteps(guide.scope)[guide.index]:undefined;
  const queue=useRef<EditQueue|null>(null),viewport=useRef<HTMLDivElement>(null),selectionDrag=useRef<{base:Snapshot;start:{x:number;y:number};source:PixelRegion|null;region:PixelRegion;layer:string;frame:number}|null>(null),canvas=useRef<HTMLCanvasElement>(null),preview=useRef<HTMLCanvasElement>(null),file=useRef<HTMLInputElement>(null),current=useRef(snap),locked=useRef(false),stroke=useRef<{base:Snapshot;start:{x:number;y:number};last:{x:number;y:number};ops:PaintCommand[];frame:number}|null>(null);
  const resetPan=useCallback(()=>{
   if(gestureFrame.current!==null)cancelAnimationFrame(gestureFrame.current);
@@ -83,6 +89,18 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   setSaveState({pending:0,saving:false,error:null});present(s);
  },[present,showQueue,resetPan]);
  const refresh=useCallback(async()=>setList(await api<PixelDocument[]>('projects')),[]);
+ // Offer a one-time, dismissible learning hub after a workspace loads.
+ useEffect(()=>{
+  if(!snap?.doc)return;
+  try{
+   if(localStorage.getItem('pixel-workshop-guide-seen-v1'))return;
+   localStorage.setItem('pixel-workshop-guide-seen-v1','1');
+  }catch{return;}
+  guidePreviousRef.current={tab:inspectorTab,inspectorOpen,drawOpen:drawToolsOpen};
+  setGuide(old=>old.mode==='off'?{mode:'menu',scope:'all',index:0}:old);
+ // Showing the welcome once is keyed by the first loaded project, not live editor state.
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[snap?.doc.id]);
  useEffect(()=>{let alive=true;(async()=>{try{const entries=await api<PixelDocument[]>('projects');if(!alive)return;setList(entries);const s=entries.length?await api<Snapshot>('projects/'+entries[0].id):await api<Snapshot>('projects',{demo:true});if(alive){adopt(s);setNotice('All changes saved');await refresh();}}catch(e){if(alive)setError((e as Error).message);}})();return()=>{alive=false;queue.current?.dispose();};},[adopt,refresh]);
  useEffect(()=>{
   const doc=snap?.doc;if(!doc)return;
@@ -112,6 +130,18 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
    },1000/(clip?.fps??doc.animation?.fps??8));
    return()=>clearInterval(timer);
  },[playing,previewClip,snap?.doc.id,snap?.doc.revision]);
+ // Guide stops reveal controls without creating projects or altering pixel data.
+ useEffect(()=>{
+  if(!guideStep)return;
+  if(guideStep.panel==='drawing'){
+   setInspectorOpen(false);setDrawToolsOpen(compactDrawTools);
+  }else if(guideStep.panel==='none'){
+   setInspectorOpen(false);setDrawToolsOpen(false);
+  }else{
+   setDrawToolsOpen(false);setInspectorTab(guideStep.panel);
+   setInspectorOpen(mobileLayout);
+  }
+ },[guideStep?.id,compactDrawTools,mobileLayout]);
  const touchNavigationActive=mobileLayout||touchCapable;
  useEffect(()=>{
   resetPan();
@@ -142,7 +172,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   return()=>media.removeEventListener('change',update);
  },[]);
  useEffect(()=>{
-  if(!compactDrawTools||!drawToolsOpen)return;
+  if(!compactDrawTools||!drawToolsOpen||guide.mode!=='off')return;
   drawToolsCloseRef.current?.focus();
   const handle=(e:KeyboardEvent)=>{
    if(e.key==='Escape'){
@@ -161,13 +191,13 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   };
   window.addEventListener('keydown',handle,true);
   return()=>window.removeEventListener('keydown',handle,true);
- },[compactDrawTools,drawToolsOpen]);
+ },[compactDrawTools,drawToolsOpen,guide.mode]);
  useEffect(()=>{
   const panel=inspectorRef.current?.querySelector<HTMLElement>('.inspector-panel:not([hidden])');
   if(panel)panel.scrollTop=0;
  },[inspectorTab]);
  useEffect(()=>{
-  if(!mobileLayout||!inspectorOpen)return;
+  if(!mobileLayout||!inspectorOpen||guide.mode!=='off')return;
   drawerCloseRef.current?.focus();
   const handle=(e:KeyboardEvent)=>{
    if(e.key==='Escape'){
@@ -186,7 +216,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   };
   window.addEventListener('keydown',handle,true);
   return()=>window.removeEventListener('keydown',handle,true);
- },[mobileLayout,inspectorOpen]);
+ },[mobileLayout,inspectorOpen,guide.mode]);
  useEffect(()=>{const element=viewport.current;if(!element||!snap||!fitMode)return;
   const fit=()=>{
    const narrow=window.matchMedia('(max-width: 800px)').matches;
@@ -329,7 +359,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const move=(e:PE<HTMLCanvasElement>)=>{if(!snap||e.pointerType==='touch'&&(touchGesture.current!==null||suppressTouchDrawing.current))return;const p=point(e);setHover(old=>old?.x===p.x&&old?.y===p.y?old:p);setCursor(`X ${String(p.x).padStart(3,'0')}   Y ${String(p.y).padStart(3,'0')}`);const drag=selectionDrag.current;if(drag){if(drag.source){const source=drag.source;drag.region={...source,x:Math.max(0,Math.min(drag.base.doc.width-source.width,source.x+p.x-drag.start.x)),y:Math.max(0,Math.min(drag.base.doc.height-source.height,source.y+p.y-drag.start.y))};present({...drag.base,doc:applyCommands(drag.base.doc,[{op:'transform',mode:'move',layer:drag.layer,frame:drag.frame,...source,x2:drag.region.x,y2:drag.region.y}])});}else drag.region={x:Math.min(drag.start.x,p.x),y:Math.min(drag.start.y,p.y),width:Math.abs(p.x-drag.start.x)+1,height:Math.abs(p.y-drag.start.y)+1};setSelection(drag.region);return;}const st=stroke.current;if(!st||tool==='fill'||tool==='stamp'||(p.x===st.last.x&&p.y===st.last.y)||st.ops.length>4000)return;if(['pencil','eraser'].includes(tool))st.ops.push({op:'line',layer,color:tool==='eraser'?'transparent':ink,...st.last,x2:p.x,y2:p.y});else st.ops=[shape(st.start,p)];st.last=p;present({...st.base,doc:applyCommands(st.base.doc,targetFrame(st.ops,st.frame))});};
  const up=()=>{const drag=selectionDrag.current;if(drag){selectionDrag.current=null;if(drag.source&&(drag.source.x!==drag.region.x||drag.source.y!==drag.region.y))void commit([{op:'transform',mode:'move',layer:drag.layer,frame:drag.frame,...drag.source,x2:drag.region.x,y2:drag.region.y}],drag.base);else present(drag.base);return;}const st=stroke.current;if(st){stroke.current=null;void commit(targetFrame(st.ops,st.frame),st.base);}};
  const png=async()=>{const d=current.current?.doc;if(!d)return;try{const {encodeBrowserPng}=await import('../lib/browser-png.ts');download(d.name+'.png',new Blob([encodeBrowserPng(frameView(d,Math.min(frame,frameCount(d)-1)),scale)],{type:'image/png'}));if(!queue.current?.state.pending)setNotice(`Exported ${d.width*scale} × ${d.height*scale} PNG`);}catch(e){setError((e as Error).message);}};
- useEffect(()=>{const h=(e:KeyboardEvent)=>{if((e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"],[role="tab"]')||stroke.current||selectionDrag.current)return;if(e.key==='Escape'){setModal(false);setPackModal(false);setSelection(null);return;}if(modal||packModal)return;const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='z'){e.preventDefault();void commit([],undefined,e.shiftKey?'redo':'undo');return;}if(mod&&key==='c'&&selection){e.preventDefault();copySelection();return;}if(mod&&key==='v'&&clipboard){e.preventDefault();pasteSelection();return;}if(mod&&key==='x'&&selection){e.preventDefault();copySelection();clearSelection();return;}if(selection&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const step=e.shiftKey?10:1;transformSelection('move',e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0,e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0);return;}if(selection&&['Delete','Backspace'].includes(e.key)){e.preventDefault();clearSelection();return;}if(mod)return;const t=tools.find(t=>t[3].toLowerCase()===key);if(t)setTool(t[0]);if(key==='h')setGrid(v=>!v);};window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);});
+ useEffect(()=>{const h=(e:KeyboardEvent)=>{if(e.key==='Escape'&&(modal||packModal)){if(!busy){setModal(false);setPackModal(false);}return;}if(guide.mode==='menu'||e.defaultPrevented||(e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"],[role="tab"]')||stroke.current||selectionDrag.current)return;if(e.key==='Escape'){setModal(false);setPackModal(false);setSelection(null);return;}if(modal||packModal)return;const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='z'){e.preventDefault();void commit([],undefined,e.shiftKey?'redo':'undo');return;}if(mod&&key==='c'&&selection){e.preventDefault();copySelection();return;}if(mod&&key==='v'&&clipboard){e.preventDefault();pasteSelection();return;}if(mod&&key==='x'&&selection){e.preventDefault();copySelection();clearSelection();return;}if(selection&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const step=e.shiftKey?10:1;transformSelection('move',e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0,e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0);return;}if(selection&&['Delete','Backspace'].includes(e.key)){e.preventDefault();clearSelection();return;}if(mod)return;const t=tools.find(t=>t[3].toLowerCase()===key);if(t)setTool(t[0]);if(key==='h')setGrid(v=>!v);};window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);});
  const addFrame=async()=>{
   const doc=current.current?.doc;if(!doc||playing)return;
   const next=frameCount(doc);
@@ -433,9 +463,34 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
    if(await commit(commands)){setFrame(0);setSelection(null);setPlaying(true);setNotice('Regenerated effect from saved settings');}
   }catch(e){setError((e as Error).message);}
  };
+ const openGuide=useCallback(()=>{
+  if(guide.mode==='off')guidePreviousRef.current={tab:inspectorTab,inspectorOpen,drawOpen:drawToolsOpen};
+  try{localStorage.setItem('pixel-workshop-guide-seen-v1','1');}catch{}
+  setInspectorOpen(false);setDrawToolsOpen(false);
+  setGuide({mode:'menu',scope:'all',index:0});
+ },[guide.mode,inspectorTab,inspectorOpen,drawToolsOpen]);
+ const closeGuide=useCallback(()=>{
+  const previous=guidePreviousRef.current;
+  setGuide({mode:'off',scope:'all',index:0});
+  if(previous){
+   setInspectorTab(previous.tab);setInspectorOpen(previous.inspectorOpen&&mobileLayout);
+   setDrawToolsOpen(previous.drawOpen&&compactDrawTools);
+  }else{setInspectorOpen(false);setDrawToolsOpen(false);}
+  guidePreviousRef.current=null;
+  requestAnimationFrame(()=>{if(previous?.drawOpen&&compactDrawTools)drawToolsCloseRef.current?.focus();else if(previous?.inspectorOpen&&mobileLayout)drawerCloseRef.current?.focus();else guideToggleRef.current?.focus();});
+ },[mobileLayout,compactDrawTools]);
+ const startGuide=useCallback((scope:GuideScope)=>setGuide({mode:'tour',scope,index:0}),[]);
+ const moveGuide=useCallback((direction:-1|1)=>{
+  setGuide(old=>old.mode!=='tour'?old:{...old,index:Math.max(0,Math.min(guideSteps(old.scope).length-1,old.index+direction))});
+ },[]);
+ const guideMenu=useCallback(()=>{
+  setInspectorOpen(false);setDrawToolsOpen(false);
+  setGuide(old=>({...old,mode:'menu'}));
+ },[]);
  const closeDrawTools=()=>{setDrawToolsOpen(false);drawToolsToggleRef.current?.focus();};
  const closeMobileInspector=()=>{setInspectorOpen(false);drawerToggleRef.current?.focus();};
  const manageWorkspace=async()=>{
+  if(guide.mode!=='off')closeGuide();
   try{
    await queue.current?.flush();
    if(stroke.current||selectionDrag.current)throw new Error('Finish your current stroke before switching workspaces.');
@@ -447,24 +502,26 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   if(inspectorRef.current)inspectorRef.current.scrollTop=0;
  };
  const d=snap?.doc,activeFrame=d?Math.min(frame,frameCount(d)-1):0,displayError=error||saveState.error?.message;
- return <main className="workshop"><header className="app-header"><a className="brand" href="/"><span className="brand-mark">{Array.from({length:9},(_,i)=><i key={i}/>)}</span><span>pixel<span className="brand-light">workshop</span><small>A LITTLE ROOM TO MAKE THINGS</small></span></a>{onManageWorkspace&&<button type="button" className="text-button workspace-header-button" aria-label="Manage workspace" title="Workspace and agent connection" onClick={()=>void manageWorkspace()}><KeyRound size={16}/><span>Workspace</span></button>}<div className="header-meta"><span className="version">WORKSPACE / 01</span><span className="connection"><i/> MCP enabled</span></div><button className="primary" disabled={!d||busy} onClick={()=>void png()}><Download size={15}/>Export PNG</button></header>
- <div className="document-bar"><div className="document-switch"><FolderOpen size={15}/><select aria-label="Open saved project" value={d?.id||''} disabled={busy} onChange={e=>void open(e.target.value)}>{!d&&<option>Opening workspace…</option>}{list.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><ChevronDown size={13}/></div><span className="document-size">{d?`${d.width} × ${d.height} px`:'—'}</span><span className="separator"/><button className="text-button" disabled={busy} onClick={()=>setModal(true)}><FilePlus size={15}/>New canvas</button><button className="text-button open-file" disabled={busy} onClick={()=>file.current?.click()}><FolderOpen size={15}/>Open project</button><a className="text-button stardrop-editor-link" href="/play/moonkeeper" title="Play Stardrop, a game made with Pixel Workshop">✧ <span>Play Stardrop</span></a></div>
+ return <main className="workshop"><header className="app-header"><a className="brand" href="/"><span className="brand-mark">{Array.from({length:9},(_,i)=><i key={i}/>)}</span><span>pixel<span className="brand-light">workshop</span><small>A LITTLE ROOM TO MAKE THINGS</small></span></a>{onManageWorkspace&&<button type="button" data-guide="workspace" className="text-button workspace-header-button" aria-label="Manage workspace" title="Workspace and agent connection" onClick={()=>void manageWorkspace()}><KeyRound size={16}/><span>Workspace</span></button>}<button type="button" ref={guideToggleRef} className="guide-header-button"
+ title="Guided tour and interactive help" aria-label="Open Pixel Workshop guide" onClick={openGuide}>
+ <BookOpen size={17}/><span>Guide</span></button><div className="header-meta"><span className="version">WORKSPACE / 01</span><span className="connection"><i/> MCP enabled</span></div><button className="primary" data-guide="quick-export" aria-label="Export current frame as PNG" disabled={!d||busy} onClick={()=>void png()}><Download size={15}/>Export PNG</button></header>
+ <div className="document-bar"><div className="document-switch" data-guide="project-list"><FolderOpen size={15}/><select aria-label="Open saved project" value={d?.id||''} disabled={busy} onChange={e=>void open(e.target.value)}>{!d&&<option>Opening workspace…</option>}{list.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><ChevronDown size={13}/></div><span className="document-size">{d?`${d.width} × ${d.height} px`:'—'}</span><span className="separator"/><button className="text-button" data-guide="new-canvas" disabled={busy} onClick={()=>setModal(true)}><FilePlus size={15}/>New canvas</button><button className="text-button open-file" disabled={busy} onClick={()=>file.current?.click()}><FolderOpen size={15}/>Open project</button><a className="text-button stardrop-editor-link" data-guide="stardrop" href="/play/moonkeeper" title="Play Stardrop, a game made with Pixel Workshop">✧ <span>Play Stardrop</span></a></div>
  <div className="work-area" data-tools-open={mobileLayout&&inspectorOpen} data-draw-open={compactDrawTools&&drawToolsOpen}>
  <button type="button" className="draw-tools-backdrop" tabIndex={-1} aria-label="Dismiss drawing tools" onClick={closeDrawTools}/>
  <aside id="pixel-drawing-tools" className="tool-rail" ref={drawToolsRef} aria-label="Drawing tools"
-  role={compactDrawTools&&drawToolsOpen?'dialog':undefined}
-  aria-modal={compactDrawTools&&drawToolsOpen?true:undefined}
+  role={compactDrawTools&&drawToolsOpen&&guide.mode==='off'?'dialog':undefined}
+  aria-modal={compactDrawTools&&drawToolsOpen&&guide.mode==='off'?true:undefined}
   aria-hidden={compactDrawTools&&!drawToolsOpen}
   inert={compactDrawTools&&!drawToolsOpen}>
   <div className="draw-tools-header"><span><Pencil size={16}/>Drawing tools</span>
     <button type="button" ref={drawToolsCloseRef} aria-label="Close drawing tools" onClick={closeDrawTools}><X size={19}/></button>
   </div>
   <div className="rail-paint-tools">
-    {tools.map(([id,Icon,label,key])=><button key={id} className={'tool '+(tool===id?'active':'')} aria-label={label} aria-pressed={tool===id} title={`${label} (${key})`} onClick={()=>{setTool(id);if(compactDrawTools)closeDrawTools();}}><Icon size={19}/><span className="rail-tool-label">{drawerToolLabels[id]??label}</span></button>)}
+    {tools.map(([id,Icon,label,key])=><button key={id} data-guide={id==='pencil'?'drawing-pencil':undefined} className={'tool '+(tool===id?'active':'')} aria-label={label} aria-pressed={tool===id} title={`${label} (${key})`} onClick={()=>{setTool(id);if(compactDrawTools)closeDrawTools();}}><Icon size={19}/><span className="rail-tool-label">{drawerToolLabels[id]??label}</span></button>)}
     <div className="rail-rule"/>
     <button type="button" className={'tool '+(grid?'active':'')} aria-label="Toggle grid" aria-pressed={grid} onClick={()=>setGrid(v=>!v)}><Grid2X2 size={19}/><span className="rail-tool-label">Grid</span></button>
   </div>
-  <div className="rail-history" role="group" aria-label="Edit history">
+  <div className="rail-history" data-guide="drawing-history" role="group" aria-label="Edit history">
     <button type="button" className="tool history-tool" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!snap?.canUndo||busy} onClick={()=>void commit([],undefined,'undo')}><Undo2 size={19}/><span className="rail-history-label">Undo</span></button>
     <button type="button" className="tool history-tool" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={!snap?.canRedo||busy} onClick={()=>void commit([],undefined,'redo')}><Redo2 size={19}/><span className="rail-history-label">Redo</span></button>
   </div>
@@ -474,14 +531,14 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  className={'small-toggle draw-tools-toggle '+(drawToolsOpen?'on':'')}
  aria-controls="pixel-drawing-tools" aria-expanded={compactDrawTools&&drawToolsOpen} aria-haspopup="dialog"
  aria-label="Open drawing tools" onClick={()=>{setInspectorOpen(false);setDrawToolsOpen(v=>!v);}}>
- <Pencil size={17}/><span>Draw tools</span></button><span className="eyebrow">{tools.find(t=>t[0]===tool)?.[2].toUpperCase()} <span className="muted">/ 1 PX</span></span>{['rect','ellipse'].includes(tool)&&<label className="fill-option"><input type="checkbox" checked={filled} onChange={e=>setFilled(e.target.checked)}/>Filled</label>}<span className="spacer"/><button type="button" ref={drawerToggleRef} className={'small-toggle mobile-inspector-toggle '+(inspectorOpen?'on':'')}
+ <Pencil size={17}/><span>Draw tools</span></button><span className="eyebrow">{(drawerToolLabels[tool]??tools.find(t=>t[0]===tool)?.[2]??'Draw').toUpperCase()} <span className="muted">/ 1 PX</span></span>{['rect','ellipse'].includes(tool)&&<label className="fill-option"><input type="checkbox" checked={filled} onChange={e=>setFilled(e.target.checked)}/>Filled</label>}<span className="spacer"/><button type="button" ref={drawerToggleRef} className={'small-toggle mobile-inspector-toggle '+(inspectorOpen?'on':'')}
  aria-controls="pixel-inspector" aria-expanded={mobileLayout&&inspectorOpen} aria-haspopup="dialog"
  onClick={()=>{setDrawToolsOpen(false);setInspectorOpen(v=>!v);}}><SlidersHorizontal size={17}/><span>Panels</span></button><span className="canvas-hint">ONE CELL = ONE PIXEL.</span></div><div className="canvas-scroll" ref={viewport} onPointerDownCapture={touchDown}
- onPointerMoveCapture={touchMove} onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd}><div className="canvas-mat">{d?<div className="canvas-frame" style={touchNavigationActive?{
+ onPointerMoveCapture={touchMove} onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd}><div className="canvas-mat">{d?<div className="canvas-frame" data-guide="canvas" style={touchNavigationActive?{
  transform:`translate3d(${canvasPan.x}px,${canvasPan.y}px,0) scale(${pinchScale})`
 }:undefined}><span className="canvas-coordinate top-left">0, 0</span><canvas ref={canvas} className="pixel-canvas" aria-label={`${d.name}, ${d.width} by ${d.height} pixel canvas`} style={{width:d.width*zoom,height:d.height*zoom,backgroundSize:`${zoom*2}px ${zoom*2}px`}} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={()=>{if(selectionDrag.current){setSelection(selectionDrag.current.source);present(selectionDrag.current.base);selectionDrag.current=null;}if(stroke.current){present(stroke.current.base);stroke.current=null;}}} onPointerLeave={()=>{setHover(null);if(!stroke.current&&!selectionDrag.current)setCursor('X —   Y —');}}/>{hover&&zoom>=3&&tool!=='select'&&<div className="cell-cursor" aria-hidden="true" style={{left:hover.x*zoom,top:hover.y*zoom,width:zoom,height:zoom}}/>}{selection&&<div className="selection-marquee" style={{left:selection.x*zoom,top:selection.y*zoom,width:selection.width*zoom,height:selection.height*zoom}}/>}<span className="canvas-coordinate bottom-right">{d.width}, {d.height}</span></div>:<div className="loading-canvas"><Grid2X2 size={32}/><span>Opening your pixel workshop…</span>{error&&<button onClick={()=>location.reload()}>Try again</button>}</div>}</div></div>{d&&<div className="timeline" aria-label="Animation timeline">
   <div className="timeline-header"><span className="eyebrow"><Film size={13}/>ANIMATION <span className="muted">{frameCount(d)} FRAME{frameCount(d)===1?'':'S'}</span></span>
-    <div className="timeline-controls">
+    <div className="timeline-controls" data-guide="timeline-actions">
      <button className="small-toggle" aria-label={playing?'Pause animation':'Play animation'} disabled={frameCount(d)<2||busy} onClick={()=>setPlaying(v=>!v)}>{playing?<Pause size={14}/>:<Play size={14}/>} {playing?'Pause':'Play'}</button>
      <label className="fps-control">FPS <select aria-label="Animation frames per second" value={d.animation?.fps??8} disabled={busy} onChange={e=>void commit([{op:'set_fps',fps:Number(e.target.value)}])}>{[4,6,8,10,12,15,20,24,30].map(f=><option key={f} value={f}>{f}</option>)}</select></label>
      <button className={'small-toggle '+(onion?'on':'')} aria-pressed={onion} onClick={()=>setOnion(v=>!v)}>Onion {onion?'on':'off'}</button>
@@ -489,16 +546,16 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
      <button className="small-toggle" disabled={busy||playing||activeFrame===0} onClick={()=>void removeFrame()}><Trash2 size={14}/>Delete</button>
     </div>
   </div>
-  <div className="timeline-track">{Array.from({length:frameCount(d)},(_,i)=>
+  <div className="timeline-track" data-guide="timeline-track">{Array.from({length:frameCount(d)},(_,i)=>
    <button key={i} aria-label={`Select animation frame ${i+1}`} aria-pressed={activeFrame===i} className={'frame-tile '+(activeFrame===i?'active':'')}
     disabled={busy||playing} onClick={()=>{if(stroke.current||selectionDrag.current)return;setFrame(i);setPreviewClip(null);setSelection(null);}}>
      <FrameThumbnail doc={d} index={i}/><span>{String(i+1).padStart(2,'0')}</span>
    </button>)}</div>
- </div>}<div className="canvas-footer"><div className="zoom-control"><button aria-label="Zoom out" onClick={()=>{setFitMode(false);setZoom(z=>Math.max(1,z-1));}}><ZoomOut size={16}/></button><span>{Math.round(zoom*pinchScale*100)}%</span><button aria-label="Zoom in" onClick={()=>{setFitMode(false);setZoom(z=>Math.min(24,z+1));}}><ZoomIn size={16}/></button></div><button className={'small-toggle fit-button '+(fitMode?'on':'')} aria-label="Fit canvas to workspace" onClick={()=>{resetPan();setFitMode(true);}}><Maximize size={14}/>Fit</button><span className="scale-caption">{zoom>=3?'1 cell = 1 output pixel':'Zoom in to see the cell grid'}</span><span className="spacer"/><button className={'small-toggle '+(grid?'on':'')} onClick={()=>setGrid(v=>!v)}><Grid2X2 size={14}/>Grid {grid?'on':'off'}</button></div></section>
+ </div>}<div className="canvas-footer" data-guide="zoom"><div className="zoom-control"><button aria-label="Zoom out" onClick={()=>{setFitMode(false);setZoom(z=>Math.max(1,z-1));}}><ZoomOut size={16}/></button><span>{Math.round(zoom*pinchScale*100)}%</span><button aria-label="Zoom in" onClick={()=>{setFitMode(false);setZoom(z=>Math.min(24,z+1));}}><ZoomIn size={16}/></button></div><button className={'small-toggle fit-button '+(fitMode?'on':'')} aria-label="Fit canvas to workspace" onClick={()=>{resetPan();setFitMode(true);}}><Maximize size={14}/>Fit</button><span className="scale-caption">{zoom>=3?'1 cell = 1 output pixel':'Zoom in to see the cell grid'}</span><span className="spacer"/><button className={'small-toggle '+(grid?'on':'')} onClick={()=>setGrid(v=>!v)}><Grid2X2 size={14}/>Grid {grid?'on':'off'}</button></div></section>
   <button type="button" className="inspector-backdrop" aria-label="Close tools" onClick={closeMobileInspector}/>
   <aside id="pixel-inspector" className="inspector" ref={inspectorRef} aria-label="Editor inspector"
-   role={mobileLayout&&inspectorOpen?'dialog':undefined}
-   aria-modal={mobileLayout&&inspectorOpen?true:undefined}
+   role={mobileLayout&&inspectorOpen&&guide.mode==='off'?'dialog':undefined}
+   aria-modal={mobileLayout&&inspectorOpen&&guide.mode==='off'?true:undefined}
    aria-hidden={mobileLayout&&!inspectorOpen}
    inert={mobileLayout&&!inspectorOpen}>
   <div className="inspector-drawer-header"><span><SlidersHorizontal size={16}/>Tools</span>
@@ -524,15 +581,15 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  </nav>
  <div className="inspector-panel" id="inspector-panel-draw" role="tabpanel" aria-labelledby="inspector-tab-draw" tabIndex={0} hidden={inspectorTab!=='draw'}>
  <section className="inspector-section preview-section"><div className="section-heading"><span>PREVIEW</span><div className="preview-scales">{[1,2].map(s=><button key={s} aria-label={`Preview at ${s}×`} aria-pressed={previewScale===s} className={previewScale===s?'active':''} onClick={()=>setPreviewScale(s)}>{s}×</button>)}</div></div><div className="navigator"><canvas ref={preview} aria-label="Artwork preview"/></div><div className="preview-caption"><span>{d?.name||'Your artwork'}</span><span>{d?`${d.width} × ${d.height}`:''}</span></div></section>
- <section className="inspector-section"><div className="section-heading"><span>COLOR</span><span className="muted">RGBA</span></div><div className="color-controls"><label className="color-picker" style={{background:ink}}><input type="color" aria-label="Choose drawing color" value={ink.slice(0,7)} onChange={e=>setInk(e.target.value)}/></label><input className="hex-input" aria-label="Hex drawing color" value={ink} maxLength={9} onChange={e=>setInk(e.target.value)} onBlur={()=>{if(!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(ink))setInk('#f6da92');}}/><button className="icon-button" aria-label="Add current color to palette" disabled={busy||!d||d.palette.includes(ink)} onClick={()=>void commit([{op:'palette',colors:[...(d?.palette||[]),ink]}])}><Plus size={15}/></button></div><div className="section-heading palette-heading"><span>WORKSHOP PALETTE</span><span className="muted">{d?.palette.length||24}</span></div><div className="palette">{d?.palette.map((c,i)=><button key={c+i} aria-label={`Use color ${c}`} title={c} style={{background:c}} className={'swatch '+(c===ink?'selected':'')} onClick={()=>setInk(c)}/>)}</div></section>
+ <section className="inspector-section"><div className="section-heading"><span>COLOR</span><span className="muted">RGBA</span></div><div className="color-controls" data-guide="palette"><label className="color-picker" style={{background:ink}}><input type="color" aria-label="Choose drawing color" value={ink.slice(0,7)} onChange={e=>setInk(e.target.value)}/></label><input className="hex-input" aria-label="Hex drawing color" value={ink} maxLength={9} onChange={e=>setInk(e.target.value)} onBlur={()=>{if(!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(ink))setInk('#f6da92');}}/><button className="icon-button" aria-label="Add current color to palette" disabled={busy||!d||d.palette.includes(ink)} onClick={()=>void commit([{op:'palette',colors:[...(d?.palette||[]),ink]}])}><Plus size={15}/></button></div><div className="section-heading palette-heading"><span>WORKSHOP PALETTE</span><span className="muted">{d?.palette.length||24}</span></div><div className="palette">{d?.palette.map((c,i)=><button key={c+i} aria-label={`Use color ${c}`} title={c} style={{background:c}} className={'swatch '+(c===ink?'selected':'')} onClick={()=>setInk(c)}/>)}</div></section>
  <details className="inspector-section selection-section inspector-disclosure">
- <summary className="section-heading inspector-summary"><span>SELECTION</span><span className="inspector-summary-end"><span className="muted">{selection?`${selection.width} × ${selection.height}`:'V'}</span><ChevronDown size={15}/></span></summary><div className="selection-actions"><button disabled={!selection||busy} onClick={copySelection} title="Copy (Ctrl+C)"><Copy size={14}/>Copy</button><button disabled={!clipboard||busy} onClick={()=>setTool('stamp')} title="Use copied pixels as a stamp"><Stamp size={14}/>Stamp</button><button disabled={!clipboard||busy} onClick={pasteSelection} title="Paste (Ctrl+V)"><ClipboardPaste size={14}/>Paste</button><button disabled={!selection||busy} onClick={()=>transformSelection('flip_horizontal')} title="Flip horizontally"><FlipHorizontal2 size={14}/>Flip H</button><button disabled={!selection||busy} onClick={()=>transformSelection('flip_vertical')} title="Flip vertically"><FlipVertical2 size={14}/>Flip V</button><button disabled={!selection||busy} onClick={clearSelection} title="Clear selected pixels (Delete)"><Trash2 size={14}/>Clear</button><button disabled={!selection||busy} onClick={()=>setSelection(null)}><X size={14}/>Deselect</button></div><label className="effect-field stamp-snap-field">Stamp grid<select aria-label="Stamp grid snapping" value={stampSnap} onChange={e=>setStampSnap(Number(e.target.value))}><option value={0}>Any pixel</option><option value={8}>8px grid</option><option value={16}>16px grid</option><option value={32}>32px grid</option></select></label><p className="selection-help">Select with V, copy a region, then choose Stamp (S) to place it repeatedly. Grid snapping makes fast tile painting easier.</p></details>
+ <summary className="section-heading inspector-summary" data-guide="selection"><span>SELECTION</span><span className="inspector-summary-end"><span className="muted">{selection?`${selection.width} × ${selection.height}`:'V'}</span><ChevronDown size={15}/></span></summary><div className="selection-actions"><button disabled={!selection||busy} onClick={copySelection} title="Copy (Ctrl+C)"><Copy size={14}/>Copy</button><button disabled={!clipboard||busy} onClick={()=>setTool('stamp')} title="Use copied pixels as a stamp"><Stamp size={14}/>Stamp</button><button disabled={!clipboard||busy} onClick={pasteSelection} title="Paste (Ctrl+V)"><ClipboardPaste size={14}/>Paste</button><button disabled={!selection||busy} onClick={()=>transformSelection('flip_horizontal')} title="Flip horizontally"><FlipHorizontal2 size={14}/>Flip H</button><button disabled={!selection||busy} onClick={()=>transformSelection('flip_vertical')} title="Flip vertically"><FlipVertical2 size={14}/>Flip V</button><button disabled={!selection||busy} onClick={clearSelection} title="Clear selected pixels (Delete)"><Trash2 size={14}/>Clear</button><button disabled={!selection||busy} onClick={()=>setSelection(null)}><X size={14}/>Deselect</button></div><label className="effect-field stamp-snap-field">Stamp grid<select aria-label="Stamp grid snapping" value={stampSnap} onChange={e=>setStampSnap(Number(e.target.value))}><option value={0}>Any pixel</option><option value={8}>8px grid</option><option value={16}>16px grid</option><option value={32}>32px grid</option></select></label><p className="selection-help">Select with V, copy a region, then choose Stamp (S) to place it repeatedly. Grid snapping makes fast tile painting easier.</p></details>
  </div>
  <div className="inspector-panel" id="inspector-panel-layers" role="tabpanel" aria-labelledby="inspector-tab-layers" tabIndex={0} hidden={inspectorTab!=='layers'}>
- <section className="inspector-section layers-section"><div className="section-heading"><span>LAYERS</span><span className="muted" aria-label="Layer slots used">{d?.layers.length??0} / 8</span><button className="mini-button" aria-label="Add layer" disabled={busy||!d||d.layers.length>=8} onClick={()=>{const id='layer-'+Date.now().toString(36);void commit([{op:'add_layer',id,name:`Layer ${(d?.layers.length||0)+1}`}]).then(()=>setLayer(id));}}><Plus size={16}/></button></div>{d&&[...d.layers].reverse().map(l=><div key={l.id} className={'layer-row '+(layer===l.id?'selected':'')}><button className="layer-select" onClick={()=>setLayer(l.id)}><span className="layer-thumbnail"><Layers size={14}/></span><span>{l.name}</span></button><button className="mini-button" aria-label={`${l.visible?'Hide':'Show'} ${l.name} layer`} disabled={busy} onClick={()=>void commit([{op:'visibility',layer:l.id,visible:!l.visible}])}>{l.visible?<Eye size={15}/>:<EyeOff size={15}/>}</button><button className="mini-button layer-delete" aria-label={`Delete ${l.name} layer`} title={d.layers.length===1?'The last layer cannot be deleted':'Delete layer (Undo to restore)'} disabled={busy||d.layers.length<=1} onClick={()=>void commit([{op:'delete_layer',layer:l.id}])}><Trash2 size={15}/></button></div>)}<span className="layer-note">Drawing on <strong>{d?.layers.find(l=>l.id===layer)?.name||'Base'}</strong>. Hiding a layer does not free its slot; delete it to make room for another effect.</span></section>
+ <section className="inspector-section layers-section"><div className="section-heading" data-guide="layers"><span>LAYERS</span><span className="muted" aria-label="Layer slots used">{d?.layers.length??0} / 8</span><button className="mini-button" aria-label="Add layer" disabled={busy||!d||d.layers.length>=8} onClick={()=>{const id='layer-'+Date.now().toString(36);void commit([{op:'add_layer',id,name:`Layer ${(d?.layers.length||0)+1}`}]).then(()=>setLayer(id));}}><Plus size={16}/></button></div>{d&&[...d.layers].reverse().map(l=><div key={l.id} className={'layer-row '+(layer===l.id?'selected':'')}><button className="layer-select" onClick={()=>setLayer(l.id)}><span className="layer-thumbnail"><Layers size={14}/></span><span>{l.name}</span></button><button className="mini-button" aria-label={`${l.visible?'Hide':'Show'} ${l.name} layer`} disabled={busy} onClick={()=>void commit([{op:'visibility',layer:l.id,visible:!l.visible}])}>{l.visible?<Eye size={15}/>:<EyeOff size={15}/>}</button><button className="mini-button layer-delete" aria-label={`Delete ${l.name} layer`} title={d.layers.length===1?'The last layer cannot be deleted':'Delete layer (Undo to restore)'} disabled={busy||d.layers.length<=1} onClick={()=>void commit([{op:'delete_layer',layer:l.id}])}><Trash2 size={15}/></button></div>)}<span className="layer-note">Drawing on <strong>{d?.layers.find(l=>l.id===layer)?.name||'Base'}</strong>. Hiding a layer does not free its slot; delete it to make room for another effect.</span></section>
  </div>
  <div className="inspector-panel" id="inspector-panel-effects" role="tabpanel" aria-labelledby="inspector-tab-effects" tabIndex={0} hidden={inspectorTab!=='effects'}>
- <section className="inspector-section effects-section"><div className="section-heading"><span>PROCEDURAL EFFECTS</span><Sparkles size={14}/></div>
+ <section className="inspector-section effects-section"><div className="section-heading" data-guide="effects"><span>PROCEDURAL EFFECTS</span><Sparkles size={14}/></div>
    <p>Create a seeded, editable animation layer. Painting and undo work on every generated frame.</p>
    <label className="effect-field">Effect
      <select aria-label="Procedural effect type" value={effectKind} onChange={e=>setEffectKind(e.target.value as EffectKind)}>
@@ -556,7 +613,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
    <button className="secondary full effect-generate" disabled={busy||!hasFreeEffectLayerSlot(d)} title={!hasFreeEffectLayerSlot(d)?'All eight layer slots are occupied. Use a layer trash icon to free one.':'Generate an effect without stopping playback'} onClick={()=>void addEffect()}><Sparkles size={14}/>Generate editable effect</button>
    {d&&!hasFreeEffectLayerSlot(d)&&<button type="button" className="text-button effects-manage-link" onClick={()=>activateInspectorTab('layers')}><Layers size={14}/>Manage layers to free a slot</button>}
    {d?.layers.some(l=>l.effect)&&<div className="effect-recipe-panel">
-    <div className="section-heading"><span>RE-EDIT AN EFFECT</span></div>
+    <div className="section-heading" data-guide="effects-recipe"><span>RE-EDIT AN EFFECT</span></div>
     <label className="effect-field">FX layer<select aria-label="Choose effect layer to regenerate" value={d.layers.some(l=>l.id===effectTarget&&l.effect)?effectTarget??'':''} onChange={e=>chooseEffectLayer(e.target.value)}>
      <option value="">Choose a layer</option>
      {d.layers.filter(l=>l.effect).map(l=><option key={l.id} value={l.id}>{l.name}</option>)}
@@ -568,7 +625,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  </div>
  <div className="inspector-panel" id="inspector-panel-animation" role="tabpanel" aria-labelledby="inspector-tab-animation" tabIndex={0} hidden={inspectorTab!=='animation'}>
   <section className="inspector-section clip-section">
-   <div className="section-heading"><span>ANIMATION CLIPS</span><Film size={15}/></div>
+   <div className="section-heading" data-guide="clips"><span>ANIMATION CLIPS</span><Film size={15}/></div>
    <p>Name reusable ranges of frames, give each its own speed, and export them with your atlas. Original pixels remain editable.</p>
    {d?.animation?.clips?.length?<div className="clip-list">
     {d.animation.clips.map(clip=><div className="clip-row" key={clip.name}>
@@ -593,23 +650,23 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   </section>
  </div>
  <div className="inspector-panel" id="inspector-panel-export" role="tabpanel" aria-labelledby="inspector-tab-export" tabIndex={0} hidden={inspectorTab!=='export'}>
- <section className="inspector-section export-section"><div className="section-heading"><span>EXPORT</span><span className="filetype">PNG</span></div><label className="scale-select">Output size<select aria-label="PNG export scale" value={scale} onChange={e=>setScale(Number(e.target.value))}>{[1,2,4,8].map(s=><option key={s} value={s}>{s}× {d?`· ${d.width*s} × ${d.height*s}`:''}</option>)}</select></label><p>Transparent background.<br/>Clean pixels, ready for your game.</p><button className="secondary full" disabled={!d||busy} onClick={()=>{if(d)download(d.name+'.pixel.json',new Blob([JSON.stringify(d)],{type:'application/json'}));}}>Save editable project <Download size={14}/></button>
+ <section className="inspector-section export-section"><div className="section-heading" data-guide="export"><span>EXPORT</span><span className="filetype">PNG</span></div><label className="scale-select">Output size<select aria-label="PNG export scale" value={scale} onChange={e=>setScale(Number(e.target.value))}>{[1,2,4,8].map(s=><option key={s} value={s}>{s}× {d?`· ${d.width*s} × ${d.height*s}`:''}</option>)}</select></label><p>Transparent background.<br/>Clean pixels, ready for your game.</p><button className="secondary full" disabled={!d||busy} onClick={()=>{if(d)download(d.name+'.pixel.json',new Blob([JSON.stringify(d)],{type:'application/json'}));}}>Save editable project <Download size={14}/></button>
   <button className="secondary full" disabled={!d||busy} onClick={()=>void exportSheet()}>Sprite sheet PNG <Download size={14}/></button>
   <button className="secondary full" disabled={!d||busy} onClick={exportAtlas}>Animation atlas JSON <Download size={14}/></button>
-  <div className="tileset-export-block">
+  <div className="tileset-export-block" data-guide="tileset">
    <p>Building a tile-based game? Slice the current frame into a coordinate-accurate grid, keeping empty tiles and their IDs.</p>
    <label className="effect-field">Tile size<input aria-label="Tileset tile size" type="number" min={1} max={256} value={tileSize} onChange={e=>setTileSize(Number(e.target.value))}/></label>
    <button type="button" className="secondary full" disabled={!d||busy||!Number.isInteger(tileSize)||tileSize<1||d.width%tileSize!==0||d.height%tileSize!==0} onClick={()=>void exportTiles()}><Grid2X2 size={14}/>Tileset ZIP (PNG + JSON + source) <Download size={14}/></button>
    {d&&tileSize>0&&(d.width%tileSize!==0||d.height%tileSize!==0)&&<p className="tileset-warning">Canvas must divide evenly by tile size.</p>}
   </div>
-  <div className="pack-export-block">
+  <div className="pack-export-block" data-guide="pack">
    <p>Export several sprites with their original editable layers, PNG sheets, named clips and a ready-to-use manifest.</p>
    <button type="button" className="secondary full pack-export-button" disabled={!list.length||busy} onClick={openPack}><FolderOpen size={15}/>Export game pack ZIP <Download size={14}/></button>
   </div>
   </section>
  </div>
  </aside></div>
- <footer className="status-bar"><span className={'save-status '+(displayError?'error':'')}><i className={busy||saveState.pending?'saving':''}/>{displayError||notice}</span>{saveState.error&&<>{!saveState.error.conflict&&<button className="text-button save-retry" disabled={busy} onClick={()=>{setError('');queue.current?.retry();}}>Retry save</button>}<button className="text-button save-retry" disabled={busy} onClick={()=>void create(false,current.current?.doc,true)}>Save a copy</button></>}<span className="status-detail">{cursor}</span><span className="status-detail">{d?.layers.length||0} LAYERS</span><span className="status-shortcuts">B pencil<span>E eraser</span><span>G fill</span><span>H grid</span></span></footer>
+ <footer className="status-bar"><span data-guide="save-status" className={'save-status '+(displayError?'error':'')}><i className={busy||saveState.pending?'saving':''}/>{displayError||notice}</span>{saveState.error&&<>{!saveState.error.conflict&&<button className="text-button save-retry" disabled={busy} onClick={()=>{setError('');queue.current?.retry();}}>Retry save</button>}<button className="text-button save-retry" disabled={busy} onClick={()=>void create(false,current.current?.doc,true)}>Save a copy</button></>}<span className="status-detail">{cursor}</span><span className="status-detail">{d?.layers.length||0} LAYERS</span><span className="status-shortcuts">B pencil<span>E eraser</span><span>G fill</span><span>H grid</span></span></footer>
  <input ref={file} type="file" accept=".json,.pixel.json" className="visually-hidden" aria-label="Import editable project" onChange={async e=>{const f=e.target.files?.[0];if(!f)return;try{if(f.size>12_000_000)throw new Error('Project file is too large.');await create(false,JSON.parse(await f.text()));}catch(err){setError((err as Error).message);}e.target.value='';}}/>
  {packModal&&<div className="modal-backdrop" onClick={()=>!busy&&setPackModal(false)}>
    <section className="new-dialog pack-dialog" role="dialog" aria-modal="true" aria-labelledby="pack-dialog-heading" onClick={e=>e.stopPropagation()}>
@@ -634,6 +691,8 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
     </button>
    </section>
   </div>}
- {modal&&<div className="modal-backdrop" onClick={()=>setModal(false)}><section className="new-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" onClick={e=>e.stopPropagation()}><button className="dialog-close icon-button" aria-label="Close new canvas dialog" onClick={()=>setModal(false)}><X size={18}/></button><span className="eyebrow">A FRESH LITTLE START</span><h2 id="dialog-title">Make room for an idea.</h2><label>Canvas name<input autoFocus value={name} maxLength={80} onChange={e=>setName(e.target.value)}/></label><div className="dimension-inputs"><label>Width<input type="number" min={1} max={256} value={width} onChange={e=>setWidth(Number(e.target.value))}/></label><span>×</span><label>Height<input type="number" min={1} max={256} value={height} onChange={e=>setHeight(Number(e.target.value))}/></label></div><div className="size-presets">{[16,32,48,64,128].map(s=><button key={s} className={width===s&&height===s?'selected':''} onClick={()=>{setWidth(s);setHeight(s);}}>{s}×{s}</button>)}</div>{error&&<p className="error-text">{error}</p>}<button className="primary full" disabled={busy} onClick={()=>void create()}><Plus size={16}/>Create canvas</button><button className="text-button example-button" disabled={busy} onClick={()=>void create('cottage')}>Open Moonkeeper’s cottage · 64 × 64</button><button className="text-button example-button" disabled={busy} onClick={()=>void create(true)}>Or open the little lantern</button></section></div>}
+ {guide.mode!=='off'&&!modal&&!packModal&&<WorkshopGuide mode={guide.mode} scope={guide.scope} index={guide.index}
+  onStart={startGuide} onMove={moveGuide} onClose={closeGuide} onMenu={guideMenu}/>}
+  {modal&&<div className="modal-backdrop" onClick={()=>setModal(false)}><section className="new-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" onClick={e=>e.stopPropagation()}><button className="dialog-close icon-button" aria-label="Close new canvas dialog" onClick={()=>setModal(false)}><X size={18}/></button><span className="eyebrow">A FRESH LITTLE START</span><h2 id="dialog-title">Make room for an idea.</h2><label>Canvas name<input autoFocus value={name} maxLength={80} onChange={e=>setName(e.target.value)}/></label><div className="dimension-inputs"><label>Width<input type="number" min={1} max={256} value={width} onChange={e=>setWidth(Number(e.target.value))}/></label><span>×</span><label>Height<input type="number" min={1} max={256} value={height} onChange={e=>setHeight(Number(e.target.value))}/></label></div><div className="size-presets">{[16,32,48,64,128].map(s=><button key={s} className={width===s&&height===s?'selected':''} onClick={()=>{setWidth(s);setHeight(s);}}>{s}×{s}</button>)}</div>{error&&<p className="error-text">{error}</p>}<button className="primary full" disabled={busy} onClick={()=>void create()}><Plus size={16}/>Create canvas</button><button className="text-button example-button" disabled={busy} onClick={()=>void create('cottage')}>Open Moonkeeper’s cottage · 64 × 64</button><button className="text-button example-button" disabled={busy} onClick={()=>void create(true)}>Or open the little lantern</button></section></div>}
  </main>;
 }

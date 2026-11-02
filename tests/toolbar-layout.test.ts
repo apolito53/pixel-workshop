@@ -48,7 +48,7 @@ test('draw tool drawer is adaptive, scrollable, and keeps history and color acce
   assert.ok(css.includes('.rail-history{display:grid'));
   assert.ok(css.includes('.rail-color-picker{justify-content:flex-start'));
   assert.ok(editor.includes('aria-label="Choose quick drawing color"'));
-  assert.ok(editor.includes('role={compactDrawTools&&drawToolsOpen?\'dialog\':undefined}'));
+  assert.ok(editor.includes('role={compactDrawTools&&drawToolsOpen&&guide.mode===\'off\'?\'dialog\':undefined}'));
   assert.ok(editor.includes('inert={compactDrawTools&&!drawToolsOpen}'));
 });
 
