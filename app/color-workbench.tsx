@@ -3,7 +3,7 @@
 import {useMemo} from 'react';
 import {Check,Plus,Trash2} from 'lucide-react';
 import {DEFAULT_PALETTE,type PixelDocument} from '../lib/pixels.ts';
-import {artworkColors,isHexInk,normalizeInk,opacityPercent,rgbHex,suggestColors} from '../lib/color-workflow.ts';
+import {artworkColors,isHexInk,normalizeInk,opacityPercent,rgbHex,suggestColors,withRgb} from '../lib/color-workflow.ts';
 
 type Props={
  doc:PixelDocument|null;frame:number;ink:string;hexDraft:string;
@@ -38,7 +38,7 @@ export default function ColorWorkbench({
    <label className="color-picker workbench-native-picker" title="Open your device's color picker">
     <span aria-hidden="true" style={{backgroundColor:ink}}/>
     <input type="color" aria-label="Pick current drawing color" value={rgbHex(ink)}
-     onChange={e=>onPick(e.target.value)}/>
+     onChange={e=>onPick(withRgb(ink,e.target.value))}/>
    </label>
    <input className="hex-input" aria-label="Hex drawing color, optionally including alpha"
     value={hexDraft} maxLength={9} spellCheck={false} autoCapitalize="off"
