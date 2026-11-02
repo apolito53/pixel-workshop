@@ -3,6 +3,7 @@
 import {useMemo} from 'react';
 import {Check,Plus,Trash2,ChevronDown} from 'lucide-react';
 import {type PixelDocument} from '../lib/pixels.ts';
+import QuickColorGrid from './quick-color-grid.tsx';
 import {artworkColors,isHexInk,normalizeInk,opacityPercent,rgbHex,splitProjectPalette,suggestColors,withRgb} from '../lib/color-workflow.ts';
 
 type Props={
@@ -52,6 +53,12 @@ export default function ColorWorkbench({
     value={opacityPercent(ink)} onChange={e=>onOpacity(Number(e.target.value))}/>
    <span className="workbench-opacity-value">{opacityPercent(ink)}%</span>
   </label>
+
+  <div className="workbench-group workbench-quick-group" data-guide="quick-colors">
+   <div className="workbench-heading"><b>QUICK COLORS</b><small>24 fixed basics</small></div>
+   <p className="workbench-hint">Classic colors found in drawing apps, always available. They change your hue without resetting opacity and are not saved automatically.</p>
+   <QuickColorGrid ink={ink} onPick={onPick}/>
+  </div>
 
   {recent.length>0&&<div className="workbench-group">
    <div className="workbench-heading"><b>RECENTLY PICKED</b><small>This session only</small></div>
