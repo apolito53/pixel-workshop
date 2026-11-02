@@ -8,6 +8,7 @@ import {EditQueue,type EditorSnapshot,type QueueState} from '../lib/edit-queue.t
 import {beginPinch,movePinch,finishPinch,touchMidpoint,type GesturePoint,type PinchStart,type PinchView,type GestureViewport} from '../lib/touch-gestures.ts';
 import {INSPECTOR_TABS,inspectorTabForKey,type InspectorTab} from '../lib/inspector-tabs.ts';
 import {guideSteps,type GuideScope} from '../lib/workshop-guide.ts';
+import {clipRange,clipsAtFrame,type ClipRange} from '../lib/clip-range.ts';
 import WorkshopGuide from './workshop-tour.tsx';
 import ColorWorkbench from './color-workbench.tsx';
 import QuickColorGrid from './quick-color-grid.tsx';
@@ -72,6 +73,9 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  const stampPreviewRef=useRef<HTMLCanvasElement>(null);
  const [effectSpeed,setEffectSpeed]=useState(1),[effectOpacity,setEffectOpacity]=useState(1),[effectDrift,setEffectDrift]=useState(0),[effectTarget,setEffectTarget]=useState<string|null>(null);
  const [packModal,setPackModal]=useState(false),[packIds,setPackIds]=useState<string[]>([]);
+ const [clipRangeSelection,setClipRangeSelection]=useState<ClipRange|null>(null);
+ const [rangeSelectMode,setRangeSelectMode]=useState(false);
+ const clipDragRef=useRef<number|null>(null);
  const [clipOriginal,setClipOriginal]=useState<string|null>(null);
  const [clipName,setClipName]=useState('idle'),[clipFrom,setClipFrom]=useState(0),[clipTo,setClipTo]=useState(0),[clipFps,setClipFps]=useState(8),[clipMode,setClipMode]=useState<AnimationClip['mode']>('loop');
  const [previewClip,setPreviewClip]=useState<string|null>(null);
@@ -164,7 +168,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   const d=state.snapshot.doc;setList(items=>items.map(p=>p.id===d.id?{...p,name:d.name,revision:d.revision,updatedAt:d.updatedAt}:p));
  },[present]);
  const adopt=useCallback((s:Snapshot)=>{
-  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);setPreviewClip(null);setEffectTarget(null);setClipOriginal(null);setClipName('idle');setClipFrom(0);setClipTo(0);resetPan();setFitMode(true);}
+  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);setPreviewClip(null);setEffectTarget(null);setClipOriginal(null);setClipName('idle');setClipFrom(0);setClipTo(0);setClipRangeSelection(null);setRangeSelectMode(false);clipDragRef.current=null;resetPan();setFitMode(true);}
   queue.current?.dispose();queue.current=new EditQueue(s,request=>api<Snapshot>('projects/'+s.doc.id,request),showQueue);
   setSaveState({pending:0,saving:false,error:null});present(s);
  },[present,showQueue,resetPan]);
@@ -481,8 +485,38 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  const removeFrame=async()=>{
   const doc=current.current?.doc;if(!doc||frame===0||playing)return;
   if(await commit([{op:'frame_delete',frame}])){
-    setSelection(null);setFrame(i=>Math.max(0,i-1));
+    setClipRangeSelection(null);setSelection(null);setFrame(i=>Math.max(0,i-1));
   }
+ };
+ const beginClipRange=(index:number,e:PE<HTMLButtonElement>)=>{
+  if(!rangeSelectMode||playing||e.button!==0)return;
+  e.preventDefault();
+  clipDragRef.current=index;setClipRangeSelection({from:index,to:index});
+  e.currentTarget.parentElement?.setPointerCapture(e.pointerId);
+ };
+ const dragClipRange=(e:PE<HTMLDivElement>)=>{
+  if(clipDragRef.current===null||!rangeSelectMode||!current.current)return;
+  const track=e.currentTarget;
+  const frames=track.querySelectorAll<HTMLElement>('[data-frame-index]');
+  if(!frames.length)return;
+  let hovered=frames.length-1;
+  for(let i=0;i<frames.length;i++){
+   if(e.clientX<=frames[i].getBoundingClientRect().right){hovered=i;break;}
+  }
+  setClipRangeSelection(clipRange(clipDragRef.current,hovered,frameCount(current.current.doc)));
+ };
+ const finishClipRange=(e:PE<HTMLDivElement>)=>{
+  if(clipDragRef.current===null)return;
+  clipDragRef.current=null;
+  if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId);
+ };
+ const openClipFromRange=()=>{
+  const doc=current.current?.doc;if(!doc||!clipRangeSelection)return;
+  setPlaying(false);setRangeSelectMode(false);
+  setClipOriginal(null);setClipName('new-clip');
+  setClipFrom(clipRangeSelection.from);setClipTo(clipRangeSelection.to);
+  setClipFps(doc.animation?.fps??8);setClipMode('loop');
+  setInspectorTab('animation');setInspectorOpen(mobileLayout);
  };
  const saveClip=async()=>{
   const doc=current.current?.doc;if(!doc)return;
@@ -493,10 +527,10 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   }
   const commands:PaintCommand[]=changingName?[{op:'clip_delete',name:clipOriginal!}]:[];
   commands.push({op:'clip_set',name:proposed,from:clipFrom,to:clipTo,fps:clipFps,mode:clipMode});
-  if(await commit(commands)){setClipOriginal(null);setNotice('Saved animation clip');}
+  if(await commit(commands)){setClipOriginal(null);setClipRangeSelection({from:clipFrom,to:clipTo});setNotice('Saved animation clip');}
  };
  const editClip=(clip:AnimationClip)=>{
-  setClipOriginal(clip.name);setClipName(clip.name);setClipFrom(clip.from);setClipTo(clip.to);setClipFps(clip.fps);setClipMode(clip.mode);
+  setClipOriginal(clip.name);setClipName(clip.name);setClipFrom(clip.from);setClipTo(clip.to);setClipFps(clip.fps);setClipMode(clip.mode);setClipRangeSelection({from:clip.from,to:clip.to});setRangeSelectMode(false);setInspectorTab('animation');setInspectorOpen(mobileLayout);
  };
  const playClip=(clip:AnimationClip)=>{
   previewPosition.current=0;setPreviewClip(clip.name);setFrame(clip.from);setPlaying(true);
