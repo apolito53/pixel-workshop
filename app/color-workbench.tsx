@@ -2,8 +2,8 @@
 
 import {useMemo} from 'react';
 import {Check,Plus,Trash2,ChevronDown} from 'lucide-react';
-import {DEFAULT_PALETTE,type PixelDocument} from '../lib/pixels.ts';
-import {artworkColors,isHexInk,normalizeInk,opacityPercent,rgbHex,suggestColors,withRgb} from '../lib/color-workflow.ts';
+import {type PixelDocument} from '../lib/pixels.ts';
+import {artworkColors,isHexInk,normalizeInk,opacityPercent,rgbHex,splitProjectPalette,suggestColors,withRgb} from '../lib/color-workflow.ts';
 
 type Props={
  doc:PixelDocument|null;frame:number;ink:string;hexDraft:string;
@@ -29,10 +29,8 @@ export default function ColorWorkbench({
  const suggested=useMemo(()=>suggestColors(ink,used),[ink,used]);
  const stored=doc?.palette??[];
  const selectedKey=normalizeInk(ink);
- const hasLegacyStarters=stored.length>=DEFAULT_PALETTE.length&&
-  DEFAULT_PALETTE.every((c,i)=>normalizeInk(stored[i])===normalizeInk(c));
- const legacy=hasLegacyStarters?stored.slice(0,DEFAULT_PALETTE.length):[];
- const saved=hasLegacyStarters?stored.slice(DEFAULT_PALETTE.length):stored;
+ const {legacy,saved}=splitProjectPalette(stored);
+ const hasLegacyStarters=legacy.length>0;
  const isSaved=saved.some(c=>normalizeInk(c)===selectedKey);
  return <section className="inspector-section color-workbench" aria-label="Color workbench">
   <div className="section-heading"><span>CURRENT COLOR</span><span className="muted">PICK ANY COLOR</span></div>
