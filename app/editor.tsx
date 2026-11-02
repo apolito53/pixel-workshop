@@ -1,5 +1,5 @@
 'use client';
-import {useCallback,useEffect,useRef,useState,type PointerEvent as PE} from 'react';
+import {useCallback,useEffect,useMemo,useRef,useState,type PointerEvent as PE} from 'react';
 import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound,Stamp,BookOpen} from 'lucide-react';
 import {applyCommands,clipFrameSequence,composite,frameCount,frameView,readRegion,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
@@ -8,6 +8,8 @@ import {EditQueue,type EditorSnapshot,type QueueState} from '../lib/edit-queue.t
 import {beginPinch,movePinch,finishPinch,touchMidpoint,type GesturePoint,type PinchStart,type PinchView,type GestureViewport} from '../lib/touch-gestures.ts';
 import {INSPECTOR_TABS,inspectorTabForKey,type InspectorTab} from '../lib/inspector-tabs.ts';
 import {guideSteps,type GuideScope} from '../lib/workshop-guide.ts';
+import ColorWorkbench,{ColorInspector} from './color-workbench.tsx';
+import {addRecentColor,contextualColors,normalizeColor,saveColor,removeSavedColor,withRgb} from '../lib/color-workbench.ts';
 import WorkshopGuide from './workshop-tour.tsx';
 type Snapshot=EditorSnapshot;
 type Tool='select'|'pencil'|'eraser'|'fill'|'picker'|'line'|'rect'|'ellipse'|'stamp';
@@ -41,10 +43,38 @@ function FrameThumbnail({doc,index}:{doc:PixelDocument;index:number}){
  },[doc,index]);
  return <canvas ref={ref} className="frame-thumbnail" aria-hidden="true"/>;
 }
-export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}={}){
+export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspace?:()=>void;workspaceId?:string}={}){
  const [guide,setGuide]=useState<{mode:'off'|'menu'|'tour';scope:GuideScope;index:number}>({mode:'off',scope:'all',index:0});
  const guideToggleRef=useRef<HTMLButtonElement>(null);
  const guidePreviousRef=useRef<{tab:InspectorTab;inspectorOpen:boolean;drawOpen:boolean}|null>(null);
+ const [recentColors,setRecentColors]=useState<string[]>([]);
+ const [recentLoaded,setRecentLoaded]=useState(false);
+ const recentKey='pixel-workshop-recent-v1:'+ (workspaceId??'local');
+ useEffect(()=>{
+  setRecentLoaded(false);
+  try{
+   const json=JSON.parse(localStorage.getItem(recentKey)??'[]') as unknown;
+   const colors=Array.isArray(json)?json.filter((item):item is string=>typeof item==='string'):[];
+   setRecentColors(colors.reduce<string[]>((list,c)=>addRecentColor(list,c),[]).reverse());
+  }catch{setRecentColors([]);}
+  setRecentLoaded(true);
+ },[recentKey]);
+ useEffect(()=>{
+  if(!recentLoaded)return;
+  try{localStorage.setItem(recentKey,JSON.stringify(recentColors));}catch{}
+ },[recentKey,recentColors,recentLoaded]);
+ const rememberInk=useCallback((value:string)=>{
+  const hex=normalizeColor(value);
+  if(hex)setRecentColors(old=>addRecentColor(old,hex));
+ },[]);
+ const updateInk=useCallback((value:string)=>{
+  const hex=normalizeColor(value);
+  if(hex)setInk(hex);
+ },[]);
+ const chooseInk=useCallback((value:string)=>{
+  const hex=normalizeColor(value);
+  if(hex){setInk(hex);rememberInk(hex);}
+ },[rememberInk]);
  const [inspectorTab,setInspectorTab]=useState<InspectorTab>('draw');
  const [canvasPan,setCanvasPan]=useState<GesturePoint>({x:0,y:0});
  const [pinchScale,setPinchScale]=useState(1);
