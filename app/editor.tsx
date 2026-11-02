@@ -422,14 +422,23 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
    setNotice('Exported animation atlas JSON');
   }catch(e){setError((e as Error).message);}
  };
+ const legacyPaletteCount=(colors:readonly string[])=>
+  colors.length>=DEFAULT_PALETTE.length&&DEFAULT_PALETTE.every(
+   (c,i)=>normalizeInk(colors[i])===normalizeInk(c))?DEFAULT_PALETTE.length:0;
  const saveProjectInk=async()=>{
   const doc=current.current?.doc;
-  if(!doc||!isHexInk(ink)||doc.palette.length>=128||doc.palette.some(c=>normalizeInk(c)===normalizeInk(ink)))return;
+  if(!doc||!isHexInk(ink)||doc.palette.length>=128)return;
+  const pinned=doc.palette.slice(legacyPaletteCount(doc.palette));
+  if(pinned.some(c=>normalizeInk(c)===normalizeInk(ink)))return;
+  // A legacy starter may be intentionally pinned, without deleting the original swatches.
   await commit([{op:'palette',colors:[...doc.palette,normalizeInk(ink)]}]);
  };
  const removeProjectInk=async(color:string)=>{
   const doc=current.current?.doc;if(!doc||!isHexInk(color))return;
-  await commit([{op:'palette',colors:doc.palette.filter(c=>normalizeInk(c)!==normalizeInk(color))}]);
+  const count=legacyPaletteCount(doc.palette);
+  const kept=doc.palette.slice(0,count);
+  const favorites=doc.palette.slice(count).filter(c=>normalizeInk(c)!==normalizeInk(color));
+  await commit([{op:'palette',colors:[...kept,...favorites]}]);
  };
  const removeLegacySwatches=async()=>{
   const doc=current.current?.doc;if(!doc)return;
