@@ -1,7 +1,7 @@
 'use client';
 import {useCallback,useEffect,useRef,useState,type PointerEvent as PE} from 'react';
 import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound,Stamp,BookOpen} from 'lucide-react';
-import {applyCommands,clipFrameSequence,composite,DEFAULT_PALETTE,frameCount,frameView,readRegion,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
+import {applyCommands,clipFrameSequence,composite,frameCount,frameView,readRegion,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
 import {generateEffectCommands,regenerateEffectCommands,hasFreeEffectLayerSlot,type EffectKind,EFFECT_KINDS,EFFECT_GROUPS,EFFECT_PRESETS} from '../lib/effects.ts';
 import {EditQueue,type EditorSnapshot,type QueueState} from '../lib/edit-queue.ts';
@@ -10,7 +10,7 @@ import {INSPECTOR_TABS,inspectorTabForKey,type InspectorTab} from '../lib/inspec
 import {guideSteps,type GuideScope} from '../lib/workshop-guide.ts';
 import WorkshopGuide from './workshop-tour.tsx';
 import ColorWorkbench from './color-workbench.tsx';
-import {isHexInk,normalizeInk,rememberInk,rgbHex,withOpacity,withRgb} from '../lib/color-workflow.ts';
+import {isHexInk,normalizeInk,rememberInk,rgbHex,splitProjectPalette,withOpacity,withRgb} from '../lib/color-workflow.ts';
 type Snapshot=EditorSnapshot;
 type Tool='select'|'pencil'|'eraser'|'fill'|'picker'|'line'|'rect'|'ellipse'|'stamp';
 const tools=[['pencil',Pencil,'Pencil','B'],['eraser',Eraser,'Eraser','E'],['fill',PaintBucket,'Fill','G'],['picker',Pipette,'Eyedropper','I'],['line',Minus,'Line','L'],['rect',Square,'Rectangle','R'],['ellipse',Circle,'Ellipse','O'],['select',Scan,'Select / move','V'],['stamp',Stamp,'Stamp copied pixels','S']] as const;
@@ -422,28 +422,25 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
    setNotice('Exported animation atlas JSON');
   }catch(e){setError((e as Error).message);}
  };
- const legacyPaletteCount=(colors:readonly string[])=>
-  colors.length>=DEFAULT_PALETTE.length&&DEFAULT_PALETTE.every(
-   (c,i)=>normalizeInk(colors[i])===normalizeInk(c))?DEFAULT_PALETTE.length:0;
  const saveProjectInk=async()=>{
   const doc=current.current?.doc;
   if(!doc||!isHexInk(ink)||doc.palette.length>=128)return;
-  const pinned=doc.palette.slice(legacyPaletteCount(doc.palette));
-  if(pinned.some(c=>normalizeInk(c)===normalizeInk(ink)))return;
+  const {saved}=splitProjectPalette(doc.palette);
+  if(saved.some(c=>normalizeInk(c)===normalizeInk(ink)))return;
   // A legacy starter may be intentionally pinned, without deleting the original swatches.
   await commit([{op:'palette',colors:[...doc.palette,normalizeInk(ink)]}]);
  };
  const removeProjectInk=async(color:string)=>{
   const doc=current.current?.doc;if(!doc||!isHexInk(color))return;
-  const count=legacyPaletteCount(doc.palette);
-  const kept=doc.palette.slice(0,count);
-  const favorites=doc.palette.slice(count).filter(c=>normalizeInk(c)!==normalizeInk(color));
-  await commit([{op:'palette',colors:[...kept,...favorites]}]);
+  const {legacy,saved}=splitProjectPalette(doc.palette);
+  const favorites=saved.filter(c=>normalizeInk(c)!==normalizeInk(color));
+  await commit([{op:'palette',colors:[...legacy,...favorites]}]);
  };
  const removeLegacySwatches=async()=>{
   const doc=current.current?.doc;if(!doc)return;
-  if(!DEFAULT_PALETTE.every((c,i)=>doc.palette[i]&&normalizeInk(doc.palette[i])===normalizeInk(c)))return;
-  await commit([{op:'palette',colors:doc.palette.slice(DEFAULT_PALETTE.length)}]);
+  const {legacy,saved}=splitProjectPalette(doc.palette);
+  if(!legacy.length)return;
+  await commit([{op:'palette',colors:saved}]);
  };
  const exportTiles=async()=>{
   const doc=current.current?.doc;if(!doc)return;
