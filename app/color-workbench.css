@@ -16,7 +16,7 @@
 .pw-color-trigger-copy small{font:10px ui-monospace,monospace;color:#c7bfc5;white-space:nowrap}
 .pw-color-trigger-arrow{flex-shrink:0;color:#bfa493;margin-left:auto}
 .pw-color-popover{position:absolute;left:0;top:calc(100% + 8px);width:min(365px,calc(100vw - 20px));
- max-height:min(75dvh,620px);display:flex;flex-direction:column;overflow:hidden;
+ max-height:min(75dvh,620px,calc(100dvh - 230px));display:flex;flex-direction:column;overflow:hidden;
  background:#22252c;border:1px solid #9c7861;border-radius:9px;
  box-shadow:0 16px 55px #000c,0 0 0 2px #221a22;z-index:70}
 .pw-color-popover-header{display:flex;align-items:center;justify-content:space-between;flex-shrink:0;
