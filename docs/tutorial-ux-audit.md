@@ -76,3 +76,13 @@ Follow-up user feedback identified another important distinction: an **explicit 
 **Implemented:** a separate, always-present **Quick Colors** set of 24 conventional RGB swatches, grouped into Neutrals, Basic colors, and Earth & accents. It appears immediately below the active color/opacity controls in Draw and can also be opened from a compact Quick button beside the main canvas picker. Selecting a fixed swatch preserves the current brush opacity. Swatches do not change with the artwork, do not use randomness, and do not modify project-saved colors unless the artist explicitly saves one.
 
 The new hierarchy is intentional: **picker** for any precise hue; **quick colors** for familiar staples; **recent/artwork** colors for reuse; **suggested** colors for exploration; **saved** colors for persistence. This improves discoverability without reversing the decision to keep new documents' saved palettes empty.
+
+---
+
+## Interactive-workflow follow-up (November 2, 2026)
+
+**Stamp onboarding addressed.** A new capture mode turns Stamp into a workflow rather than a disconnected clipboard command. Choose Stamp and drag across a shape on the active layer to capture it; the next click paints a copy with transparent-source masking. A canvas ghost preview and nearby grid controls show exactly where it lands. The Draw tab holds a small browser-local library of named stamps, scoped to the current workspace. Limitation: reusable snippets live in local browser storage rather than the portable project format, and they are available only on that browser unless exported or copied manually.
+
+**Clip-range friction addressed.** Frame thumbnails now support pointer drag selection, Shift-click extension, right-click clip creation, and visible colored markers for existing named clips. The selected range fills Clip fields instead of requiring manual frame-number arithmetic. Existing clip metadata remains in native files and sprite atlases.
+
+**Procedural FX safety addressed.** A preview compares the selected frame before and after without editing the project. Regeneration requires that current preview, and offers a hidden frozen backup of every cel where layer and work budgets allow. When backup is impossible or declined, overwriting requires an explicit acknowledgement. Future upgrade: animated comparison across all frames, rather than only the selected frame, and a compositing diff that distinguishes hand edits from procedural pixels.

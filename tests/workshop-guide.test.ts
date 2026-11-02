@@ -6,6 +6,7 @@ import {placeGuideCard} from '../lib/workshop-tour-position.ts';
 
 const editor=readFileSync(new URL('../app/editor.tsx',import.meta.url),'utf8');
 const colors=readFileSync(new URL('../app/color-workbench.tsx',import.meta.url),'utf8');
+const stamps=readFileSync(new URL('../app/stamp-workbench.tsx',import.meta.url),'utf8');
 const component=readFileSync(new URL('../app/workshop-tour.tsx',import.meta.url),'utf8');
 const css=readFileSync(new URL('../app/workshop-tour.css',import.meta.url),'utf8');
 
@@ -26,6 +27,7 @@ test('every guide target maps to an actual reachable editor control',()=>{
   assert.ok(
    editor.includes('data-guide="'+step.target+'"')||
    colors.includes('data-guide="'+step.target+'"')||
+   stamps.includes('data-guide="'+step.target+'"')||
    editor.includes("'"+step.target+"'"),
    step.id+' is missing data-guide target '+step.target
   );

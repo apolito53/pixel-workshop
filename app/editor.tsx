@@ -3,14 +3,20 @@ import {useCallback,useEffect,useRef,useState,type PointerEvent as PE} from 'rea
 import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound,Stamp,BookOpen} from 'lucide-react';
 import {applyCommands,clipFrameSequence,composite,frameCount,frameView,readRegion,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
+import {MAX_ANIMATION_CELLS} from '../lib/pixels.ts';
+import {compareEffectFrame,type FxComparison} from '../lib/fx-preview.ts';
+import FxComparisonPanel from './fx-comparison.tsx';
 import {generateEffectCommands,regenerateEffectCommands,hasFreeEffectLayerSlot,type EffectKind,EFFECT_KINDS,EFFECT_GROUPS,EFFECT_PRESETS} from '../lib/effects.ts';
 import {EditQueue,type EditorSnapshot,type QueueState} from '../lib/edit-queue.ts';
 import {beginPinch,movePinch,finishPinch,touchMidpoint,type GesturePoint,type PinchStart,type PinchView,type GestureViewport} from '../lib/touch-gestures.ts';
 import {INSPECTOR_TABS,inspectorTabForKey,type InspectorTab} from '../lib/inspector-tabs.ts';
 import {guideSteps,type GuideScope} from '../lib/workshop-guide.ts';
+import {clipRange,clipsAtFrame,type ClipRange} from '../lib/clip-range.ts';
 import WorkshopGuide from './workshop-tour.tsx';
 import ColorWorkbench from './color-workbench.tsx';
 import QuickColorGrid from './quick-color-grid.tsx';
+import StampWorkbench from './stamp-workbench.tsx';
+import {STAMP_LIBRARY_LIMIT,loadStamps,captureStamp,stampCommand,positionStamp,stampRgba,addSavedStamp,type StampAsset} from '../lib/stamp-library.ts';
 import {isHexInk,normalizeInk,rememberInk,rgbHex,splitProjectPalette,withOpacity,withRgb} from '../lib/color-workflow.ts';
 type Snapshot=EditorSnapshot;
 type Tool='select'|'pencil'|'eraser'|'fill'|'picker'|'line'|'rect'|'ellipse'|'stamp';
@@ -44,7 +50,7 @@ function FrameThumbnail({doc,index}:{doc:PixelDocument;index:number}){
  },[doc,index]);
  return <canvas ref={ref} className="frame-thumbnail" aria-hidden="true"/>;
 }
-export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}={}){
+export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspace?:()=>void;workspaceId?:string}={}){
  const [guide,setGuide]=useState<{mode:'off'|'menu'|'tour';scope:GuideScope;index:number}>({mode:'off',scope:'all',index:0});
  const guideToggleRef=useRef<HTMLButtonElement>(null);
  const guidePreviousRef=useRef<{tab:InspectorTab;inspectorOpen:boolean;drawOpen:boolean}|null>(null);
@@ -64,14 +70,51 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const [quickColorsOpen,setQuickColorsOpen]=useState(false);
  const quickColorsRef=useRef<HTMLDivElement>(null),quickColorsButtonRef=useRef<HTMLButtonElement>(null);
  const [stampSnap,setStampSnap]=useState(0),[tileSize,setTileSize]=useState(16);
+ const [activeStamp,setActiveStamp]=useState<StampAsset|null>(null),[stampCapture,setStampCapture]=useState(false);
+ const [stampName,setStampName]=useState(''),[stampLibrary,setStampLibrary]=useState<StampAsset[]>([]);
+ const stampCaptureDrag=useRef<{start:{x:number;y:number};region:PixelRegion;layer:string;frame:number}|null>(null);
+ const stampPreviewRef=useRef<HTMLCanvasElement>(null);
  const [effectSpeed,setEffectSpeed]=useState(1),[effectOpacity,setEffectOpacity]=useState(1),[effectDrift,setEffectDrift]=useState(0),[effectTarget,setEffectTarget]=useState<string|null>(null);
+ const [fxPreview,setFxPreview]=useState<{key:string;comparison:FxComparison}|null>(null);
+ const [preserveFx,setPreserveFx]=useState(true),[confirmFxOverwrite,setConfirmFxOverwrite]=useState(false);
  const [packModal,setPackModal]=useState(false),[packIds,setPackIds]=useState<string[]>([]);
+ const [clipRangeSelection,setClipRangeSelection]=useState<ClipRange|null>(null);
+ const [rangeSelectMode,setRangeSelectMode]=useState(false);
+ const clipDragRef=useRef<number|null>(null);
  const [clipOriginal,setClipOriginal]=useState<string|null>(null);
  const [clipName,setClipName]=useState('idle'),[clipFrom,setClipFrom]=useState(0),[clipTo,setClipTo]=useState(0),[clipFps,setClipFps]=useState(8),[clipMode,setClipMode]=useState<AnimationClip['mode']>('loop');
  const [previewClip,setPreviewClip]=useState<string|null>(null);
  const previewPosition=useRef(0);
  const guideStep=guide.mode==='tour'?guideSteps(guide.scope)[guide.index]:undefined;
  const queue=useRef<EditQueue|null>(null),viewport=useRef<HTMLDivElement>(null),selectionDrag=useRef<{base:Snapshot;start:{x:number;y:number};source:PixelRegion|null;region:PixelRegion;layer:string;frame:number}|null>(null),canvas=useRef<HTMLCanvasElement>(null),preview=useRef<HTMLCanvasElement>(null),file=useRef<HTMLInputElement>(null),current=useRef(snap),locked=useRef(false),stroke=useRef<{base:Snapshot;start:{x:number;y:number};last:{x:number;y:number};ops:PaintCommand[];frame:number}|null>(null);
+ const stampStoreKey='pixel-workshop-stamps-v1-'+(workspaceId||'local');
+ useEffect(()=>{
+  try{const saved=localStorage.getItem(stampStoreKey);setStampLibrary(saved?loadStamps(JSON.parse(saved)):[]);}
+  catch{setStampLibrary([]);}
+  setActiveStamp(null);setStampCapture(false);
+ },[stampStoreKey]);
+ const persistStampLibrary=(items:StampAsset[])=>{
+  setStampLibrary(items);
+  try{localStorage.setItem(stampStoreKey,JSON.stringify(items));}
+  catch{setNotice('Stamp available for this session; browser storage is unavailable.');}
+ };
+ const selectStamp=(stamp:StampAsset)=>{
+  setActiveStamp(stamp);setStampName(stamp.name);setStampCapture(false);setSelection(null);setTool('stamp');if(mobileLayout)setInspectorOpen(false);
+ };
+ const chooseTool=(next:Tool)=>{setTool(next);if(next==='stamp'&&!activeStamp)setStampCapture(true);};
+ const beginStampCapture=()=>{
+  setTool('stamp');setStampCapture(true);setSelection(null);setPlaying(false);
+  if(mobileLayout)setInspectorOpen(false);
+ };
+ const saveStampToLibrary=()=>{
+  if(!activeStamp)return;
+  try{
+   const updated=addSavedStamp(stampLibrary,activeStamp,stampName);
+   persistStampLibrary(updated);setActiveStamp(updated.find(stamp=>stamp.id===activeStamp.id)!);
+   setNotice('Reusable stamp saved to this browser workspace.');
+  }catch(e){setError((e as Error).message);}
+ };
+ const deleteSavedStamp=(id:string)=>persistStampLibrary(stampLibrary.filter(s=>s.id!==id));
  const selectInk=useCallback((nextInk:string,track=true)=>{
   if(!isHexInk(nextInk))return;
   const next=normalizeInk(nextInk);
@@ -107,6 +150,12 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   };
  },[quickColorsOpen]);
  useEffect(()=>{if(guide.mode!=='off')setQuickColorsOpen(false);},[guide.mode]);
+ useEffect(()=>{
+  const canvas=stampPreviewRef.current;
+  if(!canvas||!activeStamp||tool!=='stamp'||stampCapture)return;
+  canvas.width=activeStamp.width;canvas.height=activeStamp.height;
+  canvas.getContext('2d')?.putImageData(new ImageData(stampRgba(activeStamp),activeStamp.width,activeStamp.height),0,0);
+ },[activeStamp,tool,stampCapture,hover]);
  const resetPan=useCallback(()=>{
   if(gestureFrame.current!==null)cancelAnimationFrame(gestureFrame.current);
   gestureFrame.current=null;
@@ -124,7 +173,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   const d=state.snapshot.doc;setList(items=>items.map(p=>p.id===d.id?{...p,name:d.name,revision:d.revision,updatedAt:d.updatedAt}:p));
  },[present]);
  const adopt=useCallback((s:Snapshot)=>{
-  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);setPreviewClip(null);setEffectTarget(null);setClipOriginal(null);setClipName('idle');setClipFrom(0);setClipTo(0);resetPan();setFitMode(true);}
+  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);setPreviewClip(null);setEffectTarget(null);setFxPreview(null);setConfirmFxOverwrite(false);setClipOriginal(null);setClipName('idle');setClipFrom(0);setClipTo(0);setClipRangeSelection(null);setRangeSelectMode(false);clipDragRef.current=null;resetPan();setFitMode(true);}
   queue.current?.dispose();queue.current=new EditQueue(s,request=>api<Snapshot>('projects/'+s.doc.id,request),showQueue);
   setSaveState({pending:0,saving:false,error:null});present(s);
  },[present,showQueue,resetPan]);
@@ -299,6 +348,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   return {width:rect.width,height:rect.height,center:{x:rect.left+rect.width/2,y:rect.top+rect.height/2}};
  };
  const cancelActiveStroke=()=>{
+  if(stampCaptureDrag.current){stampCaptureDrag.current=null;setSelection(null);}
   const st=stroke.current,drag=selectionDrag.current;
   if(!st&&!drag)return;
   stroke.current=null;selectionDrag.current=null;
@@ -367,23 +417,35 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   if(touchPoints.current.size===0)suppressTouchDrawing.current=false;
  };
  const point=(e:PE<HTMLCanvasElement>)=>{const d=current.current!.doc,b=e.currentTarget.getBoundingClientRect();return {x:Math.max(0,Math.min(d.width-1,Math.floor((e.clientX-b.left)/b.width*d.width))),y:Math.max(0,Math.min(d.height-1,Math.floor((e.clientY-b.top)/b.height*d.height)))};};
- const copySelection=()=>{const doc=current.current?.doc;if(!doc||!selection)return;setClipboard({width:selection.width,height:selection.height,pixels:readRegion(doc,layer,selection,Math.min(frame,frameCount(doc)-1))});setNotice(`Copied ${selection.width} × ${selection.height} pixels`);};
+ const copySelection=()=>{
+  const doc=current.current?.doc;if(!doc||!selection)return;
+  setClipboard({width:selection.width,height:selection.height,pixels:readRegion(doc,layer,selection,Math.min(frame,frameCount(doc)-1))});
+  try{const stamp=captureStamp(doc,layer,selection,Math.min(frame,frameCount(doc)-1),'stamp-'+crypto.randomUUID());
+   setActiveStamp(stamp);setStampName(stamp.name);
+  }catch{/* Copying an empty region still works. */}
+  setNotice(`Copied ${selection.width} × ${selection.height} pixels`);
+ };
  const pasteSelection=()=>{const doc=current.current?.doc;if(!doc||!clipboard||locked.current)return;if(clipboard.width>doc.width||clipboard.height>doc.height){setError('The copied area is larger than this canvas.');return;}const region={x:Math.min(doc.width-clipboard.width,(selection?.x??-2)+2),y:Math.min(doc.height-clipboard.height,(selection?.y??-2)+2),width:clipboard.width,height:clipboard.height};setSelection(region);setTool('select');void commit([{op:'paste',layer,...region,pixels:clipboard.pixels}]);};
  const transformSelection=(mode:string,dx=0,dy=0)=>{const doc=current.current?.doc;if(!doc||!selection||locked.current)return;const region={...selection,x:Math.max(0,Math.min(doc.width-selection.width,selection.x+dx)),y:Math.max(0,Math.min(doc.height-selection.height,selection.y+dy))};if(mode==='move'&&region.x===selection.x&&region.y===selection.y)return;void commit([{op:'transform',layer,mode,...selection,x2:region.x,y2:region.y}]);setSelection(region);};
  const clearSelection=()=>{if(selection)void commit([{op:'rect',layer,...selection,color:'transparent'}]);};
  const shape=(a:{x:number;y:number},b:{x:number;y:number}):PaintCommand=>tool==='line'?{op:'line',layer,color:ink,...a,x2:b.x,y2:b.y}:{op:tool,layer,color:ink,x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),width:Math.abs(a.x-b.x)+1,height:Math.abs(a.y-b.y)+1,filled};
- const down=(e:PE<HTMLCanvasElement>)=>{const s=current.current;if(e.button!==0||!s||locked.current||stroke.current||selectionDrag.current||e.pointerType==='touch'&&(touchGesture.current!==null||suppressTouchDrawing.current))return;e.preventDefault();const p=point(e);setHover(p);if(playing)return;if(tool==='select'){e.currentTarget.setPointerCapture(e.pointerId);const inside=selection&&p.x>=selection.x&&p.y>=selection.y&&p.x<selection.x+selection.width&&p.y<selection.y+selection.height;const region=inside?selection!:{...p,width:1,height:1};selectionDrag.current={base:s,start:p,source:inside?region:null,region,layer,frame:Math.min(frame,frameCount(s.doc)-1)};setSelection(region);return;}setSelection(null);if(tool==='stamp'){
-  if(!clipboard){setError('Copy a selection first to use the stamp tool.');return;}
-  if(clipboard.width>s.doc.width||clipboard.height>s.doc.height){setError('The stamp is larger than this canvas.');return;}
-  const x=Math.min(s.doc.width-clipboard.width,stampSnap?Math.floor(p.x/stampSnap)*stampSnap:p.x);
-  const y=Math.min(s.doc.height-clipboard.height,stampSnap?Math.floor(p.y/stampSnap)*stampSnap:p.y);
-  const ops:PaintCommand[]=[{op:'paste',layer,x,y,width:clipboard.width,height:clipboard.height,pixels:clipboard.pixels}];
-  if(e.pointerType==='touch'){
-   const target=Math.min(frame,frameCount(s.doc)-1);
-   e.currentTarget.setPointerCapture(e.pointerId);
-   stroke.current={base:s,start:p,last:p,ops,frame:target};
-   present({...s,doc:applyCommands(s.doc,targetFrame(ops,target))});
-  }else void commit(ops);
+ const down=(e:PE<HTMLCanvasElement>)=>{const s=current.current;if(e.button!==0||!s||locked.current||stroke.current||selectionDrag.current||e.pointerType==='touch'&&(touchGesture.current!==null||suppressTouchDrawing.current))return;e.preventDefault();const p=point(e);setHover(p);if(playing)return;
+ if(tool==='stamp'&&(stampCapture||!activeStamp)){
+  e.currentTarget.setPointerCapture(e.pointerId);
+  const region={x:p.x,y:p.y,width:1,height:1};
+  stampCaptureDrag.current={start:p,region,layer,frame:Math.min(frame,frameCount(s.doc)-1)};
+  setSelection(region);return;
+ }
+ if(tool==='select'){e.currentTarget.setPointerCapture(e.pointerId);const inside=selection&&p.x>=selection.x&&p.y>=selection.y&&p.x<selection.x+selection.width&&p.y<selection.y+selection.height;const region=inside?selection!:{...p,width:1,height:1};selectionDrag.current={base:s,start:p,source:inside?region:null,region,layer,frame:Math.min(frame,frameCount(s.doc)-1)};setSelection(region);return;}setSelection(null);if(tool==='stamp'&&activeStamp){
+  try{
+   const ops:PaintCommand[]=[stampCommand(s.doc,activeStamp,p.x,p.y,layer,Math.min(frame,frameCount(s.doc)-1),stampSnap)];
+   if(e.pointerType==='touch'){
+    const target=Math.min(frame,frameCount(s.doc)-1);
+    e.currentTarget.setPointerCapture(e.pointerId);
+    stroke.current={base:s,start:p,last:p,ops,frame:target};
+    present({...s,doc:applyCommands(s.doc,targetFrame(ops,target))});
+   }else void commit(ops);
+  }catch(e){setError((e as Error).message);}
   return;
  }if(tool==='picker'){const rgba=composite(frameView(s.doc,Math.min(frame,frameCount(s.doc)-1))),i=(p.y*s.doc.width+p.x)*4;if(rgba[i+3])selectInk('#'+Array.from(rgba.slice(i,i+3)).map(v=>v.toString(16).padStart(2,'0')).join('')+(rgba[i+3]<255?rgba[i+3].toString(16).padStart(2,'0'):''));return;}if(tool==='fill'){
   const ops:PaintCommand[]=[{op:'fill',layer,color:ink,...p}];
@@ -396,10 +458,28 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   }else void commit(ops);
   return;
  }if(!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(ink)){setError('Choose a valid hex color.');return;}e.currentTarget.setPointerCapture(e.pointerId);const ops:PaintCommand[]=['pencil','eraser'].includes(tool)?[{op:'pixel',layer,color:tool==='eraser'?'transparent':ink,...p}]:[shape(p,p)];stroke.current={base:s,start:p,last:p,ops,frame:Math.min(frame,frameCount(s.doc)-1)};present({...s,doc:applyCommands(s.doc,targetFrame(ops,Math.min(frame,frameCount(s.doc)-1)))});};
- const move=(e:PE<HTMLCanvasElement>)=>{if(!snap||e.pointerType==='touch'&&(touchGesture.current!==null||suppressTouchDrawing.current))return;const p=point(e);setHover(old=>old?.x===p.x&&old?.y===p.y?old:p);setCursor(`X ${String(p.x).padStart(3,'0')}   Y ${String(p.y).padStart(3,'0')}`);const drag=selectionDrag.current;if(drag){if(drag.source){const source=drag.source;drag.region={...source,x:Math.max(0,Math.min(drag.base.doc.width-source.width,source.x+p.x-drag.start.x)),y:Math.max(0,Math.min(drag.base.doc.height-source.height,source.y+p.y-drag.start.y))};present({...drag.base,doc:applyCommands(drag.base.doc,[{op:'transform',mode:'move',layer:drag.layer,frame:drag.frame,...source,x2:drag.region.x,y2:drag.region.y}])});}else drag.region={x:Math.min(drag.start.x,p.x),y:Math.min(drag.start.y,p.y),width:Math.abs(p.x-drag.start.x)+1,height:Math.abs(p.y-drag.start.y)+1};setSelection(drag.region);return;}const st=stroke.current;if(!st||tool==='fill'||tool==='stamp'||(p.x===st.last.x&&p.y===st.last.y)||st.ops.length>4000)return;if(['pencil','eraser'].includes(tool))st.ops.push({op:'line',layer,color:tool==='eraser'?'transparent':ink,...st.last,x2:p.x,y2:p.y});else st.ops=[shape(st.start,p)];st.last=p;present({...st.base,doc:applyCommands(st.base.doc,targetFrame(st.ops,st.frame))});};
- const up=()=>{const drag=selectionDrag.current;if(drag){selectionDrag.current=null;if(drag.source&&(drag.source.x!==drag.region.x||drag.source.y!==drag.region.y))void commit([{op:'transform',mode:'move',layer:drag.layer,frame:drag.frame,...drag.source,x2:drag.region.x,y2:drag.region.y}],drag.base);else present(drag.base);return;}const st=stroke.current;if(st){stroke.current=null;void commit(targetFrame(st.ops,st.frame),st.base);}};
+ const move=(e:PE<HTMLCanvasElement>)=>{if(!snap||e.pointerType==='touch'&&(touchGesture.current!==null||suppressTouchDrawing.current))return;const p=point(e);setHover(old=>old?.x===p.x&&old?.y===p.y?old:p);setCursor(`X ${String(p.x).padStart(3,'0')}   Y ${String(p.y).padStart(3,'0')}`);const cap=stampCaptureDrag.current;
+ if(cap){
+  cap.region={x:Math.min(cap.start.x,p.x),y:Math.min(cap.start.y,p.y),
+   width:Math.abs(cap.start.x-p.x)+1,height:Math.abs(cap.start.y-p.y)+1};
+  setSelection(cap.region);return;
+ }
+ const drag=selectionDrag.current;if(drag){if(drag.source){const source=drag.source;drag.region={...source,x:Math.max(0,Math.min(drag.base.doc.width-source.width,source.x+p.x-drag.start.x)),y:Math.max(0,Math.min(drag.base.doc.height-source.height,source.y+p.y-drag.start.y))};present({...drag.base,doc:applyCommands(drag.base.doc,[{op:'transform',mode:'move',layer:drag.layer,frame:drag.frame,...source,x2:drag.region.x,y2:drag.region.y}])});}else drag.region={x:Math.min(drag.start.x,p.x),y:Math.min(drag.start.y,p.y),width:Math.abs(p.x-drag.start.x)+1,height:Math.abs(p.y-drag.start.y)+1};setSelection(drag.region);return;}const st=stroke.current;if(!st||tool==='fill'||tool==='stamp'||(p.x===st.last.x&&p.y===st.last.y)||st.ops.length>4000)return;if(['pencil','eraser'].includes(tool))st.ops.push({op:'line',layer,color:tool==='eraser'?'transparent':ink,...st.last,x2:p.x,y2:p.y});else st.ops=[shape(st.start,p)];st.last=p;present({...st.base,doc:applyCommands(st.base.doc,targetFrame(st.ops,st.frame))});};
+ const up=()=>{
+  const cap=stampCaptureDrag.current;
+  if(cap){
+   stampCaptureDrag.current=null;
+   try{
+    const doc=current.current?.doc;if(!doc)throw new Error('No canvas open.');
+    const stamp=captureStamp(doc,cap.layer,cap.region,cap.frame,'stamp-'+crypto.randomUUID());
+    setActiveStamp(stamp);setStampName(stamp.name);setStampCapture(false);
+    setNotice('Captured! Click to place copies, or save this stamp in Draw.');
+   }catch(e){setError((e as Error).message);setStampCapture(true);}
+   setSelection(null);return;
+  }
+  const drag=selectionDrag.current;if(drag){selectionDrag.current=null;if(drag.source&&(drag.source.x!==drag.region.x||drag.source.y!==drag.region.y))void commit([{op:'transform',mode:'move',layer:drag.layer,frame:drag.frame,...drag.source,x2:drag.region.x,y2:drag.region.y}],drag.base);else present(drag.base);return;}const st=stroke.current;if(st){stroke.current=null;void commit(targetFrame(st.ops,st.frame),st.base);}};
  const png=async()=>{const d=current.current?.doc;if(!d)return;try{const {encodeBrowserPng}=await import('../lib/browser-png.ts');download(d.name+'.png',new Blob([encodeBrowserPng(frameView(d,Math.min(frame,frameCount(d)-1)),scale)],{type:'image/png'}));if(!queue.current?.state.pending)setNotice(`Exported ${d.width*scale} × ${d.height*scale} PNG`);}catch(e){setError((e as Error).message);}};
- useEffect(()=>{const h=(e:KeyboardEvent)=>{if(e.key==='Escape'&&(modal||packModal)){if(!busy){setModal(false);setPackModal(false);}return;}if(guide.mode==='menu'||e.defaultPrevented||(e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"],[role="tab"]')||stroke.current||selectionDrag.current)return;if(e.key==='Escape'){setModal(false);setPackModal(false);setSelection(null);return;}if(modal||packModal)return;const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='z'){e.preventDefault();void commit([],undefined,e.shiftKey?'redo':'undo');return;}if(mod&&key==='c'&&selection){e.preventDefault();copySelection();return;}if(mod&&key==='v'&&clipboard){e.preventDefault();pasteSelection();return;}if(mod&&key==='x'&&selection){e.preventDefault();copySelection();clearSelection();return;}if(selection&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const step=e.shiftKey?10:1;transformSelection('move',e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0,e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0);return;}if(selection&&['Delete','Backspace'].includes(e.key)){e.preventDefault();clearSelection();return;}if(mod)return;const t=tools.find(t=>t[3].toLowerCase()===key);if(t)setTool(t[0]);if(key==='h')setGrid(v=>!v);};window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);});
+ useEffect(()=>{const h=(e:KeyboardEvent)=>{if(e.key==='Escape'&&(modal||packModal)){if(!busy){setModal(false);setPackModal(false);}return;}if(guide.mode==='menu'||e.defaultPrevented||(e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"],[role="tab"]')||stroke.current||selectionDrag.current)return;if(e.key==='Escape'){setModal(false);setPackModal(false);setSelection(null);return;}if(modal||packModal)return;const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='z'){e.preventDefault();void commit([],undefined,e.shiftKey?'redo':'undo');return;}if(mod&&key==='c'&&selection){e.preventDefault();copySelection();return;}if(mod&&key==='v'&&clipboard){e.preventDefault();pasteSelection();return;}if(mod&&key==='x'&&selection){e.preventDefault();copySelection();clearSelection();return;}if(selection&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const step=e.shiftKey?10:1;transformSelection('move',e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0,e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0);return;}if(selection&&['Delete','Backspace'].includes(e.key)){e.preventDefault();clearSelection();return;}if(mod)return;const t=tools.find(t=>t[3].toLowerCase()===key);if(t)chooseTool(t[0]);if(key==='h')setGrid(v=>!v);};window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);});
  const addFrame=async()=>{
   const doc=current.current?.doc;if(!doc||playing)return;
   const next=frameCount(doc);
@@ -410,8 +490,41 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const removeFrame=async()=>{
   const doc=current.current?.doc;if(!doc||frame===0||playing)return;
   if(await commit([{op:'frame_delete',frame}])){
-    setSelection(null);setFrame(i=>Math.max(0,i-1));
+    setClipRangeSelection(null);setSelection(null);setFrame(i=>Math.max(0,i-1));
   }
+ };
+ const beginClipRange=(index:number,e:PE<HTMLButtonElement>)=>{
+  if(!rangeSelectMode||playing||e.button!==0)return;
+  e.preventDefault();
+  clipDragRef.current=index;setClipRangeSelection({from:index,to:index});
+  if(clipOriginal){setClipFrom(index);setClipTo(index);}
+  e.currentTarget.parentElement?.setPointerCapture(e.pointerId);
+ };
+ const dragClipRange=(e:PE<HTMLDivElement>)=>{
+  if(clipDragRef.current===null||!rangeSelectMode||!current.current)return;
+  const track=e.currentTarget;
+  const frames=track.querySelectorAll<HTMLElement>('[data-frame-index]');
+  if(!frames.length)return;
+  let hovered=frames.length-1;
+  for(let i=0;i<frames.length;i++){
+   if(e.clientX<=frames[i].getBoundingClientRect().right){hovered=i;break;}
+  }
+  const range=clipRange(clipDragRef.current,hovered,frameCount(current.current.doc));
+  setClipRangeSelection(range);
+  if(clipOriginal){setClipFrom(range.from);setClipTo(range.to);}
+ };
+ const finishClipRange=(e:PE<HTMLDivElement>)=>{
+  if(clipDragRef.current===null)return;
+  clipDragRef.current=null;
+  if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId);
+ };
+ const openClipFromRange=()=>{
+  const doc=current.current?.doc;if(!doc||!clipRangeSelection)return;
+  setPlaying(false);setRangeSelectMode(false);
+  setClipOriginal(null);setClipName('new-clip');
+  setClipFrom(clipRangeSelection.from);setClipTo(clipRangeSelection.to);
+  setClipFps(doc.animation?.fps??8);setClipMode('loop');
+  setInspectorTab('animation');setInspectorOpen(mobileLayout);
  };
  const saveClip=async()=>{
   const doc=current.current?.doc;if(!doc)return;
@@ -422,10 +535,10 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   }
   const commands:PaintCommand[]=changingName?[{op:'clip_delete',name:clipOriginal!}]:[];
   commands.push({op:'clip_set',name:proposed,from:clipFrom,to:clipTo,fps:clipFps,mode:clipMode});
-  if(await commit(commands)){setClipOriginal(null);setNotice('Saved animation clip');}
+  if(await commit(commands)){setClipOriginal(null);setClipRangeSelection({from:clipFrom,to:clipTo});setNotice('Saved animation clip');}
  };
  const editClip=(clip:AnimationClip)=>{
-  setClipOriginal(clip.name);setClipName(clip.name);setClipFrom(clip.from);setClipTo(clip.to);setClipFps(clip.fps);setClipMode(clip.mode);
+  setClipOriginal(clip.name);setClipName(clip.name);setClipFrom(clip.from);setClipTo(clip.to);setClipFps(clip.fps);setClipMode(clip.mode);setClipRangeSelection({from:clip.from,to:clip.to});setRangeSelectMode(false);setInspectorTab('animation');setInspectorOpen(mobileLayout);
  };
  const playClip=(clip:AnimationClip)=>{
   previewPosition.current=0;setPreviewClip(clip.name);setFrame(clip.from);setPlaying(true);
@@ -514,13 +627,35 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
    setEffectSpeed(recipe.speed);setEffectOpacity(recipe.opacity);setEffectDrift(recipe.drift);
   }
  };
+ const previewEffectChanges=()=>{
+  const doc=current.current?.doc;if(!doc||!effectTarget)return;
+  try{
+   const selected=Math.min(frame,frameCount(doc)-1);
+   const comparison=compareEffectFrame(doc,effectTarget,selected,{
+    kind:effectKind,seed:effectSeed,ink,speed:effectSpeed,opacity:effectOpacity,drift:effectDrift
+   });
+   setFxPreview({key:JSON.stringify([doc.id,doc.revision,effectTarget,selected,effectKind,effectSeed,ink,effectSpeed,effectOpacity,effectDrift]),comparison});
+   setNotice('Preview ready. Artwork has not changed.');
+  }catch(e){setError((e as Error).message);}
+ };
  const regenerateEffect=async()=>{
   const doc=current.current?.doc;if(!doc||!effectTarget)return;
   try{
-   const commands=regenerateEffectCommands(doc,effectTarget,{
-    kind:effectKind,seed:effectSeed,ink,speed:effectSpeed,opacity:effectOpacity,drift:effectDrift,
-   });
-   if(await commit(commands)){setFrame(0);setSelection(null);setPlaying(true);setNotice('Regenerated effect from saved settings');}
+   const selected=Math.min(frame,frameCount(doc)-1);
+   const key=JSON.stringify([doc.id,doc.revision,effectTarget,selected,effectKind,effectSeed,ink,effectSpeed,effectOpacity,effectDrift]);
+   if(fxPreview?.key!==key)throw new Error('Preview your changes before regenerating.');
+   const preserve=preserveFx&&canBackUpFx;
+   if(!preserve&&!confirmFxOverwrite)throw new Error('Confirm regeneration without a backup before continuing.');
+   const commands:PaintCommand[]=[
+    ...(preserve?[{op:'duplicate_layer',layer:effectTarget,id:'fx-backup-'+crypto.randomUUID().slice(0,8),name:'Original FX Backup'}]:[]),
+    ...regenerateEffectCommands(doc,effectTarget,{
+     kind:effectKind,seed:effectSeed,ink,speed:effectSpeed,opacity:effectOpacity,drift:effectDrift,
+    })
+   ];
+   if(await commit(commands)){
+    setFxPreview(null);setConfirmFxOverwrite(false);setFrame(0);setSelection(null);setPlaying(true);
+    setNotice(preserve?'Regenerated effect; original preserved in a hidden backup layer.':'Regenerated effect without a backup.');
+   }
   }catch(e){setError((e as Error).message);}
  };
  const openGuide=useCallback(()=>{
@@ -553,7 +688,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   if(guide.mode!=='off')closeGuide();
   try{
    await queue.current?.flush();
-   if(stroke.current||selectionDrag.current)throw new Error('Finish your current stroke before switching workspaces.');
+   if(stroke.current||selectionDrag.current||stampCaptureDrag.current)throw new Error('Finish your current stroke before switching workspaces.');
    onManageWorkspace?.();
   }catch(error){setError(error instanceof Error?error.message:'Unable to save before switching.');}
  };
@@ -562,6 +697,13 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   if(inspectorRef.current)inspectorRef.current.scrollTop=0;
  };
  const d=snap?.doc,activeFrame=d?Math.min(frame,frameCount(d)-1):0,displayError=error||saveState.error?.message;
+ const canBackUpFx=!!(d&&d.layers.length<8&&frameCount(d)*(d.layers.length+1)*d.width*d.height<=MAX_ANIMATION_CELLS&&
+  4*d.width*d.height*frameCount(d)<=2_000_000);
+ const previewKey=JSON.stringify([d?.id,d?.revision,effectTarget,activeFrame,effectKind,effectSeed,ink,effectSpeed,effectOpacity,effectDrift]);
+ const validFxPreview=fxPreview?.key===previewKey?fxPreview.comparison:null;
+ const stampCanFit=!!(d&&activeStamp&&activeStamp.width<=d.width&&activeStamp.height<=d.height);
+ const stampHover=stampCanFit&&hover&&tool==='stamp'&&!stampCapture?
+  positionStamp(d!,activeStamp!,hover.x,hover.y,stampSnap):null;
  return <main className="workshop"><header className="app-header"><a className="brand" href="/"><span className="brand-mark">{Array.from({length:9},(_,i)=><i key={i}/>)}</span><span>pixel<span className="brand-light">workshop</span><small>A LITTLE ROOM TO MAKE THINGS</small></span></a>{onManageWorkspace&&<button type="button" data-guide="workspace" className="text-button workspace-header-button" aria-label="Manage workspace" title="Workspace and agent connection" onClick={()=>void manageWorkspace()}><KeyRound size={16}/><span>Workspace</span></button>}<button type="button" ref={guideToggleRef} className="guide-header-button"
  title="Guided tour and interactive help" aria-label="Open Pixel Workshop guide" onClick={openGuide}>
  <BookOpen size={17}/><span>Guide</span></button><div className="header-meta"><span className="version">WORKSPACE / 01</span><span className="connection"><i/> MCP enabled</span></div><button className="primary" data-guide="quick-export" aria-label="Export current frame as PNG" disabled={!d||busy} onClick={()=>void png()}><Download size={15}/>Export PNG</button></header>
@@ -577,7 +719,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
     <button type="button" ref={drawToolsCloseRef} aria-label="Close drawing tools" onClick={closeDrawTools}><X size={19}/></button>
   </div>
   <div className="rail-paint-tools">
-    {tools.map(([id,Icon,label,key])=><button key={id} data-guide={id==='pencil'?'drawing-pencil':undefined} className={'tool '+(tool===id?'active':'')} aria-label={label} aria-pressed={tool===id} title={`${label} (${key})`} onClick={()=>{setTool(id);if(compactDrawTools)closeDrawTools();}}><Icon size={19}/><span className="rail-tool-label">{drawerToolLabels[id]??label}</span></button>)}
+    {tools.map(([id,Icon,label,key])=><button key={id} data-guide={id==='pencil'?'drawing-pencil':undefined} className={'tool '+(tool===id?'active':'')} aria-label={label} aria-pressed={tool===id} title={`${label} (${key})`} onClick={()=>{chooseTool(id);if(compactDrawTools)closeDrawTools();}}><Icon size={19}/><span className="rail-tool-label">{drawerToolLabels[id]??label}</span></button>)}
     <div className="rail-rule"/>
     <button type="button" className={'tool '+(grid?'active':'')} aria-label="Toggle grid" aria-pressed={grid} onClick={()=>setGrid(v=>!v)}><Grid2X2 size={19}/><span className="rail-tool-label">Grid</span></button>
   </div>
@@ -618,12 +760,22 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
     selectInk(hex);setQuickColorsOpen(false);quickColorsButtonRef.current?.focus();
    }}/>
   </div>}
- </div>{['rect','ellipse'].includes(tool)&&<label className="fill-option"><input type="checkbox" checked={filled} onChange={e=>setFilled(e.target.checked)}/>Filled</label>}<span className="spacer"/><button type="button" ref={drawerToggleRef} className={'small-toggle mobile-inspector-toggle '+(inspectorOpen?'on':'')}
+ </div>{tool==='stamp'&&<div className="stamp-context" data-guide="stamp-context">
+  <span className="stamp-context-hint">{stampCapture||!activeStamp?'Drag area to capture':activeStamp.name}</span>
+  <button type="button" onClick={beginStampCapture}><Stamp size={13}/>Capture</button>
+  <label>Snap<select aria-label="Stamp grid snapping" value={stampSnap}
+   onChange={e=>setStampSnap(Number(e.target.value))}>
+   <option value={0}>Off</option><option value={8}>8px</option><option value={16}>16px</option><option value={32}>32px</option>
+  </select></label>
+ </div>}{['rect','ellipse'].includes(tool)&&<label className="fill-option"><input type="checkbox" checked={filled} onChange={e=>setFilled(e.target.checked)}/>Filled</label>}<span className="spacer"/><button type="button" ref={drawerToggleRef} className={'small-toggle mobile-inspector-toggle '+(inspectorOpen?'on':'')}
  aria-controls="pixel-inspector" aria-expanded={mobileLayout&&inspectorOpen} aria-haspopup="dialog"
  onClick={()=>{setDrawToolsOpen(false);setInspectorOpen(v=>!v);}}><SlidersHorizontal size={17}/><span>Panels</span></button><span className="canvas-hint">ONE CELL = ONE PIXEL.</span></div><div className="canvas-scroll" ref={viewport} onPointerDownCapture={touchDown}
  onPointerMoveCapture={touchMove} onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd}><div className="canvas-mat">{d?<div className="canvas-frame" data-guide="canvas" style={touchNavigationActive?{
  transform:`translate3d(${canvasPan.x}px,${canvasPan.y}px,0) scale(${pinchScale})`
-}:undefined}><span className="canvas-coordinate top-left">0, 0</span><canvas ref={canvas} className="pixel-canvas" aria-label={`${d.name}, ${d.width} by ${d.height} pixel canvas`} style={{width:d.width*zoom,height:d.height*zoom,backgroundSize:`${zoom*2}px ${zoom*2}px`}} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={()=>{if(selectionDrag.current){setSelection(selectionDrag.current.source);present(selectionDrag.current.base);selectionDrag.current=null;}if(stroke.current){present(stroke.current.base);stroke.current=null;}}} onPointerLeave={()=>{setHover(null);if(!stroke.current&&!selectionDrag.current)setCursor('X —   Y —');}}/>{hover&&zoom>=3&&tool!=='select'&&<div className="cell-cursor" aria-hidden="true" style={{left:hover.x*zoom,top:hover.y*zoom,width:zoom,height:zoom}}/>}{selection&&<div className="selection-marquee" style={{left:selection.x*zoom,top:selection.y*zoom,width:selection.width*zoom,height:selection.height*zoom}}/>}<span className="canvas-coordinate bottom-right">{d.width}, {d.height}</span></div>:<div className="loading-canvas"><Grid2X2 size={32}/><span>Opening your pixel workshop…</span>{error&&<button onClick={()=>location.reload()}>Try again</button>}</div>}</div></div>{d&&<div className="timeline" aria-label="Animation timeline">
+}:undefined}><span className="canvas-coordinate top-left">0, 0</span><canvas ref={canvas} className="pixel-canvas" aria-label={`${d.name}, ${d.width} by ${d.height} pixel canvas`} style={{width:d.width*zoom,height:d.height*zoom,backgroundSize:`${zoom*2}px ${zoom*2}px`}} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={()=>{if(stampCaptureDrag.current){stampCaptureDrag.current=null;setSelection(null);}if(selectionDrag.current){setSelection(selectionDrag.current.source);present(selectionDrag.current.base);selectionDrag.current=null;}if(stroke.current){present(stroke.current.base);stroke.current=null;}}} onPointerLeave={()=>{setHover(null);if(!stroke.current&&!selectionDrag.current)setCursor('X —   Y —');}}/>{hover&&zoom>=3&&tool!=='select'&&<div className="cell-cursor" aria-hidden="true" style={{left:hover.x*zoom,top:hover.y*zoom,width:zoom,height:zoom}}/>}{stampHover&&activeStamp&&<canvas ref={stampPreviewRef} className="stamp-cursor-preview"
+  aria-hidden="true" style={{left:stampHover.x*zoom,top:stampHover.y*zoom,
+   width:activeStamp.width*zoom,height:activeStamp.height*zoom}}/>}
+ {selection&&<div className="selection-marquee" style={{left:selection.x*zoom,top:selection.y*zoom,width:selection.width*zoom,height:selection.height*zoom}}/>}<span className="canvas-coordinate bottom-right">{d.width}, {d.height}</span></div>:<div className="loading-canvas"><Grid2X2 size={32}/><span>Opening your pixel workshop…</span>{error&&<button onClick={()=>location.reload()}>Try again</button>}</div>}</div></div>{d&&<div className="timeline" aria-label="Animation timeline">
   <div className="timeline-header"><span className="eyebrow"><Film size={13}/>ANIMATION <span className="muted">{frameCount(d)} FRAME{frameCount(d)===1?'':'S'}</span></span>
     <div className="timeline-controls" data-guide="timeline-actions">
      <button className="small-toggle" aria-label={playing?'Pause animation':'Play animation'} disabled={frameCount(d)<2||busy} onClick={()=>setPlaying(v=>!v)}>{playing?<Pause size={14}/>:<Play size={14}/>} {playing?'Pause':'Play'}</button>
@@ -631,13 +783,46 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
      <button className={'small-toggle '+(onion?'on':'')} aria-pressed={onion} onClick={()=>setOnion(v=>!v)}>Onion {onion?'on':'off'}</button>
      <button className="small-toggle" disabled={busy||playing||frameCount(d)>=32} onClick={()=>void addFrame()}><CopyPlus size={14}/>Duplicate</button>
      <button className="small-toggle" disabled={busy||playing||activeFrame===0} onClick={()=>void removeFrame()}><Trash2 size={14}/>Delete</button>
+   <button type="button" className={'small-toggle timeline-range-toggle'+(rangeSelectMode?' on':'')}
+    data-guide="clip-range" disabled={busy||playing} aria-pressed={rangeSelectMode}
+    onClick={()=>{setRangeSelectMode(active=>!active);clipDragRef.current=null;}}>
+    <Scan size={14}/>{rangeSelectMode?'Drag across frames':'Select clip range'}</button>
+   {clipRangeSelection&&<button type="button" className="small-toggle timeline-create-clip"
+    disabled={busy||playing} onClick={clipOriginal?()=>{
+      setClipFrom(clipRangeSelection.from);setClipTo(clipRangeSelection.to);setInspectorTab('animation');setInspectorOpen(mobileLayout);
+     }:openClipFromRange}>
+    <Plus size={14}/>{clipOriginal?'Use selected range':'Create clip'} ({clipRangeSelection.from+1}–{clipRangeSelection.to+1})</button>}
     </div>
   </div>
-  <div className="timeline-track" data-guide="timeline-track">{Array.from({length:frameCount(d)},(_,i)=>
-   <button key={i} aria-label={`Select animation frame ${i+1}`} aria-pressed={activeFrame===i} className={'frame-tile '+(activeFrame===i?'active':'')}
-    disabled={busy||playing} onClick={()=>{if(stroke.current||selectionDrag.current)return;setFrame(i);setPreviewClip(null);setSelection(null);}}>
-     <FrameThumbnail doc={d} index={i}/><span>{String(i+1).padStart(2,'0')}</span>
-   </button>)}</div>
+  <div className="timeline-track" data-guide="timeline-track"
+   onPointerMove={dragClipRange} onPointerUp={finishClipRange} onPointerCancel={finishClipRange}>
+   {Array.from({length:frameCount(d)},(_,i)=>
+    <button key={i} data-frame-index={i}
+     aria-label={`Select animation frame ${i+1}`} aria-pressed={activeFrame===i}
+     className={'frame-tile '+(activeFrame===i?'active ':'')+(clipRangeSelection&&i>=clipRangeSelection.from&&i<=clipRangeSelection.to?'range-selected':'')}
+     disabled={busy||playing} onPointerDown={e=>beginClipRange(i,e)}
+     onContextMenu={e=>{e.preventDefault();
+      const selected=clipRangeSelection&&i>=clipRangeSelection.from&&i<=clipRangeSelection.to?
+       clipRangeSelection:{from:i,to:i};
+      setClipRangeSelection(selected);setClipFrom(selected.from);setClipTo(selected.to);
+      setClipOriginal(null);setClipName('new-clip');setRangeSelectMode(false);
+      setInspectorTab('animation');setInspectorOpen(mobileLayout);
+     }}
+     onClick={e=>{
+      if(stroke.current||selectionDrag.current||rangeSelectMode)return;
+      if(e.shiftKey){const range=clipRange(clipRangeSelection?.from??activeFrame,i,frameCount(d));
+       setClipRangeSelection(range);
+       if(clipOriginal){setClipFrom(range.from);setClipTo(range.to);}
+       return;}
+      setFrame(i);setPreviewClip(null);setSelection(null);
+     }}>
+      <FrameThumbnail doc={d} index={i}/><span>{String(i+1).padStart(2,'0')}</span>
+      <span className="frame-clip-indicators" aria-hidden="true">
+       {clipsAtFrame(d.animation?.clips,i).slice(0,3).map(entry=>
+        <i key={entry.clip.name} style={{backgroundColor:entry.color}}
+         title={entry.clip.name} className="frame-clip-indicator"/>)}
+      </span>
+    </button>)}</div>
  </div>}<div className="canvas-footer" data-guide="zoom"><div className="zoom-control"><button aria-label="Zoom out" onClick={()=>{setFitMode(false);setZoom(z=>Math.max(1,z-1));}}><ZoomOut size={16}/></button><span>{Math.round(zoom*pinchScale*100)}%</span><button aria-label="Zoom in" onClick={()=>{setFitMode(false);setZoom(z=>Math.min(24,z+1));}}><ZoomIn size={16}/></button></div><button className={'small-toggle fit-button '+(fitMode?'on':'')} aria-label="Fit canvas to workspace" onClick={()=>{resetPan();setFitMode(true);}}><Maximize size={14}/>Fit</button><span className="scale-caption">{zoom>=3?'1 cell = 1 output pixel':'Zoom in to see the cell grid'}</span><span className="spacer"/><button className={'small-toggle '+(grid?'on':'')} onClick={()=>setGrid(v=>!v)}><Grid2X2 size={14}/>Grid {grid?'on':'off'}</button></div></section>
   <button type="button" className="inspector-backdrop" aria-label="Close tools" onClick={closeMobileInspector}/>
   <aside id="pixel-inspector" className="inspector" ref={inspectorRef} aria-label="Editor inspector"
@@ -674,7 +859,11 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   onSave={()=>void saveProjectInk()} onRemove={hex=>void removeProjectInk(hex)}
   onRemoveStarters={()=>void removeLegacySwatches()}/>
  <details className="inspector-section selection-section inspector-disclosure">
- <summary className="section-heading inspector-summary" data-guide="selection"><span>SELECTION</span><span className="inspector-summary-end"><span className="muted">{selection?`${selection.width} × ${selection.height}`:'V'}</span><ChevronDown size={15}/></span></summary><div className="selection-actions"><button disabled={!selection||busy} onClick={copySelection} title="Copy (Ctrl+C)"><Copy size={14}/>Copy</button><button disabled={!clipboard||busy} onClick={()=>setTool('stamp')} title="Use copied pixels as a stamp"><Stamp size={14}/>Stamp</button><button disabled={!clipboard||busy} onClick={pasteSelection} title="Paste (Ctrl+V)"><ClipboardPaste size={14}/>Paste</button><button disabled={!selection||busy} onClick={()=>transformSelection('flip_horizontal')} title="Flip horizontally"><FlipHorizontal2 size={14}/>Flip H</button><button disabled={!selection||busy} onClick={()=>transformSelection('flip_vertical')} title="Flip vertically"><FlipVertical2 size={14}/>Flip V</button><button disabled={!selection||busy} onClick={clearSelection} title="Clear selected pixels (Delete)"><Trash2 size={14}/>Clear</button><button disabled={!selection||busy} onClick={()=>setSelection(null)}><X size={14}/>Deselect</button></div><label className="effect-field stamp-snap-field">Stamp grid<select aria-label="Stamp grid snapping" value={stampSnap} onChange={e=>setStampSnap(Number(e.target.value))}><option value={0}>Any pixel</option><option value={8}>8px grid</option><option value={16}>16px grid</option><option value={32}>32px grid</option></select></label><p className="selection-help">Select with V, copy a region, then choose Stamp (S) to place it repeatedly. Grid snapping makes fast tile painting easier.</p></details>
+ <summary className="section-heading inspector-summary" data-guide="selection"><span>SELECTION</span><span className="inspector-summary-end"><span className="muted">{selection?`${selection.width} × ${selection.height}`:'V'}</span><ChevronDown size={15}/></span></summary><div className="selection-actions"><button disabled={!selection||busy} onClick={copySelection} title="Copy (Ctrl+C)"><Copy size={14}/>Copy</button><button disabled={!clipboard||busy} onClick={()=>chooseTool('stamp')} title="Use copied pixels as a stamp"><Stamp size={14}/>Stamp</button><button disabled={!clipboard||busy} onClick={pasteSelection} title="Paste (Ctrl+V)"><ClipboardPaste size={14}/>Paste</button><button disabled={!selection||busy} onClick={()=>transformSelection('flip_horizontal')} title="Flip horizontally"><FlipHorizontal2 size={14}/>Flip H</button><button disabled={!selection||busy} onClick={()=>transformSelection('flip_vertical')} title="Flip vertically"><FlipVertical2 size={14}/>Flip V</button><button disabled={!selection||busy} onClick={clearSelection} title="Clear selected pixels (Delete)"><Trash2 size={14}/>Clear</button><button disabled={!selection||busy} onClick={()=>setSelection(null)}><X size={14}/>Deselect</button></div><p className="selection-help">Select with V, drag to move, or copy and paste. Stamp (S) can now capture artwork directly; its snap controls live beside the canvas, and saved stamps are below.</p></details>
+ <StampWorkbench active={activeStamp} library={stampLibrary} name={stampName} onName={setStampName}
+  onSelect={selectStamp} onCapture={beginStampCapture} onSave={saveStampToLibrary}
+  onDelete={deleteSavedStamp} canSave={!!activeStamp&&(stampLibrary.length<STAMP_LIBRARY_LIMIT||
+   stampLibrary.some(s=>s.id===activeStamp.id))} busy={busy}/>
  </div>
  <div className="inspector-panel" id="inspector-panel-layers" role="tabpanel" aria-labelledby="inspector-tab-layers" tabIndex={0} hidden={inspectorTab!=='layers'}>
  <section className="inspector-section layers-section"><div className="section-heading" data-guide="layers"><span>LAYERS</span><span className="muted" aria-label="Layer slots used">{d?.layers.length??0} / 8</span><button className="mini-button" aria-label="Add layer" disabled={busy||!d||d.layers.length>=8} onClick={()=>{const id='layer-'+Date.now().toString(36);void commit([{op:'add_layer',id,name:`Layer ${(d?.layers.length||0)+1}`}]).then(()=>setLayer(id));}}><Plus size={16}/></button></div>{d&&[...d.layers].reverse().map(l=><div key={l.id} className={'layer-row '+(layer===l.id?'selected':'')}><button className="layer-select" onClick={()=>setLayer(l.id)}><span className="layer-thumbnail"><Layers size={14}/></span><span>{l.name}</span></button><button className="mini-button" aria-label={`${l.visible?'Hide':'Show'} ${l.name} layer`} disabled={busy} onClick={()=>void commit([{op:'visibility',layer:l.id,visible:!l.visible}])}>{l.visible?<Eye size={15}/>:<EyeOff size={15}/>}</button><button className="mini-button layer-delete" aria-label={`Delete ${l.name} layer`} title={d.layers.length===1?'The last layer cannot be deleted':'Delete layer (Undo to restore)'} disabled={busy||d.layers.length<=1} onClick={()=>void commit([{op:'delete_layer',layer:l.id}])}><Trash2 size={15}/></button></div>)}<span className="layer-note">Drawing on <strong>{d?.layers.find(l=>l.id===layer)?.name||'Base'}</strong>. Hiding a layer does not free its slot; delete it to make room for another effect.</span></section>
@@ -709,27 +898,44 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
      <option value="">Choose a layer</option>
      {d.layers.filter(l=>l.effect).map(l=><option key={l.id} value={l.id}>{l.name}</option>)}
     </select></label>
-    <p>Select an FX layer to load its recipe above, then regenerate with new settings. Other layers stay untouched. Manual pixel edits inside the FX layer are replaced.</p>
-    <button type="button" className="secondary full effect-regenerate" disabled={busy||!d.layers.some(l=>l.id===effectTarget&&l.effect)} onClick={()=>void regenerateEffect()}><Sparkles size={14}/>Regenerate selected FX layer</button>
+    <p>Choose a stored FX recipe, tweak its settings above, and compare before changing the artwork. Regeneration replaces hand-edited pixels inside this FX layer.</p>
+    <button type="button" className="secondary full effect-preview-button"
+     disabled={busy||!d.layers.some(l=>l.id===effectTarget&&l.effect)}
+     onClick={previewEffectChanges}><Eye size={14}/>Preview before &amp; after</button>
+    {validFxPreview&&<FxComparisonPanel comparison={validFxPreview}/>}
+    {fxPreview&&!validFxPreview&&<p className="fx-preview-stale">Settings or artwork changed. Preview again to continue.</p>}
+    <label className="fx-backup-choice">
+     <input type="checkbox" checked={preserveFx&&canBackUpFx} disabled={!canBackUpFx||busy}
+      onChange={e=>{setPreserveFx(e.target.checked);setConfirmFxOverwrite(false);}}/>
+     <span>Preserve original as a hidden backup layer</span>
+    </label>
+    {!canBackUpFx&&<p className="fx-backup-warning">No room for a backup layer or pixel budget. You can still regenerate, but must explicitly confirm replacing the original.</p>}
+    {(!canBackUpFx||!preserveFx)&&<label className="fx-overwrite-confirm">
+     <input type="checkbox" checked={confirmFxOverwrite} onChange={e=>setConfirmFxOverwrite(e.target.checked)}/>
+     <span>I understand the original FX pixels will be replaced without a backup.</span>
+    </label>}
+    <button type="button" className="secondary full effect-regenerate"
+     disabled={busy||!validFxPreview||!d.layers.some(l=>l.id===effectTarget&&l.effect)||((!canBackUpFx||!preserveFx)&&!confirmFxOverwrite)}
+     onClick={()=>void regenerateEffect()}><Sparkles size={14}/>Apply previewed effect</button>
    </div>}
   </section>
  </div>
  <div className="inspector-panel" id="inspector-panel-animation" role="tabpanel" aria-labelledby="inspector-tab-animation" tabIndex={0} hidden={inspectorTab!=='animation'}>
   <section className="inspector-section clip-section">
    <div className="section-heading" data-guide="clips"><span>ANIMATION CLIPS</span><Film size={15}/></div>
-   <p>Name reusable ranges of frames, give each its own speed, and export them with your atlas. Original pixels remain editable.</p>
+   <p>Select a clip range visually in the timeline, or Shift-click two frames, then give it a name. Drag its range again to adjust it. Clips export with the atlas.</p>
    {d?.animation?.clips?.length?<div className="clip-list">
     {d.animation.clips.map(clip=><div className="clip-row" key={clip.name}>
      <div className="clip-row-heading"><b>{clip.name}</b><small>{clip.from+1}–{clip.to+1} · {clip.fps} FPS · {clip.mode}</small></div>
      <div className="clip-row-actions">
       <button type="button" title={'Preview '+clip.name} onClick={()=>playClip(clip)} disabled={busy}>▶</button>
-      <button type="button" title={'Edit '+clip.name} onClick={()=>editClip(clip)} disabled={busy}>Edit</button>
+      <button type="button" title={'Edit '+clip.name} onClick={()=>editClip(clip)} disabled={busy}>Edit range</button>
       <button type="button" title={'Delete '+clip.name} onClick={()=>void commit([{op:'clip_delete',name:clip.name}])} disabled={busy}>×</button>
      </div>
     </div>)}
    </div>:<p className="clip-empty">No clips yet. Define one using the frame numbers below.</p>}
    <button type="button" className="text-button clip-all-frames" onClick={()=>{setPreviewClip(null);setPlaying(false);}} disabled={!previewClip}>Stop clip preview · play all frames</button>
-   <div className="section-heading clip-create-heading"><span>{clipOriginal?'EDIT CLIP':'DEFINE A CLIP'}</span><button type="button" className="text-button" disabled={!d} onClick={()=>{if(!d)return;setClipOriginal(null);setClipName('new-clip');setClipFrom(Math.min(frame,frameCount(d)-1));setClipTo(Math.min(frame,frameCount(d)-1));}}>New</button></div>
+   <div className="section-heading clip-create-heading"><span>{clipOriginal?'EDIT CLIP':'DEFINE A CLIP'}</span><button type="button" className="text-button" disabled={!d} onClick={()=>{if(!d)return;setClipOriginal(null);setClipName('new-clip');const range=clipRangeSelection??{from:Math.min(frame,frameCount(d)-1),to:Math.min(frame,frameCount(d)-1)};setClipFrom(range.from);setClipTo(range.to);}}>New</button></div>
    <label className="effect-field">Name<input aria-label="Animation clip name" value={clipName} onChange={e=>setClipName(e.target.value)} maxLength={32}/></label>
    <label className="effect-field">First frame<input aria-label="Clip start frame" type="number" min={1} max={d?frameCount(d):1} value={clipFrom+1} onChange={e=>setClipFrom(Number(e.target.value)-1)}/></label>
    <label className="effect-field">Last frame<input aria-label="Clip end frame" type="number" min={1} max={d?frameCount(d):1} value={clipTo+1} onChange={e=>setClipTo(Number(e.target.value)-1)}/></label>

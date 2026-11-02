@@ -78,7 +78,7 @@ export default function WorkspaceGate(){
   };
   if(loading)return <main className="workspace-entry"><div className="workspace-card">Opening Pixel Workshop…</div></main>;
   if(session?.authenticated && session.id)return <>
-    <Editor key={session.id} onManageWorkspace={()=>{setManaging(true);setMessage('');setError('');setManualAgent('');}}/>
+    <Editor key={session.id} workspaceId={session.id} onManageWorkspace={()=>{setManaging(true);setMessage('');setError('');setManualAgent('');}}/>
     {managing&&<div className="workspace-backdrop" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget){setManaging(false);setManualAgent('');}}}>
       <section className="workspace-card workspace-manage" role="dialog" aria-modal="true" aria-labelledby="workspace-manage-heading">
         <button type="button" className="workspace-close" aria-label="Close workspace settings" onClick={()=>{setManaging(false);setManualAgent('');}}><X size={19}/></button>
