@@ -17,7 +17,17 @@ function GuideMenu({onStart,onClose}:{onStart:(scope:GuideScope)=>void;onClose:(
  useEffect(()=>{
   const before=document.activeElement instanceof HTMLElement?document.activeElement:null;
   ref.current?.focus();
-  const onKey=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();onClose();}};
+  const onKey=(e:KeyboardEvent)=>{
+   if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();onClose();return;}
+   if(e.key==='Tab'&&ref.current){
+    const focusable=Array.from(ref.current.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],[tabindex="0"]'))
+     .filter(el=>el.getClientRects().length>0);
+    if(!focusable.length)return;
+    const first=focusable[0],last=focusable[focusable.length-1];
+    if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+    else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+   }
+  };
   window.addEventListener('keydown',onKey,true);
   return()=>{window.removeEventListener('keydown',onKey,true);if(before?.isConnected)before.focus();};
  },[onClose]);
@@ -119,8 +129,8 @@ function GuideWalkthrough({step,scope,index,count,onMove,onClose,onMenu}:{
   const handle=(e:KeyboardEvent)=>{
    if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();onClose();return;}
    if(!card.current?.contains(document.activeElement))return;
-   if(e.key==='ArrowRight'){e.preventDefault();onMove(1);}
-   if(e.key==='ArrowLeft'){e.preventDefault();onMove(-1);}
+   if(e.key==='ArrowRight'){e.preventDefault();e.stopImmediatePropagation();onMove(1);}
+   if(e.key==='ArrowLeft'){e.preventDefault();e.stopImmediatePropagation();onMove(-1);}
   };
   window.addEventListener('keydown',handle,true);
   return()=>window.removeEventListener('keydown',handle,true);
