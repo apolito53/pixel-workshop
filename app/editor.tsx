@@ -1,7 +1,7 @@
 'use client';
 import {useCallback,useEffect,useRef,useState,type PointerEvent as PE} from 'react';
 import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound} from 'lucide-react';
-import {applyCommands,composite,frameCount,frameView,readRegion,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
+import {applyCommands,clipFrameSequence,composite,frameCount,frameView,readRegion,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
 import {generateEffectCommands,hasFreeEffectLayerSlot,type EffectKind,EFFECT_KINDS,EFFECT_GROUPS,EFFECT_PRESETS} from '../lib/effects.ts';
 import {EditQueue,type EditorSnapshot,type QueueState} from '../lib/edit-queue.ts';
@@ -49,6 +49,9 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  const [mobileLayout,setMobileLayout]=useState(false),[touchCapable,setTouchCapable]=useState(false),[inspectorOpen,setInspectorOpen]=useState(false);
  const inspectorRef=useRef<HTMLElement>(null),drawerToggleRef=useRef<HTMLButtonElement>(null),drawerCloseRef=useRef<HTMLButtonElement>(null);
  const [frame,setFrame]=useState(0),[playing,setPlaying]=useState(false),[onion,setOnion]=useState(false),[effectKind,setEffectKind]=useState<EffectKind>('embers'),[effectSeed,setEffectSeed]=useState(53),[snap,setSnap]=useState<Snapshot|null>(null),[list,setList]=useState<PixelDocument[]>([]),[tool,setTool]=useState<Tool>('pencil'),[ink,setInk]=useState('#f6da92'),[layer,setLayer]=useState('base'),[zoom,setZoom]=useState(10),[grid,setGrid]=useState(true),[filled,setFilled]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState('Opening workspace…'),[error,setError]=useState(''),[cursor,setCursor]=useState('X —   Y —'),[hover,setHover]=useState<{x:number;y:number}|null>(null),[modal,setModal]=useState(false),[name,setName]=useState('Untitled sprite'),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[scale,setScale]=useState(1),[selection,setSelection]=useState<PixelRegion|null>(null),[clipboard,setClipboard]=useState<{width:number;height:number;pixels:number[]}|null>(null),[previewScale,setPreviewScale]=useState(1),[fitMode,setFitMode]=useState(true),[saveState,setSaveState]=useState<Pick<QueueState,'pending'|'saving'|'error'>>({pending:0,saving:false,error:null});
+ const [clipName,setClipName]=useState('idle'),[clipFrom,setClipFrom]=useState(0),[clipTo,setClipTo]=useState(0),[clipFps,setClipFps]=useState(8),[clipMode,setClipMode]=useState<AnimationClip['mode']>('loop');
+ const [previewClip,setPreviewClip]=useState<string|null>(null);
+ const previewPosition=useRef(0);
  const queue=useRef<EditQueue|null>(null),viewport=useRef<HTMLDivElement>(null),selectionDrag=useRef<{base:Snapshot;start:{x:number;y:number};source:PixelRegion|null;region:PixelRegion;layer:string;frame:number}|null>(null),canvas=useRef<HTMLCanvasElement>(null),preview=useRef<HTMLCanvasElement>(null),file=useRef<HTMLInputElement>(null),current=useRef(snap),locked=useRef(false),stroke=useRef<{base:Snapshot;start:{x:number;y:number};last:{x:number;y:number};ops:PaintCommand[];frame:number}|null>(null);
  const resetPan=useCallback(()=>{
   if(gestureFrame.current!==null)cancelAnimationFrame(gestureFrame.current);
@@ -67,7 +70,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   const d=state.snapshot.doc;setList(items=>items.map(p=>p.id===d.id?{...p,name:d.name,revision:d.revision,updatedAt:d.updatedAt}:p));
  },[present]);
  const adopt=useCallback((s:Snapshot)=>{
-  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);resetPan();setFitMode(true);}
+  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);setPreviewClip(null);resetPan();setFitMode(true);}
   queue.current?.dispose();queue.current=new EditQueue(s,request=>api<Snapshot>('projects/'+s.doc.id,request),showQueue);
   setSaveState({pending:0,saving:false,error:null});present(s);
  },[present,showQueue,resetPan]);
@@ -85,10 +88,22 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
  },[snap,frame,zoom,grid,previewScale,onion]);
  useEffect(()=>{if(snap)setFrame(i=>Math.min(i,frameCount(snap.doc)-1));},[snap?.doc.animation?.frames.length,snap?.doc.id]);
  useEffect(()=>{
-   if(!playing||!snap||frameCount(snap.doc)<2)return;
-   const timer=setInterval(()=>setFrame(i=>(i+1)%frameCount(current.current?.doc||snap.doc)),1000/(snap.doc.animation?.fps??8));
+   if(!playing||!snap)return;
+   const doc=snap.doc,clip=doc.animation?.clips?.find(clip=>clip.name===previewClip);
+   const sequence=clip?clipFrameSequence(clip):null;
+   if(clip?.mode==='once'&&sequence?.length===1){setPlaying(false);return;}
+   if(!clip&&frameCount(doc)<2)return;
+   const timer=setInterval(()=>{
+     if(!clip||!sequence){setFrame(i=>(i+1)%frameCount(current.current?.doc||doc));return;}
+     const next=previewPosition.current+1;
+     if(next>=sequence.length){
+       if(clip.mode==='once'){setPlaying(false);return;}
+       previewPosition.current=0;
+     }else previewPosition.current=next;
+     setFrame(sequence[previewPosition.current]);
+   },1000/(clip?.fps??doc.animation?.fps??8));
    return()=>clearInterval(timer);
- },[playing,snap?.doc.id,snap?.doc.animation?.fps,snap?.doc.animation?.frames.length]);
+ },[playing,previewClip,snap?.doc.id,snap?.doc.revision]);
  const touchNavigationActive=mobileLayout||touchCapable;
  useEffect(()=>{
   resetPan();
@@ -275,6 +290,18 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
     setSelection(null);setFrame(i=>Math.max(0,i-1));
   }
  };
+ const saveClip=async()=>{
+  const doc=current.current?.doc;if(!doc)return;
+  if(await commit([{op:'clip_set',name:clipName.trim(),from:clipFrom,to:clipTo,fps:clipFps,mode:clipMode}])){
+   setNotice('Saved animation clip');
+  }
+ };
+ const editClip=(clip:AnimationClip)=>{
+  setClipName(clip.name);setClipFrom(clip.from);setClipTo(clip.to);setClipFps(clip.fps);setClipMode(clip.mode);
+ };
+ const playClip=(clip:AnimationClip)=>{
+  previewPosition.current=0;setPreviewClip(clip.name);setFrame(clip.from);setPlaying(true);
+ };
  const exportSheet=async()=>{
   const doc=current.current?.doc;if(!doc)return;
   try{
@@ -344,7 +371,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   </div>
   <div className="timeline-track">{Array.from({length:frameCount(d)},(_,i)=>
    <button key={i} aria-label={`Select animation frame ${i+1}`} aria-pressed={activeFrame===i} className={'frame-tile '+(activeFrame===i?'active':'')}
-    disabled={busy||playing} onClick={()=>{if(stroke.current||selectionDrag.current)return;setFrame(i);setSelection(null);}}>
+    disabled={busy||playing} onClick={()=>{if(stroke.current||selectionDrag.current)return;setFrame(i);setPreviewClip(null);setSelection(null);}}>
      <FrameThumbnail doc={d} index={i}/><span>{String(i+1).padStart(2,'0')}</span>
    </button>)}</div>
  </div>}<div className="canvas-footer"><div className="zoom-control"><button aria-label="Zoom out" onClick={()=>{setFitMode(false);setZoom(z=>Math.max(1,z-1));}}><ZoomOut size={16}/></button><span>{Math.round(zoom*pinchScale*100)}%</span><button aria-label="Zoom in" onClick={()=>{setFitMode(false);setZoom(z=>Math.min(24,z+1));}}><ZoomIn size={16}/></button></div><button className={'small-toggle fit-button '+(fitMode?'on':'')} aria-label="Fit canvas to workspace" onClick={()=>{resetPan();setFitMode(true);}}><Maximize size={14}/>Fit</button><span className="scale-caption">{zoom>=3?'1 cell = 1 output pixel':'Zoom in to see the cell grid'}</span><span className="spacer"/><button className={'small-toggle '+(grid?'on':'')} onClick={()=>setGrid(v=>!v)}><Grid2X2 size={14}/>Grid {grid?'on':'off'}</button></div></section>
@@ -359,7 +386,7 @@ export default function Editor({onManageWorkspace}:{onManageWorkspace?:()=>void}
   </div>
  <nav className="inspector-tabs" role="tablist" aria-label="Inspector panels">
   {INSPECTOR_TABS.map(tab=>{
-   const Icon=tab.id==='draw'?Palette:tab.id==='layers'?Layers:tab.id==='effects'?Sparkles:Download;
+   const Icon=tab.id==='draw'?Palette:tab.id==='layers'?Layers:tab.id==='effects'?Sparkles:tab.id==='animation'?Film:Download;
    const active=inspectorTab===tab.id;
    return <button key={tab.id} type="button" id={`inspector-tab-${tab.id}`} data-inspector-tab={tab.id}
     className={'inspector-tab '+(active?'active':'')} role="tab"
