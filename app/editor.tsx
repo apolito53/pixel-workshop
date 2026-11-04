@@ -1,7 +1,7 @@
 'use client';
 import {useCallback,useEffect,useRef,useState,type PointerEvent as PE} from 'react';
-import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound,Stamp,BookOpen} from 'lucide-react';
-import {applyCommands,clipFrameSequence,composite,frameCount,frameView,readRegion,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
+import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound,Stamp,BookOpen,PanelsTopLeft} from 'lucide-react';
+import {applyCommands,clipFrameSequence,composite,frameCount,frameView,readRegion,validateDocument,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
 import {encodeSvg,encodeRgbaSvg} from '../lib/svg.ts';
 import {MAX_ANIMATION_CELLS} from '../lib/pixels.ts';
@@ -11,6 +11,7 @@ import {generateEffectCommands,regenerateEffectCommands,hasFreeEffectLayerSlot,t
 import {EditQueue,type EditorSnapshot,type QueueState} from '../lib/edit-queue.ts';
 import {beginPinch,movePinch,finishPinch,touchMidpoint,type GesturePoint,type PinchStart,type PinchView,type GestureViewport} from '../lib/touch-gestures.ts';
 import {INSPECTOR_TABS,inspectorTabForKey,type InspectorTab} from '../lib/inspector-tabs.ts';
+import UiKitPanel from './ui-kit-panel.tsx';
 import {guideSteps,type GuideScope} from '../lib/workshop-guide.ts';
 import {clipRange,clipsAtFrame,type ClipRange} from '../lib/clip-range.ts';
 import WorkshopGuide from './workshop-tour.tsx';
@@ -25,6 +26,24 @@ const tools=[['pencil',Pencil,'Pencil','B'],['eraser',Eraser,'Eraser','E'],['fil
 // Keep precise explanations in tooltips/ARIA, but make drawer tile names concise.
 const drawerToolLabels:Partial<Record<Tool,string>>={stamp:'Stamp'};
 async function api<T>(path:string,body?:unknown):Promise<T>{const r=await fetch('/api/pixel/'+path,{method:body?'POST':'GET',headers:body?{'content-type':'application/json'}:{},...(body?{body:JSON.stringify(body)}:{}),cache:'no-store'});const d=await r.json() as T & {error?:string};if(!r.ok)throw Object.assign(new Error(d.error||'Request failed'),{status:r.status});return d;}
+const PENDING_UI_KIT='pixel-workshop-pending-ui-kit-v1';
+let pendingUiImport:Promise<string|null>|null=null;
+/** Import copies into the active workspace, keeping progress if a request fails. */
+async function importPendingKit():Promise<string|null>{
+ if(pendingUiImport)return pendingUiImport;
+ let raw:string|null;try{raw=sessionStorage.getItem(PENDING_UI_KIT);}catch{return null;}if(!raw)return null;
+ pendingUiImport=(async()=>{
+  const pending=JSON.parse(raw) as {format:string;kitId:string;documents:unknown[];firstId?:string};
+  if(pending.format!=='pixel-workshop-ui-kit-import/1'||!Array.isArray(pending.documents)||pending.documents.length>30||!/^kit-[a-z0-9-]{1,70}$/i.test(pending.kitId))throw new Error('The requested UI kit is invalid.');
+  while(pending.documents.length){
+   const doc=validateDocument(pending.documents[0]);doc.ui={...doc.ui,kitId:pending.kitId};
+   const made=await api<Snapshot>('projects',{document:doc});pending.firstId??=made.doc.id;pending.documents.shift();
+   sessionStorage.setItem(PENDING_UI_KIT,JSON.stringify(pending));
+  }
+  sessionStorage.removeItem(PENDING_UI_KIT);return pending.firstId??null;
+ })();
+ try{return await pendingUiImport;}finally{pendingUiImport=null;}
+}
 function download(name:string,data:Blob){const url=URL.createObjectURL(data),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 const pixelOps = new Set(['pixel','fill','line','rect','ellipse','transform','paste','clear']);
 const targetFrame=(ops:PaintCommand[],frame:number):PaintCommand[]=>
@@ -192,7 +211,11 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  // Showing the welcome once is keyed by the first loaded project, not live editor state.
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[snap?.doc.id]);
- useEffect(()=>{let alive=true;(async()=>{try{const entries=await api<PixelDocument[]>('projects');if(!alive)return;setList(entries);const s=entries.length?await api<Snapshot>('projects/'+entries[0].id):await api<Snapshot>('projects',{demo:true});if(alive){adopt(s);setNotice('All changes saved');await refresh();}}catch(e){if(alive)setError((e as Error).message);}})();return()=>{alive=false;queue.current?.dispose();};},[adopt,refresh]);
+ useEffect(()=>{let alive=true;(async()=>{try{
+  const imported=await importPendingKit();const entries=await api<PixelDocument[]>('projects');if(!alive)return;setList(entries);
+  const s=imported?await api<Snapshot>('projects/'+imported):entries.length?await api<Snapshot>('projects/'+entries[0].id):await api<Snapshot>('projects',{demo:true});
+  if(alive){adopt(s);if(imported){setInspectorTab('ui');setNotice('Stardrop UI kit added to your workspace');}else setNotice('All changes saved');await refresh();}
+ }catch(e){if(alive)setError((e as Error).message);}})();return()=>{alive=false;queue.current?.dispose();};},[adopt,refresh]);
  useEffect(()=>{
   const doc=snap?.doc;if(!doc)return;
   const index=Math.min(frame,frameCount(doc)-1),ghosts:PixelDocument[]=[];
@@ -344,6 +367,57 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   if(locked.current||stroke.current||selectionDrag.current)return;locked.current=true;setBusy(true);
   try{await queue.current?.flush();adopt(await api<Snapshot>('projects/'+id));setError('');setNotice('All changes saved');}
   catch(e){setError((e as Error).message);}finally{locked.current=false;setBusy(false);}
+ };
+ const getKitDocuments=async(kitId:string)=>{
+  const items=await api<PixelDocument[]>('projects');const found:PixelDocument[]=[];
+  for(let i=0;i<items.length;i+=4){
+   const snapshots=await Promise.all(items.slice(i,i+4).map(item=>api<Snapshot>('projects/'+item.id)));
+   found.push(...snapshots.map(item=>item.doc).filter(item=>item.ui?.kitId===kitId));
+  }
+  if(!found.length)throw new Error('No projects found in this kit.');
+  if(found.length>30)throw new Error('A kit can contain at most 30 projects.');
+  return found;
+ };
+ const remapKitColors=async(from:string,to:string,kitId:string)=>{
+  if(locked.current||stroke.current||selectionDrag.current)return;
+  locked.current=true;setBusy(true);setError('');let done=0,total=0;
+  try{
+   await queue.current?.flush();const docs=await getKitDocuments(kitId);total=docs.length;
+   for(const doc of docs){
+    const s=await api<Snapshot>('projects/'+doc.id,{revision:doc.revision,action:'paint',commands:[{op:'palette_remap',fromColor:from,toColor:to}],requestId:'kit-color-'+crypto.randomUUID()});
+    done++;if(doc.id===current.current?.doc.id)adopt(s);
+   }
+   await refresh();setNotice(`Recolored ${done} kit project${done===1?'':'s'}`);
+  }catch(e){setError(`${done} of ${total||'?'} projects updated. ${(e as Error).message}`);await refresh();}
+  finally{locked.current=false;setBusy(false);}
+ };
+ const inspectKitColors=async(kitId:string)=>{
+  await queue.current?.flush();const docs=await getKitDocuments(kitId);
+  const usage=new Map<string,number>();
+  for(const doc of docs){
+   const used=new Set<string>();
+   for(const frame of [doc.layers.map(layer=>layer.pixels),...(doc.animation?.frames??[]).map(cel=>Object.values(cel.pixels))])
+    for(const pixels of frame)for(const pixel of pixels)if((pixel&255)!==0)used.add('#'+(pixel>>>8).toString(16).padStart(6,'0'));
+   for(const ink of doc.palette)used.add(ink.slice(0,7).toLowerCase());
+   for(const color of used)usage.set(color,(usage.get(color)??0)+1);
+  }
+  return {count:docs.length,colors:[...usage.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).slice(0,64).map(([color])=>color)};
+ };
+ const exportCurrentKit=async()=>{
+  const kitId=current.current?.doc.ui?.kitId;if(!kitId||locked.current)return;
+  locked.current=true;setBusy(true);setError('');
+  try{await queue.current?.flush();const docs=await getKitDocuments(kitId);const {buildGamePack}=await import('../lib/game-pack.ts');
+   const {bytes}=buildGamePack(docs);download(kitId+'.zip',new Blob([bytes],{type:'application/zip'}));setNotice(`Exported ${docs.length} kit projects`);
+  }catch(e){setError((e as Error).message);}finally{locked.current=false;setBusy(false);}
+ };
+ const previewCurrentKit=async()=>{
+  const kitId=current.current?.doc.ui?.kitId;if(!kitId||locked.current)return;
+  locked.current=true;setBusy(true);setError('');
+  try{await queue.current?.flush();const docs=await getKitDocuments(kitId);
+   if(!docs.some(doc=>doc.ui?.assetKey?.startsWith('ui')))throw new Error('Assign at least one Stardrop asset key before previewing.');
+   sessionStorage.setItem('pixel-workshop-ui-preview-v1',JSON.stringify({format:'pixel-workshop-ui-preview/1',documents:docs}));
+   window.location.assign('/play/moonkeeper?uiPreview=1');
+  }catch(e){setError((e as Error).message);locked.current=false;setBusy(false);}
  };
  const gestureViewport=(element:HTMLDivElement):GestureViewport=>{
   const rect=element.getBoundingClientRect();
@@ -850,7 +924,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   </div>
  <nav className="inspector-tabs" role="tablist" aria-label="Inspector panels">
   {INSPECTOR_TABS.map(tab=>{
-   const Icon=tab.id==='draw'?Palette:tab.id==='layers'?Layers:tab.id==='effects'?Sparkles:tab.id==='animation'?Film:Download;
+   const Icon=tab.id==='draw'?Palette:tab.id==='layers'?Layers:tab.id==='effects'?Sparkles:tab.id==='animation'?Film:tab.id==='ui'?PanelsTopLeft:Download;
    const active=inspectorTab===tab.id;
    return <button key={tab.id} type="button" id={`inspector-tab-${tab.id}`} data-inspector-tab={tab.id}
     className={'inspector-tab '+(active?'active':'')} role="tab"
@@ -960,6 +1034,10 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
    </select></label>
    <button type="button" className="secondary full" disabled={!d||busy||!clipName.trim()||clipFrom<0||clipTo<clipFrom||clipTo>=frameCount(d)||clipFps<1||clipFps>30} onClick={()=>void saveClip()}><Plus size={14}/>Save clip</button>
   </section>
+ </div>
+ <div className="inspector-panel" id="inspector-panel-ui" role="tabpanel" aria-labelledby="inspector-tab-ui" tabIndex={0} hidden={inspectorTab!=='ui'}>
+  {d&&inspectorTab==='ui'&&<UiKitPanel key={d.id} doc={d} frame={activeFrame} layer={layer} ink={ink} busy={busy} onCommit={commit} onFrame={setFrame} onLayer={setLayer}
+   onRemap={remapKitColors} onInspectKit={inspectKitColors} onExportKit={exportCurrentKit} onPreviewKit={previewCurrentKit}/>}
  </div>
  <div className="inspector-panel" id="inspector-panel-export" role="tabpanel" aria-labelledby="inspector-tab-export" tabIndex={0} hidden={inspectorTab!=='export'}>
  <section className="inspector-section export-section">

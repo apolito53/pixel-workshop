@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { INSPECTOR_TABS, inspectorTabForKey } from '../lib/inspector-tabs.ts';
 
 test('inspector destinations have stable, unique IDs and readable labels',()=>{
-  assert.deepEqual(INSPECTOR_TABS.map(t=>t.id),['draw','layers','effects','animation','export']);
+  assert.deepEqual(INSPECTOR_TABS.map(t=>t.id),['draw','layers','effects','animation','ui','export']);
   assert.equal(new Set(INSPECTOR_TABS.map(t=>t.id)).size,INSPECTOR_TABS.length);
   assert.ok(INSPECTOR_TABS.every(t=>t.label.length>0));
 });
@@ -14,7 +14,8 @@ test('inspector tab keyboard navigation wraps in both directions',()=>{
   assert.equal(inspectorTabForKey('layers','ArrowRight'),'effects');
   assert.equal(inspectorTabForKey('effects','ArrowLeft'),'layers');
   assert.equal(inspectorTabForKey('effects','ArrowRight'),'animation');
-  assert.equal(inspectorTabForKey('animation','ArrowRight'),'export');
+  assert.equal(inspectorTabForKey('animation','ArrowRight'),'ui');
+  assert.equal(inspectorTabForKey('ui','ArrowRight'),'export');
 });
 test('Home/End jump to extremes; other keys do not steal editor shortcuts',()=>{
   assert.equal(inspectorTabForKey('layers','Home'),'draw');

@@ -2,7 +2,7 @@ import type {InspectorTab} from './inspector-tabs.ts';
 
 /** Pure, versioned guide copy. Each target must map to a visible in-editor data-guide anchor. */
 export const GUIDE_VERSION=1;
-export type GuideChapterId='start'|'drawing'|'animation'|'effects'|'export'|'workspace';
+export type GuideChapterId='start'|'drawing'|'animation'|'effects'|'ui'|'export'|'workspace';
 export type GuideScope='all'|GuideChapterId;
 export type GuidePanel='none'|'drawing'|InspectorTab;
 export type GuideChapter={
@@ -17,6 +17,7 @@ export const GUIDE_CHAPTERS:readonly GuideChapter[]=[
  {id:'drawing',title:'Draw & arrange',subtitle:'Tools, color, selections, and layers',icon:'paint'},
  {id:'animation',title:'Bring it to life',subtitle:'Frames, onion skins, and named clips',icon:'film'},
  {id:'effects',title:'Procedural magic',subtitle:'Make and regenerate animated FX',icon:'sparkles'},
+ {id:'ui',title:'Make a UI kit',subtitle:'Stretchable frames, states, text, and shared colors',icon:'package'},
  {id:'export',title:'Ship your assets',subtitle:'PNG, SVG, sprite sheets, tiles, and game packs',icon:'package'},
  {id:'workspace',title:'Workspaces & agents',subtitle:'Private projects, MCP, and inspiration',icon:'key'},
 ];
@@ -97,6 +98,15 @@ export const GUIDE_STEPS:readonly GuideStep[]=[
   body:'FX layers remember their recipe. Choose one, adjust parameters, then preview before and after for the selected frame. When space allows, regeneration keeps an original hidden backup layer, including every animation cel.',
   tryIt:'Preview a different seed. Applying requires previewing first; if there is no room for a backup, you must explicitly acknowledge overwriting the FX pixels.',
   target:'effects-recipe',panel:'effects'},
+
+ {id:'ui-panels',chapter:'ui',title:'Make a resizable panel',
+  body:'The UI tab lets you drag nine-slice guides, set content insets, and test a panel at different sizes. Save panel guides to keep those settings with your editable project and atlas.',
+  tryIt:'Try changing the preview width, then adjust and save a guide. Corners remain fixed as the center stretches.',
+  target:'ui-workbench',panel:'ui'},
+ {id:'ui-states',chapter:'ui',title:'Give a kit its own character',
+  body:'Name animation frames as button states or icons, create editable Tiny Caps lettering, and group related projects with a kit ID. Shared color replacement updates every project in that kit.',
+  tryIt:'In Stardrop, choose Edit UI Kit in Workshop. Edit the imported copies, export the kit, or preview them directly in Stardrop.',
+  target:'ui-workbench',panel:'ui'},
 
  {id:'quickpng',chapter:'export',title:'Export the current frame',
   body:'This button downloads the selected frame as PNG or SVG. Choose the format in the Export tab. SVG preserves crisp pixel shapes and transparency at any size.',

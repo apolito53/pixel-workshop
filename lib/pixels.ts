@@ -1,7 +1,9 @@
+import {validatePixelText,validateUi,type PixelTextRecipe,type UiMetadata} from './ui-metadata.ts';
+import {renderPixelText} from './pixel-font.ts';
 export const PIXEL_EFFECT_KINDS = ['embers','sparkles','bubbles','leaves','fire','smoke','explosion','shockwave','lightning','rain','snow','arcane'] as const;
 export type PixelEffectKind=typeof PIXEL_EFFECT_KINDS[number];
 export type StoredEffectRecipe={kind:PixelEffectKind;seed:number;ink:string;speed:number;opacity:number;drift:number};
-export type Layer = { id: string; name: string; visible: boolean; pixels: number[]; effect?: StoredEffectRecipe };
+export type Layer = { id: string; name: string; visible: boolean; pixels: number[]; effect?: StoredEffectRecipe; text?:PixelTextRecipe };
 export function validateEffectRecipe(value:unknown):StoredEffectRecipe{
  const recipe=value as StoredEffectRecipe;
  if(!recipe||typeof recipe!=='object'||!PIXEL_EFFECT_KINDS.includes(recipe.kind)||
@@ -19,7 +21,7 @@ export function clipFrameSequence(clip: AnimationClip): number[] {
   const frames = Array.from({length:clip.to-clip.from+1},(_,i)=>clip.from+i);
   return clip.mode==='pingpong'&&frames.length>2?[...frames,...frames.slice(1,-1).reverse()]:frames;
 }
-export type PixelDocument = { format: 'pixel-workshop/1'; id: string; name: string; width: number; height: number; revision: number; palette: string[]; layers: Layer[]; updatedAt: string; animation?: { fps: number; frames: AnimationFrame[]; clips?: AnimationClip[] } };
+export type PixelDocument = { format: 'pixel-workshop/1'; id: string; name: string; width: number; height: number; revision: number; palette: string[]; layers: Layer[]; updatedAt: string; animation?: { fps: number; frames: AnimationFrame[]; clips?: AnimationClip[] }; ui?:UiMetadata };
 export const MAX_ANIMATION_FRAMES = 32;
 export const MAX_ANIMATION_CELLS = 900_000;
 export function frameCount(d: PixelDocument) { return 1 + (d.animation?.frames.length ?? 0); }
@@ -104,6 +106,8 @@ export function validateDocument(input: unknown): PixelDocument {
     if (frameCount(d) * d.layers.length * d.width * d.height > MAX_ANIMATION_CELLS)
       throw new Error('Animation exceeds the pixel budget.');
   }
+  if(d.ui!==undefined)validateUi(d.ui,d.width,d.height,frameCount(d));
+  for(const layer of d.layers)if(layer.text!==undefined)validatePixelText(layer.text,d.width,d.height,frameCount(d));
   return structuredClone(d);
 }
 export function composite(d: PixelDocument): Uint8Array {
@@ -130,6 +134,27 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
     if (!c || typeof c.op!=='string') throw new Error('Every command needs an op.');
     if(c.op==='rename'){if(typeof c.name!=='string'||!c.name.trim())throw new Error('Enter a project name.');d.name=c.name.slice(0,80);continue;}
     if(c.op==='palette'){if(!Array.isArray(c.colors)||c.colors.length>128)throw new Error('Choose up to 128 palette colors.');c.colors.forEach(color);d.palette=c.colors as string[];continue;}
+    if(c.op==='ui_set'){
+      if(c.ui===null)delete d.ui;
+      else d.ui=validateUi(c.ui,d.width,d.height,frameCount(d));
+      continue;
+    }
+    if(c.op==='palette_remap'){
+      const from=typeof c.fromColor==='string'&&/^#[0-9a-f]{6}$/i.test(c.fromColor)?parseInt(c.fromColor.slice(1),16):NaN;
+      const to=typeof c.toColor==='string'&&/^#[0-9a-f]{6}$/i.test(c.toColor)?parseInt(c.toColor.slice(1),16):NaN;
+      if(!Number.isFinite(from)||!Number.isFinite(to))throw new Error('Choose source and replacement colors in #rrggbb form.');
+      const remap=(pixels:number[])=>{spend(pixels.length);for(let i=0;i<pixels.length;i++){
+        const pixel=pixels[i]>>>0;if((pixel&255)!==0&&(pixel>>>8)===from)pixels[i]=((to<<8)|(pixel&255))>>>0;
+      }};
+      for(const l of d.layers){
+        remap(l.pixels);
+        if(l.text&&parseInt(l.text.color.slice(1,7),16)===from)l.text={...l.text,color:'#'+to.toString(16).padStart(6,'0')+(l.text.color.length===9?l.text.color.slice(7):'')};
+        if(l.effect&&parseInt(l.effect.ink.slice(1,7),16)===from)l.effect={...l.effect,ink:'#'+to.toString(16).padStart(6,'0')+(l.effect.ink.length===9?l.effect.ink.slice(7):'')};
+      }
+      for(const cel of d.animation?.frames??[])for(const pixels of Object.values(cel.pixels))remap(pixels);
+      d.palette=d.palette.map(v=>parseInt(v.slice(1,7),16)===from?'#'+to.toString(16).padStart(6,'0')+(v.length===9?v.slice(7):''):v);
+      continue;
+    }
     if(c.op==='set_fps'){
       const fps=requireInt(c.fps,1,30,'fps');
       d.animation ??= {fps,frames:[]};d.animation.fps=fps;continue;
@@ -179,6 +204,8 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
       if(d.animation!.clips) d.animation!.clips=d.animation!.clips
         .filter(clip=>clip.from!==index||clip.to!==index)
         .map(clip=>({...clip,from:clip.from>index?clip.from-1:clip.from,to:clip.to>=index?clip.to-1:clip.to}));
+      if(d.ui?.slots)d.ui.slots=d.ui.slots.filter(slot=>slot.frame!==index).map(slot=>({...slot,frame:slot.frame>index?slot.frame-1:slot.frame}));
+      for(const l of d.layers)if(l.text){if(l.text.frame===index)delete l.text;else if(l.text.frame>index)l.text={...l.text,frame:l.text.frame-1};}
       continue;
     }
     if(c.op==='add_layer'){
@@ -193,6 +220,14 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
     }
     const targetLayer=c.layer||d.layers[0].id;
     const metadataLayer=d.layers.find(l=>l.id===targetLayer);if(!metadataLayer)throw new Error('Layer not found.');
+    if(c.op==='text_set'){
+      const recipe=validatePixelText(c.text,d.width,d.height,frameCount(d));
+      const destination=frameView(d,recipe.frame).layers.find(l=>l.id===targetLayer)!;
+      const result=renderPixelText(recipe,d.width,d.height);spend(result.length);
+      for(let i=0;i<result.length;i++)destination.pixels[i]=result[i];
+      metadataLayer.text=recipe;delete metadataLayer.effect;continue;
+    }
+    if(c.op==='text_detach'){delete metadataLayer.text;continue;}
     if(c.op==='effect_recipe'){metadataLayer.effect=validateEffectRecipe(c.recipe);continue;}
     if(c.op==='effect_detach'){delete metadataLayer.effect;continue;}
     if(c.op==='visibility'){if(typeof c.visible!=='boolean')throw new Error('visible must be true or false.');metadataLayer.visible=c.visible;continue;}
@@ -208,6 +243,7 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
       const backup:Layer={...metadataLayer,id,name:String(c.name||metadataLayer.name+' Backup').slice(0,60),
        visible:false,pixels:[...metadataLayer.pixels]};
       delete backup.effect; // A backup is a frozen snapshot, not another live effect recipe.
+      delete backup.text;
       d.layers.splice(d.layers.indexOf(metadataLayer)+1,0,backup);
       for(const cel of d.animation?.frames??[])cel.pixels[id]=[...cel.pixels[metadataLayer.id]];
       continue;
@@ -220,6 +256,9 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
     }
     const selectedFrame=c.frame===undefined?0:requireInt(c.frame,0,frameCount(d)-1,'frame');
     const l=frameView(d,selectedFrame).layers.find(l=>l.id===targetLayer)!;
+    // Freehand edits turn a text layer into regular editable pixels, rather
+    // than letting a later text edit silently overwrite a user's brushwork.
+    if(metadataLayer.text?.frame===selectedFrame)delete metadataLayer.text;
     if(c.op==='clear'){l.pixels.fill(0);spend(l.pixels.length);continue;}
     if(c.op==='transform'||c.op==='paste'||c.op==='stamp'){
       const x=requireInt(c.x,0,d.width-1,'x'),y=requireInt(c.y,0,d.height-1,'y');

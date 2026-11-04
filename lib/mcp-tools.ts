@@ -16,13 +16,13 @@ export const toolDefinitions=[
     inputSchema:schema({name:{type:'string'},width:{type:'integer',minimum:1,maximum:256},height:{type:'integer',minimum:1,maximum:256}},['name','width','height'])},
   {name:'get_canvas',description:'Inspect artwork and preview a particular frame (default 0). include_pixels returns editable data.',
     inputSchema:schema({id,frame,include_pixels:{type:'boolean'}},['id']),annotations:{readOnlyHint:true}},
-  {name:'paint',description:'Atomically apply pixel commands. pixel/fill: x,y; line: x,y,x2,y2; rect/ellipse: x,y,width,height,filled; transform: mode move|copy|flip_horizontal|flip_vertical with x,y,width,height,x2,y2; paste: x,y,width,height,pixels (row-major packed RGBA); stamp: same packed fields, but transparent source pixels preserve destination. Pixel commands accept frame:0..31 (default 0) and layer. Animation ops: frame_add {source_frame?,blank?}, frame_delete {frame:1..31}, set_fps {fps:1..30}, clip_set {name,from,to,fps,mode:loop|once|pingpong}, clip_delete {name}. FX layer metadata: effect_recipe {layer,recipe:{kind,seed,ink,speed,opacity,drift}} or effect_detach {layer}. Layer operations are shared across all frames: add_layer {id,name}, duplicate_layer {layer,id,name} (frozen hidden backup), visibility {layer,visible}, rename_layer {layer,name}, delete_layer {layer}, clear {layer,frame?}, rename {name}, palette {colors}. All edits are one undoable batch and require the current revision.',
+  {name:'paint',description:'Atomically apply pixel commands. pixel/fill: x,y; line: x,y,x2,y2; rect/ellipse: x,y,width,height,filled; transform: mode move|copy|flip_horizontal|flip_vertical with x,y,width,height,x2,y2; paste: x,y,width,height,pixels (row-major packed RGBA); stamp: same packed fields, but transparent source pixels preserve destination. Pixel commands accept frame:0..31 (default 0) and layer. Animation ops: frame_add {source_frame?,blank?}, frame_delete {frame:1..31}, set_fps {fps:1..30}, clip_set {name,from,to,fps,mode:loop|once|pingpong}, clip_delete {name}. FX layer metadata: effect_recipe {layer,recipe:{kind,seed,ink,speed,opacity,drift}} or effect_detach {layer}. Layer operations are shared across all frames: add_layer {id,name}, duplicate_layer {layer,id,name} (frozen hidden backup), visibility {layer,visible}, rename_layer {layer,name}, delete_layer {layer}, clear {layer,frame?}, rename {name}, palette {colors}. UI ops: ui_set {ui} sets or clears native slices and named state/icon frames; text_set {layer,text} draws an editable Tiny Caps text layer; text_detach {layer} retains pixels; palette_remap {fromColor,toColor} recolors all frames and layers while preserving opacity. All edits are one undoable batch and require the current revision.',
     inputSchema:schema({id,revision:rev,commands:{type:'array',minItems:1,maxItems:5000,items:{type:'object',
       properties:{op:{type:'string'},frame,source_frame:frame,fps:{type:'integer',minimum:1,maximum:30},blank:{type:'boolean'},
         layer:{type:'string'},color:{type:'string'},x:{type:'integer'},y:{type:'integer'},x2:{type:'integer'},y2:{type:'integer'},
         width:{type:'integer'},height:{type:'integer'},filled:{type:'boolean'},
         mode:{type:'string',enum:['move','copy','flip_horizontal','flip_vertical','loop','once','pingpong']},
-        from:frame,to:frame,recipe:{type:'object'},
+        from:frame,to:frame,recipe:{type:'object'},ui:{type:['object','null']},text:{type:'object'},fromColor:{type:'string'},toColor:{type:'string'},
         pixels:{type:'array',maxItems:65536,items:{type:'integer',minimum:0,maximum:4294967295}},
         id:{type:'string'},name:{type:'string'},visible:{type:'boolean'},colors:{type:'array',items:{type:'string'}}},
       required:['op'],additionalProperties:false}}},['id','revision','commands'])},
@@ -97,7 +97,7 @@ export async function callTool(service:ProjectService,name:string,args:Record<st
       return {content:[{type:'text' as const,text:JSON.stringify(sheet.atlas)},
         {type:'image' as const,mimeType:'image/png',data:encodeRgbaPng(sheet.bytes,sheet.width,sheet.height).toString('base64')}]};
     }
-    const summary={...doc,layers:doc.layers.map(l=>args.include_pixels?l:{id:l.id,name:l.name,visible:l.visible,...(l.effect?{effect:l.effect}:{})}),
+    const summary={...doc,layers:doc.layers.map(l=>args.include_pixels?l:{id:l.id,name:l.name,visible:l.visible,...(l.effect?{effect:l.effect}:{}),...(l.text?{text:l.text}:{})}),
       animation:doc.animation?{fps:doc.animation.fps,
         frames:doc.animation.frames.map(f=>args.include_pixels?f:{id:f.id})}:undefined,
       frameCount:frameCount(doc)};

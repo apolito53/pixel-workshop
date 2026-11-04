@@ -1,5 +1,9 @@
 # Stardrop interface dogfood — 2026-11-04
 
+**UI Kit v1 follow-up.** The observations below record the original dogfood, before the UI workbench was added. The editor now saves nine-slice and content insets, named button/icon frames, editable Tiny Caps text, and kit assignments in native projects; sprite atlases and game-pack manifests carry the UI metadata. Related projects can be recolored together, with Undo in each project. Stardrop can copy its UI projects into a workspace, preview edited copies in the same browser tab, and load an exported workshop game-pack ZIP without modifying the game source. The preview is local to that browser tab and can be restored to the original art.
+
+Tiny Caps is one built-in Latin-oriented bitmap font; additional fonts, independent font-file export, and localization remain future work. Kit color replacement is an explicit batch of per-project edits rather than a live-linked palette, and a failed batch can be partially applied. Named UI states remain stored as frame references alongside animation data. These constraints are intentional boundaries of v1.
+
 Anthony's brief: replace Stardrop's interface artwork using only assets made with Pixel Workshop, and record the gaps that become apparent. This is the game at `/play/moonkeeper`, rather than a redesign of the editor.
 
 The eight new native projects are generated in `lib/stardrop-ui-art.ts` using the same `createDocument` and `applyCommands` engine as the existing game artwork. There are no external images, SVG icons, image-generation services, or CSS gradients drawing the UI skin. The page rasterizes those documents for its panels, button states, controls, title lettering, meters, night-sky tile and ornaments. Labels and changing numbers remain accessible live text. CSS provides layout, image slicing, focus outlines and state selection.

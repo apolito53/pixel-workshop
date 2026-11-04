@@ -4,6 +4,7 @@
 export type ZipItem={path:string;data:Uint8Array};
 const enc=new TextEncoder();
 const MAX_ZIP_BYTES=64*1024*1024;
+const MAX_ZIP_FILES=200;
 const table=Uint32Array.from({length:256},(_,i)=>{
  let c=i;for(let j=0;j<8;j++)c=(c&1)?(0xedb88320^(c>>>1)):c>>>1;return c>>>0;
 });
@@ -20,7 +21,7 @@ function safePath(path:string){
 }
 /** Returns a complete, valid PKZIP file, deliberately using method 0 (store). */
 export function createStoreZip(entries:ZipItem[]):Uint8Array<ArrayBuffer>{
- if(!entries.length||entries.length>150)throw new Error('ZIP needs 1–150 files.');
+ if(!entries.length||entries.length>MAX_ZIP_FILES)throw new Error(`ZIP needs 1–${MAX_ZIP_FILES} files.`);
  const seen=new Set<string>();
  const items=entries.map(({path,data})=>{
   if(!safePath(path)||seen.has(path.toLowerCase()))throw new Error('Unsafe or duplicate ZIP entry path.');
@@ -59,4 +60,29 @@ export function createStoreZip(entries:ZipItem[]):Uint8Array<ArrayBuffer>{
  u32(view,p+12,p-centralStart);u32(view,p+16,centralStart);u16(view,p+20,0);
  if(p+22!==total)throw new Error('ZIP length mismatch.');
  return zip;
+}
+
+/** Read only the bounded, uncompressed ZIPs produced by this exporter. */
+export function readStoreZip(bytes:Uint8Array):Map<string,Uint8Array>{
+ if(!(bytes instanceof Uint8Array)||bytes.length<22||bytes.length>MAX_ZIP_BYTES)throw new Error('Invalid or oversized game pack.');
+ const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),decoder=new TextDecoder('utf-8',{fatal:true}),files=new Map<string,Uint8Array>();
+ let p=0;
+ while(p+4<=bytes.length&&view.getUint32(p,true)===0x04034b50){
+  if(p+30>bytes.length||files.size>=MAX_ZIP_FILES)throw new Error('Invalid game pack entries.');
+  const flags=view.getUint16(p+6,true),method=view.getUint16(p+8,true),crc=view.getUint32(p+14,true);
+  const compressed=view.getUint32(p+18,true),size=view.getUint32(p+22,true),nameLength=view.getUint16(p+26,true),extraLength=view.getUint16(p+28,true);
+  if((flags&0x0009)!==0||method!==0||compressed!==size)throw new Error('Only uncompressed Pixel Workshop packs are supported.');
+  const nameStart=p+30,start=nameStart+nameLength+extraLength,end=start+size;
+  if(end>bytes.length||start<nameStart)throw new Error('Truncated game pack.');
+  const path=decoder.decode(bytes.subarray(nameStart,nameStart+nameLength));
+  if(!safePath(path)||files.has(path.toLowerCase()))throw new Error('Unsafe or duplicate game pack entry.');
+  const data=bytes.slice(start,end);if(crc32(data)!==crc)throw new Error('A game pack file failed its integrity check.');
+  files.set(path.toLowerCase(),data);p=end;
+ }
+ const end=bytes.length-22;
+ if(!files.size||end<p||view.getUint32(p,true)!==0x02014b50||view.getUint32(end,true)!==0x06054b50||
+   view.getUint16(end+8,true)!==files.size||view.getUint16(end+10,true)!==files.size||
+   view.getUint32(end+16,true)!==p||view.getUint32(end+12,true)!==end-p||view.getUint16(end+20,true)!==0)
+  throw new Error('Invalid game pack directory.');
+ return files;
 }

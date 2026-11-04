@@ -4,7 +4,8 @@ import {useCallback,useEffect,useRef,useState,type CSSProperties} from 'react';
 import Link from 'next/link';
 import {composite,frameCount,frameView,type PixelDocument} from '../../../lib/pixels.ts';
 import {createStardropArt,STARDROP_ASSETS,type StardropArt,type StardropArtName} from '../../../lib/stardrop-art.ts';
-import {UI_ICONS,UI_STATES,type UiIconName} from '../../../lib/stardrop-ui-art.ts';
+import {STARDROP_UI_ASSETS,UI_ICONS,UI_STATES,UI_SLICES,type UiIconName} from '../../../lib/stardrop-ui-art.ts';
+import {applyStardropUiKit,uiFrame} from '../../../lib/stardrop-kit.ts';
 import {buildSpriteSheet} from '../../../lib/sprite-sheet.ts';
 import {encodeRgbaSvg} from '../../../lib/svg.ts';
 import './stardrop.css';
@@ -206,6 +207,7 @@ function UiIcon({name,className=''}:{name:UiIconName;className?:string}){
 }
 export default function MoonkeeperGame(){
   const canvasRef=useRef<HTMLCanvasElement>(null);
+  const kitFile=useRef<HTMLInputElement>(null);
   const gameRef=useRef<Game>(initial());
   const cacheRef=useRef<Sprites|null>(null);
   const keysRef=useRef(new Set<string>());
@@ -219,6 +221,7 @@ export default function MoonkeeperGame(){
   const [skin,setSkin]=useState<CSSProperties>({});
   const [error,setError]=useState('');
   const [packError,setPackError]=useState(''),[downloadingPack,setDownloadingPack]=useState(false);
+  const [kitMessage,setKitMessage]=useState('Original Stardrop UI kit'),[customKit,setCustomKit]=useState(false);
   const [ui,setUi]=useState<View>(()=>view(gameRef.current,0));
   const playSound=useCallback((kind:'star'|'hurt'|'jump'|'pulse'|'win')=>{
     if(!soundOnRef.current)return;
@@ -239,9 +242,7 @@ export default function MoonkeeperGame(){
       }
     }catch{/* Audio should never prevent playing. */}
   },[]);
-  useEffect(()=>{
-    try{
-      const a=createStardropArt();
+  const installArt=useCallback((a:StardropArt)=>{
       const sprites={} as Sprites;
       const previews:Partial<Record<StardropArtName,string>>={};
       for(const {key} of STARDROP_ASSETS){
@@ -260,23 +261,48 @@ export default function MoonkeeperGame(){
       }
       cacheRef.current=sprites;
       const image=(key:StardropArtName,frame=0)=>`url("${sprites[key][frame].toDataURL('image/png')}")`;
-      const uiImages:Record<string,string>={
-        '--ui-panel':image('uiPanel'),'--ui-plum-panel':image('uiPanel',1),
-        '--ui-logo':image('uiLogo'),'--ui-paper':image('uiStardust'),'--ui-divider':image('uiDivider'),
-        '--ui-meter-track':image('uiMeter'),'--ui-meter-starlight':image('uiMeter',1),'--ui-meter-moonwave':image('uiMeter',2),
+      const named=(key:StardropArtName,name:string,fallback:number)=>image(key,uiFrame(a[key],name,fallback));
+      const slice=(key:'uiPanel'|'uiButton'|'uiButtonGold')=>{
+        const s=a[key].ui?.slice;if(!s)return String(UI_SLICES[key]);return `${s.top} ${s.right} ${s.bottom} ${s.left}`;
       };
-      UI_ICONS.forEach((name,i)=>{uiImages['--ui-icon-'+name]=image('uiIcons',i);});
+      const uiImages:Record<string,string>={
+        '--ui-panel':named('uiPanel','moonstone',0),'--ui-plum-panel':named('uiPanel','plum',1),
+        '--ui-panel-slice':slice('uiPanel'),'--ui-button-slice':slice('uiButton'),'--ui-gold-slice':slice('uiButtonGold'),
+        '--ui-logo':image('uiLogo'),'--ui-paper':image('uiStardust'),'--ui-divider':image('uiDivider'),
+        '--ui-meter-track':named('uiMeter','track',0),'--ui-meter-starlight':named('uiMeter','starlight',1),'--ui-meter-moonwave':named('uiMeter','moonwave',2),
+      };
+      // Insets beyond the fixed border become extra padding in the menu preview.
+      const panelSlice=a.uiPanel.ui?.slice;
+      if(panelSlice?.content){
+        for(const side of ['top','right','bottom','left'] as const){
+          uiImages['--ui-content-'+side]=String(Math.max(0,(panelSlice.content[side]-panelSlice[side])/Math.max(1,panelSlice[side])));
+        }
+      }
+      UI_ICONS.forEach((name,i)=>{uiImages['--ui-icon-'+name]=named('uiIcons',name,i);});
       UI_STATES.forEach((state,i)=>{
-        uiImages['--ui-button-'+state]=image('uiButton',i);
-        uiImages['--ui-gold-'+state]=image('uiButtonGold',i);
+        uiImages['--ui-button-'+state]=named('uiButton',state,i);
+        uiImages['--ui-gold-'+state]=named('uiButtonGold',state,i);
       });
       setSkin(uiImages as CSSProperties);
       setArt(a);setThumbnails(previews);
+  },[]);
+  useEffect(()=>{
+    try{
+      let a=createStardropArt();
+      if(new URLSearchParams(window.location.search).get('uiPreview')==='1'){
+        try{
+          const raw=sessionStorage.getItem('pixel-workshop-ui-preview-v1');
+          if(raw){const payload=JSON.parse(raw) as {format?:string;documents?:unknown[]};
+            if(payload.format!=='pixel-workshop-ui-preview/1'||!payload.documents)throw new Error('This UI preview is invalid.');
+            const merged=applyStardropUiKit(a,payload.documents);a=merged.art;setCustomKit(true);setKitMessage(`Previewing ${merged.count} edited UI assets`);}
+        }catch(e){setPackError((e as Error).message+' The original kit is shown.');}
+      }
+      installArt(a);
       try{bestRef.current=Number(localStorage.getItem('stardrop-best')||0)||0;}catch{/* storage optional */}
       setUi(view(gameRef.current,bestRef.current));
     }catch(e){setError(e instanceof Error?e.message:'Failed to generate game art.');}
     return()=>{void audioRef.current?.close();audioRef.current=null;};
-  },[]);
+  },[installArt]);
   useEffect(()=>{
     if(!art)return;
     const canvas=canvasRef.current,ctx=canvas?.getContext('2d');
@@ -364,6 +390,32 @@ export default function MoonkeeperGame(){
     }catch(e){setPackError(e instanceof Error?e.message:'Unable to create the game pack.');}
     finally{setDownloadingPack(false);}
   };
+  const editUiKit=()=>{
+    if(!art)return;
+    try{
+      const kitId='kit-'+crypto.randomUUID();
+      const documents=STARDROP_UI_ASSETS.map(({key})=>art[key]);
+      sessionStorage.setItem('pixel-workshop-pending-ui-kit-v1',JSON.stringify({format:'pixel-workshop-ui-kit-import/1',kitId,documents}));
+      window.location.assign('/');
+    }catch(e){setPackError(e instanceof Error?e.message:'Could not open the UI kit.');}
+  };
+  const loadKit=async(file:File)=>{
+    try{
+      if(file.size>64*1024*1024)throw new Error('Choose a game pack smaller than 64 MB.');
+      const {readGamePack}=await import('../../../lib/read-game-pack.ts');
+      const documents=readGamePack(new Uint8Array(await file.arrayBuffer()));
+      const merged=applyStardropUiKit(createStardropArt(),documents);
+      sessionStorage.setItem('pixel-workshop-ui-preview-v1',JSON.stringify({format:'pixel-workshop-ui-preview/1',documents}));
+      window.history.replaceState(null,'','/play/moonkeeper?uiPreview=1');
+      if(gameRef.current.phase==='running')gameRef.current.phase='paused';keysRef.current.clear();
+      installArt(merged.art);setUi(view(gameRef.current,bestRef.current));setCustomKit(true);setPackError('');setKitMessage(`Previewing ${merged.count} edited UI assets`);
+    }catch(e){setPackError(e instanceof Error?e.message:'Unable to load that UI kit.');}
+  };
+  const restoreKit=()=>{
+    try{sessionStorage.removeItem('pixel-workshop-ui-preview-v1');window.history.replaceState(null,'','/play/moonkeeper');}catch{}
+    if(gameRef.current.phase==='running')gameRef.current.phase='paused';keysRef.current.clear();
+    installArt(createStardropArt());setUi(view(gameRef.current,bestRef.current));setCustomKit(false);setKitMessage('Original Stardrop UI kit');setPackError('');
+  };
   return <main className="stardrop" style={skin}>
     <header className="stardrop-topbar">
       <Link className="stardrop-back stardrop-button" href="/"><UiIcon name="back"/>PIXEL WORKSHOP</Link>
@@ -424,6 +476,15 @@ export default function MoonkeeperGame(){
         <div className="stardrop-workbench-title">
           <div><h2>The asset workbench</h2><p>The valley, the keeper, even the buttons. Every piece below is made with Pixel Workshop drawing commands or its seeded effects engine. Download the editable project or its real PNG sheet. Button states and icons are named frames in their source projects.</p></div>
           <div className="stardrop-art-count"><strong>{STARDROP_ASSETS.length}</strong><span>EDITABLE ASSETS</span></div>
+        </div>
+        <div className="stardrop-kit-tools" aria-label="Stardrop UI kit">
+          <div><strong>Make this interface yours</strong><span role="status">{kitMessage}</span></div>
+          <div className="stardrop-kit-actions">
+            <button className="stardrop-button" type="button" disabled={!art} onClick={editUiKit}>EDIT UI KIT IN WORKSHOP</button>
+            <button className="stardrop-button" type="button" onClick={()=>kitFile.current?.click()}>LOAD UI KIT ZIP</button>
+            {customKit&&<button className="stardrop-button" type="button" onClick={restoreKit}>RESTORE ORIGINAL</button>}
+          </div>
+          <input ref={kitFile} type="file" accept=".zip,application/zip" aria-label="Choose a UI kit ZIP" className="stardrop-sr-only" onChange={e=>{const f=e.target.files?.[0];if(f)void loadKit(f);e.target.value='';}}/>
         </div>
         <div className="stardrop-pack-banner">
           <div><strong>Take the whole little world.</strong><span>{STARDROP_ASSETS.length} native projects, PNG sheets, clips and atlases—including the complete interface skin.</span></div>

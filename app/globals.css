@@ -610,3 +610,35 @@
 @media(max-width:450px){.timeline{height:220px}.timeline-controls{justify-content:flex-start}}
 
 .export-section .scale-select+.scale-select{margin-top:12px}
+
+/* UI asset workbench: compact, keyboard-accessible, and usable in the phone drawer. */
+.inspector-tabs{grid-template-columns:repeat(6,minmax(0,1fr))}
+.ui-kit-workbench .ui-note{font-size:10px;line-height:1.6;color:#aaa8b0;margin:0 0 12px}
+.ui-kit-workbench .ui-warning{color:#f2b99d;font-size:10px;line-height:1.5;margin:8px 0}
+.ui-section summary{cursor:pointer;color:#e1d4c4;font-size:11px;font-weight:700;line-height:1.4}
+.ui-section[open] summary{margin-bottom:13px}
+.ui-section>.secondary{margin-top:10px;justify-content:center;text-align:center}
+.ui-section>.secondary:disabled{opacity:.42;cursor:not-allowed}
+.ui-field{display:flex;flex-direction:column;gap:5px;margin:10px 0;color:#c7c3c4;font-size:10px}
+.ui-field input,.ui-field select,.ui-field textarea,.ui-field-grid input,.ui-preview-fields input{width:100%;min-width:0;padding:7px;background:#1b1c20;border:1px solid #444349;border-radius:4px;color:#e8e0d6;font:11px ui-monospace,monospace}
+.ui-field textarea{resize:vertical;line-height:1.4}
+.ui-field-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin:10px 0}
+.ui-field-grid label,.ui-preview-fields label{display:flex;flex-direction:column;gap:4px;min-width:0;color:#bcb7bd;font-size:9px}
+.ui-field-grid input{padding:6px 3px}
+.ui-preview-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0 8px}
+.ui-guide-area{position:relative;width:100%;max-width:220px;margin:10px auto;background-color:#33343a;background-image:conic-gradient(#414248 25%,transparent 0 50%,#414248 0 75%,transparent 0);background-size:16px 16px;line-height:0;touch-action:none}
+.ui-guide-art{display:block;width:100%;height:auto;image-rendering:pixelated}
+.ui-guide{position:absolute;z-index:2;outline:none;touch-action:none}
+.ui-guide.vertical{top:0;bottom:0;width:12px;margin-left:-6px;cursor:ew-resize}
+.ui-guide.horizontal{left:0;right:0;height:12px;margin-top:-6px;cursor:ns-resize}
+.ui-guide.vertical:after,.ui-guide.horizontal:after{content:'';position:absolute;background:#f6c774;box-shadow:0 0 0 1px #241a22}
+.ui-guide.vertical:after{left:5px;top:0;width:2px;height:100%}.ui-guide.horizontal:after{top:5px;left:0;width:100%;height:2px}
+.ui-guide:focus-visible{outline:2px solid white;outline-offset:-2px}
+.ui-preview-box{min-height:70px;display:flex;align-items:center;justify-content:center;overflow:auto;background:#17191f;padding:10px;border:1px solid #37373e;border-radius:4px}
+.ui-preview-box canvas{max-width:100%;height:auto;image-rendering:pixelated}
+.ui-slots{display:flex;flex-direction:column;gap:4px;margin:12px 0}
+.ui-slot{display:flex;gap:4px;align-items:stretch}.ui-slot>button:first-child{display:flex;align-items:center;text-align:left;gap:8px;min-width:0;flex:1;padding:4px;border:1px solid #3d3c43;border-radius:4px;color:#ddd5d1}
+.ui-slot canvas{width:32px;height:32px;object-fit:contain;image-rendering:pixelated;background:#191b20}.ui-slot span{font-size:10px;overflow:hidden;text-overflow:ellipsis}.ui-slot small{display:block;font-size:8px;color:#9d98a3;margin-top:2px}.ui-remove{width:28px;font-size:16px;color:#bfb2ad}
+.ui-state-preview{padding:10px 6px;background:#191a20;border-radius:4px;display:flex;flex-direction:column;align-items:center;gap:10px}.ui-sample-button{min-height:42px;min-width:130px;background:transparent;color:#f5f0e5;font-size:10px;font-weight:700;image-rendering:pixelated}
+.ui-state-choices{display:flex;flex-wrap:wrap;justify-content:center;gap:4px}.ui-state-choices button{font-size:9px;color:#beb8c2;border:1px solid #4b4652;padding:5px;border-radius:3px}.ui-state-choices button[aria-pressed=true]{color:#f6d29f;border-color:#c0966b}
+.ui-shared-palette{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:4px;margin:7px 0 12px}.ui-shared-palette button{width:100%;aspect-ratio:1;border:1px solid #ffffff44;border-radius:3px}.ui-shared-palette button:focus-visible{outline:2px solid #f6c774;outline-offset:2px}

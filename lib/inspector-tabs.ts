@@ -4,6 +4,7 @@ export const INSPECTOR_TABS = [
   { id: 'layers', label: 'Layers' },
   { id: 'effects', label: 'FX' },
   { id: 'animation', label: 'Clips' },
+  { id: 'ui', label: 'UI' },
   { id: 'export', label: 'Export' },
 ] as const;
 

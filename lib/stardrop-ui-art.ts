@@ -2,8 +2,7 @@ import {applyCommands,createDocument,type PaintCommand,type PixelDocument} from 
 
 /** All UI artwork is drawn by Pixel Workshop, just like the valley and sprites.
  * No SVGs, CSS-drawn icons, stock art, or external image generator are involved.
- * Slice geometry and state names live here because the native format cannot yet
- * describe UI skins. The production diary records that limitation explicitly. */
+ * Native UI metadata carries the slice geometry and named states with each asset. */
 export const STARDROP_UI_ASSETS = [
   {key:'uiPanel',label:'Moonstone Frames',role:'2 panel skins · 12 px slices'},
   {key:'uiButton',label:'Twilight Buttons',role:'4 interaction states · 6 px slices'},
@@ -175,5 +174,13 @@ function divider(){
   return d.finish();
 }
 export function createStardropUiArt():StardropUiArt{
-  return {uiPanel:panel(),uiButton:button(false),uiButtonGold:button(true),uiIcons:icons(),uiLogo:logo(),uiMeter:meter(),uiStardust:stardust(),uiDivider:divider()};
+  const art:StardropUiArt={uiPanel:panel(),uiButton:button(false),uiButtonGold:button(true),uiIcons:icons(),uiLogo:logo(),uiMeter:meter(),uiStardust:stardust(),uiDivider:divider()};
+  for(const {key} of STARDROP_UI_ASSETS){
+    const doc=art[key],border=key in UI_SLICES?UI_SLICES[key as keyof typeof UI_SLICES]:undefined;
+    const slots=doc.animation?.clips?.map(c=>({name:c.name,frame:c.from}));
+    art[key]=applyCommands(doc,[{op:'ui_set',ui:{assetKey:key,kind:key==='uiPanel'?'panel':key==='uiButton'||key==='uiButtonGold'?'button':key==='uiIcons'?'icons':'other',
+      ...(border!==undefined?{slice:{left:border,top:border,right:border,bottom:border,content:{left:border,top:border,right:border,bottom:border}}}:{}),
+      ...(slots?.length?{slots}:{})}}]);
+  }
+  return art;
 }
