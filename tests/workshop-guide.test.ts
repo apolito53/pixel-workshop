@@ -40,6 +40,17 @@ test('every guide target maps to an actual reachable editor control',()=>{
  assert.ok(editor.includes("setDrawToolsOpen(compactDrawTools)"));
  assert.ok(editor.includes("guide.mode!=='off'&&!modal&&!packModal&&<WorkshopGuide"));
 });
+test('UI kit guide points to reachable section headings and covers the full kit workflow',()=>{
+ const steps=guideSteps('ui');
+ assert.deepEqual(steps.map(step=>step.id),['ui-start','ui-panels','ui-states','ui-text','ui-colors','ui-preview','ui-load']);
+ for(const target of ['ui-panel-guides','ui-state-names','ui-text','ui-kit-colors']){
+  assert.ok(ui.includes(`<summary data-guide="${target}">`),`${target} must remain visible when its section is collapsed`);
+  assert.ok(steps.some(step=>step.target===target&&step.panel==='ui'));
+ }
+ assert.match(steps.find(step=>step.id==='ui-panels')!.tryIt,/Save panel guides/);
+ assert.match(steps.find(step=>step.id==='ui-colors')!.tryIt,/Undo/);
+ assert.match(steps.find(step=>step.id==='ui-preview')!.body,/same browser tab/);
+});
 test('guide never alters artwork or discloses workspace credentials',()=>{
  assert.ok(!component.includes("fetch("));
  assert.ok(!component.includes("applyCommands("));

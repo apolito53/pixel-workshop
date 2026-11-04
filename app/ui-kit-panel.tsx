@@ -122,7 +122,7 @@ export default function UiKitPanel({doc,frame,layer,ink,busy,onCommit,onFrame,on
    {problem&&<p className="ui-warning" role="alert">{problem}</p>}
   </section>
   <details className="inspector-section ui-section" open>
-   <summary>Resizable panel guides</summary>
+   <summary data-guide="ui-panel-guides">Resizable panel guides</summary>
    <p className="ui-note">Drag the gold guides or enter pixel insets. Corners stay fixed while the center stretches.</p>
    <div className="ui-guide-area" ref={guideArea} onPointerMove={dragGuide}
     onPointerUp={e=>{drag.current=null;if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId);}}
@@ -146,7 +146,7 @@ export default function UiKitPanel({doc,frame,layer,ink,busy,onCommit,onFrame,on
     <label>Height<input type="number" aria-label="Panel preview height" min={1} max={1024} value={previewHeight} onChange={e=>setPreviewHeight(Number(e.target.value))}/></label></div>
    <PanelPreview doc={doc} frame={frame} slice={slice} width={previewWidth} height={previewHeight}/>
   </details>
-  <details className="inspector-section ui-section"><summary>Button states &amp; icons</summary>
+  <details className="inspector-section ui-section"><summary data-guide="ui-state-names">Button states &amp; icons</summary>
    <p className="ui-note">Name frames so they export as button states or individual icons.</p>
    <label className="ui-field">Asset type<select aria-label="UI asset type" value={doc.ui?.kind??'other'} disabled={busy}
     onChange={e=>void writeUi({kind:e.target.value as UiMetadata['kind']})}>
@@ -163,8 +163,8 @@ export default function UiKitPanel({doc,frame,layer,ink,busy,onCommit,onFrame,on
    </div>)}</div>
    {doc.ui?.kind==='button'&&!!doc.ui.slots?.length&&<StatePreview doc={doc} slice={doc.ui.slice??slice}/>}
   </details>
-  <details className="inspector-section ui-section"><summary>Pixel text</summary>
-   <p className="ui-note">Tiny Caps is a built-in 5×7 pixel font. Text stays editable until you paint on its layer. Lowercase is drawn as capitals; unsupported symbols appear as ?.</p>
+  <details className="inspector-section ui-section"><summary data-guide="ui-text">Pixel text</summary>
+   <p className="ui-note">Tiny Caps is a built-in 5×7 pixel font. It accepts basic Latin; lowercase is drawn as capitals and missing ASCII glyphs appear as ?. Painting on the text frame of its layer makes it ordinary pixels.</p>
    <label className="ui-field">Text<textarea aria-label="Pixel text" rows={2} value={text.text} maxLength={100} onChange={e=>setText(t=>({...t,text:e.target.value}))}/></label>
    <div className="ui-field-grid">{(['x','y','scale','spacing'] as const).map(field=><label key={field}>{label(field)}<input aria-label={`Text ${field}`} type="number" min={field==='scale'?1:0} max={field==='scale'||field==='spacing'?8:field==='x'?doc.width-1:doc.height-1} value={text[field]} onChange={e=>setText(t=>({...t,[field]:Number(e.target.value)}))}/></label>)}</div>
    <label className="ui-field">Color<input aria-label="Pixel text color" value={text.color} maxLength={9} onChange={e=>setText(t=>({...t,color:e.target.value}))}/></label>
@@ -172,7 +172,7 @@ export default function UiKitPanel({doc,frame,layer,ink,busy,onCommit,onFrame,on
    {!fits&&<p className="ui-note ui-warning">Text extends outside the canvas or has invalid settings.</p>}
    <button className="secondary full" type="button" disabled={busy||!text.text||!fits||(!storedText&&doc.layers.length>=8)} onClick={()=>void saveText()}>{storedText?'Update selected text':'Add text layer'}</button>
   </details>
-  <details className="inspector-section ui-section"><summary>Kit &amp; shared colors</summary>
+  <details className="inspector-section ui-section"><summary data-guide="ui-kit-colors">Kit &amp; shared colors</summary>
    <p className="ui-note">Give related projects the same kit ID. A color replacement then applies across all their layers and frames.</p>
    <label className="ui-field">Kit ID<input aria-label="UI kit ID" value={kitDraft} maxLength={80} placeholder="my-ui-kit" onChange={e=>setKitDraft(e.target.value)}/></label>
    <label className="ui-field">Asset key<input aria-label="UI asset key" value={assetDraft} maxLength={80} placeholder="optional-name" onChange={e=>setAssetDraft(e.target.value)}/></label>
