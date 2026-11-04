@@ -20,4 +20,10 @@ The complete gallery and downloadable game pack now contain eighteen projects. T
 
 The scope here is to exercise these limitations and keep a complete usable result. The editor's generic format and export API are intentionally not expanded in this change; slice metadata, UI state assets and text authoring remain concrete follow-up work.
 
-Verification is recorded with the final implementation once the browser pass is complete.
+**Verification.** All 95 automated tests, TypeScript, the Node bundle and the Vercel production build pass. The eighteen-project ZIP builds and validates at 1,964,299 bytes. In the connected Chrome browser, the new production page was checked at its normal desktop size and at 390×844 and 320×740 viewport targets. At the smallest size the title menu fits inside the game stage and document scroll width matches client width. Start, sound toggle, keyboard moonwave, touch moonwave, pause and resume were exercised. The touch cooldown visibly changes to a countdown. Captured browser warnings came from an installed extension, not the game origin.
+
+The browser's download-capture request timed out and reset its connection during the planned manual export/import round-trip. The connection was recovered and normal viewport restored. Native document validity, deterministic pixels, named states and pack contents are verified by the tests; a hands-on re-import of the downloaded UI project is not claimed as completed.
+
+![Desktop interface](images/stardrop-ui-desktop.jpg)
+
+![Phone interface](images/stardrop-ui-mobile.jpg)
