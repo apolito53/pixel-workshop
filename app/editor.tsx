@@ -857,7 +857,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
    <option value={0}>Off</option><option value={8}>8px</option><option value={16}>16px</option><option value={32}>32px</option>
   </select></label>
  </div>}{['rect','ellipse'].includes(tool)&&<label className="fill-option"><input type="checkbox" checked={filled} onChange={e=>setFilled(e.target.checked)}/>Filled</label>}<span className="spacer"/><button type="button" ref={drawerToggleRef} className={'small-toggle mobile-inspector-toggle '+(inspectorOpen?'on':'')}
- aria-controls="pixel-inspector" aria-expanded={mobileLayout&&inspectorOpen} aria-haspopup="dialog"
+ aria-controls="pixel-inspector" aria-expanded={mobileLayout&&inspectorOpen} aria-haspopup="dialog" aria-label={inspectorOpen?'Close inspector panels':'Open inspector panels'}
  onClick={()=>{setDrawToolsOpen(false);setInspectorOpen(v=>!v);}}><SlidersHorizontal size={17}/><span>Panels</span></button><span className="canvas-hint">ONE CELL = ONE PIXEL.</span></div><div className="canvas-scroll" ref={viewport} onPointerDownCapture={touchDown}
  onPointerMoveCapture={touchMove} onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd}><div className="canvas-mat">{d?<div className="canvas-frame" data-guide="canvas" style={touchNavigationActive?{
  transform:`translate3d(${canvasPan.x}px,${canvasPan.y}px,0) scale(${pinchScale})`
