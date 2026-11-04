@@ -1,9 +1,10 @@
 'use client';
 
-import {useCallback,useEffect,useRef,useState} from 'react';
+import {useCallback,useEffect,useRef,useState,type CSSProperties} from 'react';
 import Link from 'next/link';
 import {composite,frameCount,frameView,type PixelDocument} from '../../../lib/pixels.ts';
 import {createStardropArt,STARDROP_ASSETS,type StardropArt,type StardropArtName} from '../../../lib/stardrop-art.ts';
+import {UI_ICONS,UI_STATES,type UiIconName} from '../../../lib/stardrop-ui-art.ts';
 import './stardrop.css';
 
 const W=384,H=240,FLOOR=201,GOAL=12,ROUND_TIME=75;
@@ -198,6 +199,9 @@ function saveBlob(name:string,blob:Blob){
   window.setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
 function nameFor(key:StardropArtName){return 'stardrop-'+key;}
+function UiIcon({name,className=''}:{name:UiIconName;className?:string}){
+  return <span aria-hidden="true" className={'stardrop-icon '+className} style={{backgroundImage:`var(--ui-icon-${name})`}}/>;
+}
 export default function MoonkeeperGame(){
   const canvasRef=useRef<HTMLCanvasElement>(null);
   const gameRef=useRef<Game>(initial());
@@ -210,6 +214,7 @@ export default function MoonkeeperGame(){
   const [soundOn,setSoundOn]=useState(true);
   const [art,setArt]=useState<StardropArt|null>(null);
   const [thumbnails,setThumbnails]=useState<Partial<Record<StardropArtName,string>>>({});
+  const [skin,setSkin]=useState<CSSProperties>({});
   const [error,setError]=useState('');
   const [packError,setPackError]=useState(''),[downloadingPack,setDownloadingPack]=useState(false);
   const [ui,setUi]=useState<View>(()=>view(gameRef.current,0));
@@ -240,8 +245,30 @@ export default function MoonkeeperGame(){
       for(const {key} of STARDROP_ASSETS){
         sprites[key]=rasterize(a[key]);
         previews[key]=sprites[key][0].toDataURL('image/png');
+        // Show the complete UI family, rather than hiding every state/icon
+        // behind the first frame of what the editor calls an animation.
+        if(key.startsWith('ui')&&sprites[key].length>1){
+          const doc=a[key],frames=sprites[key],columns=key==='uiIcons'?8:Math.min(2,frames.length);
+          const board=document.createElement('canvas');
+          board.width=(doc.width+4)*columns;board.height=(doc.height+4)*Math.ceil(frames.length/columns);
+          const context=board.getContext('2d');
+          if(context){frames.forEach((frame,i)=>context.drawImage(frame,(i%columns)*(doc.width+4),Math.floor(i/columns)*(doc.height+4)));
+            previews[key]=board.toDataURL('image/png');}
+        }
       }
       cacheRef.current=sprites;
+      const image=(key:StardropArtName,frame=0)=>`url("${sprites[key][frame].toDataURL('image/png')}")`;
+      const uiImages:Record<string,string>={
+        '--ui-panel':image('uiPanel'),'--ui-plum-panel':image('uiPanel',1),
+        '--ui-logo':image('uiLogo'),'--ui-paper':image('uiStardust'),'--ui-divider':image('uiDivider'),
+        '--ui-meter-track':image('uiMeter'),'--ui-meter-starlight':image('uiMeter',1),'--ui-meter-moonwave':image('uiMeter',2),
+      };
+      UI_ICONS.forEach((name,i)=>{uiImages['--ui-icon-'+name]=image('uiIcons',i);});
+      UI_STATES.forEach((state,i)=>{
+        uiImages['--ui-button-'+state]=image('uiButton',i);
+        uiImages['--ui-gold-'+state]=image('uiButtonGold',i);
+      });
+      setSkin(uiImages as CSSProperties);
       setArt(a);setThumbnails(previews);
       try{bestRef.current=Number(localStorage.getItem('stardrop-best')||0)||0;}catch{/* storage optional */}
       setUi(view(gameRef.current,bestRef.current));
@@ -327,70 +354,70 @@ export default function MoonkeeperGame(){
     }catch(e){setPackError(e instanceof Error?e.message:'Unable to create the game pack.');}
     finally{setDownloadingPack(false);}
   };
-  return <main className="stardrop">
-    <div className="stardrop-stars" aria-hidden="true"/>
+  return <main className="stardrop" style={skin}>
     <header className="stardrop-topbar">
-      <Link className="stardrop-back" href="/">◈ PIXEL WORKSHOP</Link>
-      <span className="stardrop-edition">AN EXPERIMENT IN ACTUAL GAME ASSETS <span>·</span> BUILD 01</span>
-      <button className="stardrop-sound" type="button" onClick={toggleSound} aria-pressed={soundOn}>{soundOn?'♪ SOUND ON':'♪ SOUND OFF'}</button>
+      <Link className="stardrop-back stardrop-button" href="/"><UiIcon name="back"/>PIXEL WORKSHOP</Link>
+      <span className="stardrop-edition">A LITTLE WORLD, MADE OF PIXELS <span>·</span> BUILD 02</span>
+      <button className="stardrop-sound stardrop-button" type="button" onClick={toggleSound} aria-pressed={soundOn}><UiIcon name={soundOn?'sound':'soundOff'}/>{soundOn?'SOUND ON':'SOUND OFF'}</button>
     </header>
     <div className="stardrop-content">
       <div className="stardrop-intro">
         <div className="stardrop-eyebrow">A PIXEL WORKSHOP PLAYABLE EXPERIMENT</div>
-        <h1>Stardrop <span>✧</span></h1>
+        <h1 className="stardrop-logo"><span className="stardrop-sr-only">Stardrop</span></h1>
         <p>A Moonkeeper Tale</p>
         <div className="stardrop-intro-line" aria-hidden="true"/>
         <div className="stardrop-description">The stars have fallen from their places. Gather twelve before the dark finds you.</div>
       </div>
       <section className="stardrop-machine" aria-label="Stardrop arcade game">
         <div className="stardrop-hud">
-          <div><span className="stardrop-hud-label">STARLIGHT</span><strong>{ui.caught}<small> / {GOAL}</small></strong></div>
-          <div><span className="stardrop-hud-label">SCORE</span><strong>{ui.score.toLocaleString()}</strong></div>
-          <div><span className="stardrop-hud-label">LIVES</span><strong className="stardrop-lives">{'♥'.repeat(ui.hp)}<span>{'♡'.repeat(3-ui.hp)}</span></strong></div>
-          <div><span className="stardrop-hud-label">TIME</span><strong className={ui.remaining<=15?'stardrop-urgent':''}>{ui.remaining}<small>s</small></strong></div>
+          <div><UiIcon name="star"/><div><span className="stardrop-hud-label">STARLIGHT</span><strong>{ui.caught}<small> / {GOAL}</small></strong></div></div>
+          <div><UiIcon name="crown"/><div><span className="stardrop-hud-label">SCORE</span><strong>{ui.score.toLocaleString()}</strong></div></div>
+          <div><div><span className="stardrop-hud-label">LIVES</span><strong className="stardrop-lives" role="img" aria-label={`${ui.hp} of 3 lives remaining`}>{[0,1,2].map(i=><UiIcon key={i} name={i<ui.hp?'heart':'heartEmpty'}/>)}</strong></div></div>
+          <div><UiIcon name="clock"/><div><span className="stardrop-hud-label">TIME</span><strong className={ui.remaining<=15?'stardrop-urgent':''}>{ui.remaining}<small>s</small></strong></div></div>
         </div>
         <div className="stardrop-stage">
           <canvas ref={canvasRef} width={W} height={H} aria-label="Moonlit valley. Move to catch falling stars and dodge shades." role="img"/>
-          {(!art||error)&&<div className="stardrop-overlay">
+          {(!art||error)&&<div className="stardrop-overlay"><div className="stardrop-menu">
             <span className="stardrop-overlay-kicker">PIXEL WORKSHOP</span>
             <h2>{error?'The art generator stumbled':'Painting the valley…'}</h2>
             <p>{error||'Drawing every pixel and animation cel with the shared engine.'}</p>
-          </div>}
-          {art&&ui.phase!=='running'&&<div className="stardrop-overlay">
+          </div></div>}
+          {art&&ui.phase!=='running'&&<div className="stardrop-overlay"><div className="stardrop-menu">
+            <UiIcon name={ui.phase==='won'?'crown':ui.phase==='paused'?'pause':'moon'} className="stardrop-menu-emblem"/>
             <span className="stardrop-overlay-kicker">{ui.phase==='title'?'THE STARS ARE FALLING':ui.phase==='paused'?'A MOMENT OF STILLNESS':ui.phase==='won'?'THE VALLEY IS BRIGHT AGAIN':'THE SHADOWS HAVE GATHERED'}</span>
             <h2>{ui.phase==='title'?'Light the last lantern':ui.phase==='paused'?'Paused':ui.phase==='won'?'The stars are home.':'The night won this time.'}</h2>
             <p>{ui.phase==='title'?'Catch 12 stars. Avoid the drifting shades. A moonwave can save you in a pinch.':ui.phase==='paused'?'Take all the time you need. The stars can wait.':ui.phase==='won'?'Beautifully done. The lantern burns for another night. Final score: '+ui.score.toLocaleString()+'.':'The lantern fades, but there is always another night.'}</p>
-            <button type="button" className="stardrop-primary" onClick={ui.phase==='paused'?togglePause:start}>{ui.phase==='title'?'BEGIN THE NIGHT ✧':ui.phase==='paused'?'RESUME THE NIGHT':'PLAY AGAIN ↻'}</button>
-          </div>}
+            <button type="button" className="stardrop-primary stardrop-button stardrop-button-gold" onClick={ui.phase==='paused'?togglePause:start}><UiIcon name="play"/>{ui.phase==='title'?'BEGIN THE NIGHT':ui.phase==='paused'?'RESUME THE NIGHT':'PLAY AGAIN'}</button>
+          </div></div>}
           {ui.phase==='running'&&ui.combo>1&&<div className="stardrop-combo">{ui.combo}× COMBO</div>}
         </div>
         <div className="stardrop-bottom">
-          <div className="stardrop-progress"><span style={{width:(ui.caught/GOAL)*100+'%'}}/></div>
+          <div className="stardrop-progress" role="progressbar" aria-label="Stars gathered" aria-valuenow={ui.caught} aria-valuemin={0} aria-valuemax={GOAL}><span style={{width:(ui.caught/GOAL)*100+'%'}}/></div>
           <div className="stardrop-status">
-            <span>✧ {ui.caught===GOAL?'THE LIGHT HAS RETURNED':'GATHER THE FALLEN STARS'}</span>
-            <span>MOONWAVE <strong>{ui.cooldown>0?ui.cooldown.toFixed(1)+'s':'READY'}</strong></span>
-            <button type="button" onClick={togglePause} disabled={ui.phase!=='running'&&ui.phase!=='paused'}>{ui.phase==='paused'?'RESUME':'PAUSE'} [P]</button>
+            <span className="stardrop-quest"><UiIcon name="star"/>{ui.caught===GOAL?'THE LIGHT HAS RETURNED':'GATHER THE FALLEN STARS'}</span>
+            <div className="stardrop-ability"><UiIcon name="moon"/><div><span>MOONWAVE <strong>{ui.cooldown>0?ui.cooldown.toFixed(1)+'s':'READY'}</strong></span><div className="stardrop-cooldown" role="progressbar" aria-label="Moonwave recharge" aria-valuenow={Math.round((1-ui.cooldown/6.2)*100)} aria-valuemin={0} aria-valuemax={100}><span style={{width:(1-ui.cooldown/6.2)*100+'%'}}/></div></div></div>
+            <button className="stardrop-button" type="button" onClick={togglePause} disabled={ui.phase!=='running'&&ui.phase!=='paused'}><UiIcon name={ui.phase==='paused'?'play':'pause'}/>{ui.phase==='paused'?'RESUME':'PAUSE'} [P]</button>
           </div>
         </div>
       </section>
       <div className="stardrop-control-row">
-        <div className="stardrop-guide"><b>MOVE</b> A / D or ← → <span>✦</span> <b>JUMP</b> Space / ↑ <span>✦</span> <b>MOONWAVE</b> Shift / K</div>
+        <div className="stardrop-guide"><span><UiIcon name="right"/><b>MOVE</b> A / D or ← →</span><span><UiIcon name="jump"/><b>JUMP</b> Space / ↑</span><span><UiIcon name="moon"/><b>MOONWAVE</b> Shift / K</span></div>
         <div className="stardrop-pad" aria-label="Touch game controls">
-          <button aria-label="Move left" onPointerDown={e=>{e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);onHold('ArrowLeft',true);}} onPointerUp={()=>onHold('ArrowLeft',false)} onPointerCancel={()=>onHold('ArrowLeft',false)} onLostPointerCapture={()=>onHold('ArrowLeft',false)}>◀</button>
-          <button aria-label="Move right" onPointerDown={e=>{e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);onHold('ArrowRight',true);}} onPointerUp={()=>onHold('ArrowRight',false)} onPointerCancel={()=>onHold('ArrowRight',false)} onLostPointerCapture={()=>onHold('ArrowRight',false)}>▶</button>
-          <button aria-label="Jump" onPointerDown={e=>{e.preventDefault();actionsRef.current.jump=true;}}>↑</button>
-          <button aria-label="Moonwave" onPointerDown={e=>{e.preventDefault();actionsRef.current.pulse=true;}}>✧</button>
+          <button className="stardrop-button" aria-label="Move left" onPointerDown={e=>{e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);onHold('ArrowLeft',true);}} onPointerUp={()=>onHold('ArrowLeft',false)} onPointerCancel={()=>onHold('ArrowLeft',false)} onLostPointerCapture={()=>onHold('ArrowLeft',false)}><UiIcon name="left"/></button>
+          <button className="stardrop-button" aria-label="Move right" onPointerDown={e=>{e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);onHold('ArrowRight',true);}} onPointerUp={()=>onHold('ArrowRight',false)} onPointerCancel={()=>onHold('ArrowRight',false)} onLostPointerCapture={()=>onHold('ArrowRight',false)}><UiIcon name="right"/></button>
+          <button className="stardrop-button" aria-label="Jump" onClick={()=>{actionsRef.current.jump=true;}}><UiIcon name="jump"/></button>
+          <button className="stardrop-button" aria-label="Moonwave" onClick={()=>{actionsRef.current.pulse=true;}}><UiIcon name="moon"/></button>
         </div>
       </div>
-      <div className="stardrop-divider"><span>MADE IN THE WORKSHOP</span><i/></div>
+      <div className="stardrop-divider"><span aria-hidden="true"/><span>MADE IN THE WORKSHOP</span><span aria-hidden="true"/></div>
       <section className="stardrop-workbench">
         <div className="stardrop-workbench-title">
-          <div><h2>The asset workbench</h2><p>Not screenshots. Every piece below is generated with Pixel Workshop drawing commands or its seeded effects engine. Download an editable project and import it into the editor, or grab its real frame-by-frame PNG sheet.</p></div>
-          <div className="stardrop-art-count"><strong>10</strong><span>EDITABLE ASSETS</span></div>
+          <div><h2>The asset workbench</h2><p>The valley, the keeper, even the buttons. Every piece below is made with Pixel Workshop drawing commands or its seeded effects engine. Download the editable project or its real PNG sheet. Button states and icons are named frames in their source projects.</p></div>
+          <div className="stardrop-art-count"><strong>{STARDROP_ASSETS.length}</strong><span>EDITABLE ASSETS</span></div>
         </div>
         <div className="stardrop-pack-banner">
-          <div><strong>✧ Take the whole little world.</strong><span>Ten native Pixel Workshop projects, their PNG sheets, animation clips and atlases. One portable ZIP.</span></div>
-          <button type="button" onClick={()=>void downloadArtPack()} disabled={!art||downloadingPack}>{downloadingPack?'PACKING ASSETS…':'DOWNLOAD COMPLETE ASSET PACK ↓'}</button>
+          <div><strong>Take the whole little world.</strong><span>{STARDROP_ASSETS.length} native projects, PNG sheets, clips and atlases—including the complete interface skin.</span></div>
+          <button className="stardrop-button stardrop-button-gold" type="button" onClick={()=>void downloadArtPack()} disabled={!art||downloadingPack}><UiIcon name="download"/>{downloadingPack?'PACKING ASSETS…':'DOWNLOAD ASSET PACK'}</button>
         </div>
         {packError&&<p className="stardrop-pack-error" role="alert">{packError}</p>}
         <div className="stardrop-art-grid">
@@ -398,8 +425,8 @@ export default function MoonkeeperGame(){
             <div className="stardrop-art-image">{thumbnails[asset.key]&&<img src={thumbnails[asset.key]} alt={asset.label+' pixel-art preview'}/>}</div>
             <div className="stardrop-art-info"><h3>{asset.label}</h3><span>{asset.role}</span></div>
             <div className="stardrop-art-actions">
-              <button disabled={!art} type="button" onClick={()=>project(asset.key)}>EDITABLE .PIXEL.JSON</button>
-              <button disabled={!art} type="button" onClick={()=>sheet(asset.key)}>PNG SHEET ↓</button>
+              <button className="stardrop-button" disabled={!art} type="button" onClick={()=>project(asset.key)}>EDITABLE .PIXEL.JSON</button>
+              <button className="stardrop-button" disabled={!art} type="button" onClick={()=>sheet(asset.key)}>PNG SHEET <UiIcon name="download"/></button>
             </div>
           </article>)}
         </div>
