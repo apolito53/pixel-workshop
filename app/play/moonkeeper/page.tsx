@@ -5,6 +5,8 @@ import Link from 'next/link';
 import {composite,frameCount,frameView,type PixelDocument} from '../../../lib/pixels.ts';
 import {createStardropArt,STARDROP_ASSETS,type StardropArt,type StardropArtName} from '../../../lib/stardrop-art.ts';
 import {UI_ICONS,UI_STATES,type UiIconName} from '../../../lib/stardrop-ui-art.ts';
+import {buildSpriteSheet} from '../../../lib/sprite-sheet.ts';
+import {encodeRgbaSvg} from '../../../lib/svg.ts';
 import './stardrop.css';
 
 const W=384,H=240,FLOOR=201,GOAL=12,ROUND_TIME=75;
@@ -336,8 +338,16 @@ export default function MoonkeeperGame(){
     if(!art)return;
     saveBlob(nameFor(key)+'.pixel.json',new Blob([JSON.stringify(art[key])],{type:'application/json'}));
   };
-  const sheet=(key:StardropArtName)=>{
+  const sheet=(key:StardropArtName,format:'png'|'svg'='png')=>{
     if(!art||!cacheRef.current)return;
+    if(format==='svg'){
+      try{
+        const output=buildSpriteSheet(art[key],undefined,'svg');
+        saveBlob(nameFor(key)+'-sheet.svg',new Blob([encodeRgbaSvg(output.bytes,output.width,output.height)],{type:'image/svg+xml;charset=utf-8'}));
+        setPackError('');
+      }catch(e){setPackError(e instanceof Error?e.message:'Unable to export SVG.');}
+      return;
+    }
     const frames=cacheRef.current[key],doc=art[key],cols=Math.min(8,frames.length),rows=Math.ceil(frames.length/cols);
     const canvas=document.createElement('canvas');canvas.width=doc.width*cols;canvas.height=doc.height*rows;
     const ctx=canvas.getContext('2d');if(!ctx)return;ctx.imageSmoothingEnabled=false;
@@ -427,6 +437,7 @@ export default function MoonkeeperGame(){
             <div className="stardrop-art-actions">
               <button className="stardrop-button" disabled={!art} type="button" onClick={()=>project(asset.key)}>EDITABLE .PIXEL.JSON</button>
               <button className="stardrop-button" disabled={!art} type="button" onClick={()=>sheet(asset.key)}>PNG SHEET <UiIcon name="download"/></button>
+              <button className="stardrop-button" disabled={!art} type="button" onClick={()=>sheet(asset.key,'svg')}>SVG SHEET <UiIcon name="download"/></button>
             </div>
           </article>)}
         </div>

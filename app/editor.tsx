@@ -3,6 +3,7 @@ import {useCallback,useEffect,useRef,useState,type PointerEvent as PE} from 'rea
 import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound,Stamp,BookOpen} from 'lucide-react';
 import {applyCommands,clipFrameSequence,composite,frameCount,frameView,readRegion,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
+import {encodeSvg,encodeRgbaSvg} from '../lib/svg.ts';
 import {MAX_ANIMATION_CELLS} from '../lib/pixels.ts';
 import {compareEffectFrame,type FxComparison} from '../lib/fx-preview.ts';
 import FxComparisonPanel from './fx-comparison.tsx';
@@ -68,6 +69,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  const drawToolsRef=useRef<HTMLElement>(null),drawToolsToggleRef=useRef<HTMLButtonElement>(null),drawToolsCloseRef=useRef<HTMLButtonElement>(null);
  const [frame,setFrame]=useState(0),[playing,setPlaying]=useState(false),[onion,setOnion]=useState(false),[effectKind,setEffectKind]=useState<EffectKind>('embers'),[effectSeed,setEffectSeed]=useState(53),[snap,setSnap]=useState<Snapshot|null>(null),[list,setList]=useState<PixelDocument[]>([]),[tool,setTool]=useState<Tool>('pencil'),[ink,setInk]=useState('#f6da92'),[hexDraft,setHexDraft]=useState('#f6da92'),[recentColors,setRecentColors]=useState<string[]>([]),[layer,setLayer]=useState('base'),[zoom,setZoom]=useState(10),[grid,setGrid]=useState(true),[filled,setFilled]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState('Opening workspace…'),[error,setError]=useState(''),[cursor,setCursor]=useState('X —   Y —'),[hover,setHover]=useState<{x:number;y:number}|null>(null),[modal,setModal]=useState(false),[name,setName]=useState('Untitled sprite'),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[scale,setScale]=useState(1),[selection,setSelection]=useState<PixelRegion|null>(null),[clipboard,setClipboard]=useState<{width:number;height:number;pixels:number[]}|null>(null),[previewScale,setPreviewScale]=useState(1),[fitMode,setFitMode]=useState(true),[saveState,setSaveState]=useState<Pick<QueueState,'pending'|'saving'|'error'>>({pending:0,saving:false,error:null});
  const [quickColorsOpen,setQuickColorsOpen]=useState(false);
+ const [exportFormat,setExportFormat]=useState<'png'|'svg'>('png');
  const quickColorsRef=useRef<HTMLDivElement>(null),quickColorsButtonRef=useRef<HTMLButtonElement>(null);
  const [stampSnap,setStampSnap]=useState(0),[tileSize,setTileSize]=useState(16);
  const [activeStamp,setActiveStamp]=useState<StampAsset|null>(null),[stampCapture,setStampCapture]=useState(false);
@@ -478,7 +480,17 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
    setSelection(null);return;
   }
   const drag=selectionDrag.current;if(drag){selectionDrag.current=null;if(drag.source&&(drag.source.x!==drag.region.x||drag.source.y!==drag.region.y))void commit([{op:'transform',mode:'move',layer:drag.layer,frame:drag.frame,...drag.source,x2:drag.region.x,y2:drag.region.y}],drag.base);else present(drag.base);return;}const st=stroke.current;if(st){stroke.current=null;void commit(targetFrame(st.ops,st.frame),st.base);}};
- const png=async()=>{const d=current.current?.doc;if(!d)return;try{const {encodeBrowserPng}=await import('../lib/browser-png.ts');download(d.name+'.png',new Blob([encodeBrowserPng(frameView(d,Math.min(frame,frameCount(d)-1)),scale)],{type:'image/png'}));if(!queue.current?.state.pending)setNotice(`Exported ${d.width*scale} × ${d.height*scale} PNG`);}catch(e){setError((e as Error).message);}};
+ const exportFrame=async()=>{
+  const doc=current.current?.doc;if(!doc)return;
+  try{
+   const view=frameView(doc,Math.min(frame,frameCount(doc)-1));
+   const blob=exportFormat==='svg'
+    ?new Blob([encodeSvg(view,scale)],{type:'image/svg+xml;charset=utf-8'})
+    :new Blob([(await import('../lib/browser-png.ts')).encodeBrowserPng(view,scale)],{type:'image/png'});
+   download(doc.name+'.'+exportFormat,blob);
+   if(!queue.current?.state.pending)setNotice(`Exported ${doc.width*scale} × ${doc.height*scale} ${exportFormat.toUpperCase()}`);
+  }catch(e){setError((e as Error).message);}
+ };
  useEffect(()=>{const h=(e:KeyboardEvent)=>{if(e.key==='Escape'&&(modal||packModal)){if(!busy){setModal(false);setPackModal(false);}return;}if(guide.mode==='menu'||e.defaultPrevented||(e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"],[role="tab"]')||stroke.current||selectionDrag.current)return;if(e.key==='Escape'){setModal(false);setPackModal(false);setSelection(null);return;}if(modal||packModal)return;const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='z'){e.preventDefault();void commit([],undefined,e.shiftKey?'redo':'undo');return;}if(mod&&key==='c'&&selection){e.preventDefault();copySelection();return;}if(mod&&key==='v'&&clipboard){e.preventDefault();pasteSelection();return;}if(mod&&key==='x'&&selection){e.preventDefault();copySelection();clearSelection();return;}if(selection&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const step=e.shiftKey?10:1;transformSelection('move',e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0,e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0);return;}if(selection&&['Delete','Backspace'].includes(e.key)){e.preventDefault();clearSelection();return;}if(mod)return;const t=tools.find(t=>t[3].toLowerCase()===key);if(t)chooseTool(t[0]);if(key==='h')setGrid(v=>!v);};window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);});
  const addFrame=async()=>{
   const doc=current.current?.doc;if(!doc||playing)return;
@@ -546,15 +558,18 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  const exportSheet=async()=>{
   const doc=current.current?.doc;if(!doc)return;
   try{
-   const sheet=buildSpriteSheet(doc),{encodeBrowserRgba}=await import('../lib/browser-png.ts');
-   download(sheet.atlas.image,new Blob([encodeBrowserRgba(sheet.bytes,sheet.width,sheet.height)],{type:'image/png'}));
-   setNotice(`Exported ${sheet.atlas.frames.length}-frame sprite sheet`);
+   const sheet=buildSpriteSheet(doc,undefined,exportFormat);
+   const blob=exportFormat==='svg'
+    ?new Blob([encodeRgbaSvg(sheet.bytes,sheet.width,sheet.height)],{type:'image/svg+xml;charset=utf-8'})
+    :new Blob([(await import('../lib/browser-png.ts')).encodeBrowserRgba(sheet.bytes,sheet.width,sheet.height)],{type:'image/png'});
+   download(sheet.atlas.image,blob);
+   setNotice(`Exported ${sheet.atlas.frames.length}-frame ${exportFormat.toUpperCase()} sprite sheet`);
   }catch(e){setError((e as Error).message);}
  };
  const exportAtlas=()=>{
   const doc=current.current?.doc;if(!doc)return;
   try{
-   const sheet=buildSpriteSheet(doc),name=sheet.atlas.image.replace('-sheet.png','-atlas.json');
+   const sheet=buildSpriteSheet(doc,undefined,exportFormat),name=sheet.atlas.image.replace(/-sheet\.(png|svg)$/,'-atlas.json');
    download(name,new Blob([JSON.stringify(sheet.atlas,null,2)],{type:'application/json'}));
    setNotice('Exported animation atlas JSON');
   }catch(e){setError((e as Error).message);}
@@ -706,7 +721,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   positionStamp(d!,activeStamp!,hover.x,hover.y,stampSnap):null;
  return <main className="workshop"><header className="app-header"><a className="brand" href="/"><span className="brand-mark">{Array.from({length:9},(_,i)=><i key={i}/>)}</span><span>pixel<span className="brand-light">workshop</span><small>A LITTLE ROOM TO MAKE THINGS</small></span></a>{onManageWorkspace&&<button type="button" data-guide="workspace" className="text-button workspace-header-button" aria-label="Manage workspace" title="Workspace and agent connection" onClick={()=>void manageWorkspace()}><KeyRound size={16}/><span>Workspace</span></button>}<button type="button" ref={guideToggleRef} className="guide-header-button"
  title="Guided tour and interactive help" aria-label="Open Pixel Workshop guide" onClick={openGuide}>
- <BookOpen size={17}/><span>Guide</span></button><div className="header-meta"><span className="version">WORKSPACE / 01</span><span className="connection"><i/> MCP enabled</span></div><button className="primary" data-guide="quick-export" aria-label="Export current frame as PNG" disabled={!d||busy} onClick={()=>void png()}><Download size={15}/>Export PNG</button></header>
+ <BookOpen size={17}/><span>Guide</span></button><div className="header-meta"><span className="version">WORKSPACE / 01</span><span className="connection"><i/> MCP enabled</span></div><button className="primary" data-guide="quick-export" aria-label={`Export current frame as ${exportFormat.toUpperCase()}`} disabled={!d||busy} onClick={()=>void exportFrame()}><Download size={15}/>Export {exportFormat.toUpperCase()}</button></header>
  <div className="document-bar"><div className="document-switch" data-guide="project-list"><FolderOpen size={15}/><select aria-label="Open saved project" value={d?.id||''} disabled={busy} onChange={e=>void open(e.target.value)}>{!d&&<option>Opening workspace…</option>}{list.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><ChevronDown size={13}/></div><span className="document-size">{d?`${d.width} × ${d.height} px`:'—'}</span><span className="separator"/><button className="text-button" data-guide="new-canvas" disabled={busy} onClick={()=>setModal(true)}><FilePlus size={15}/>New canvas</button><button className="text-button open-file" disabled={busy} onClick={()=>file.current?.click()}><FolderOpen size={15}/>Open project</button><a className="text-button stardrop-editor-link" data-guide="stardrop" href="/play/moonkeeper" title="Play Stardrop, a game made with Pixel Workshop">✧ <span>Play Stardrop</span></a></div>
  <div className="work-area" data-tools-open={mobileLayout&&inspectorOpen} data-draw-open={compactDrawTools&&drawToolsOpen}>
  <button type="button" className="draw-tools-backdrop" tabIndex={-1} aria-label="Dismiss drawing tools" onClick={closeDrawTools}/>
@@ -947,17 +962,24 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   </section>
  </div>
  <div className="inspector-panel" id="inspector-panel-export" role="tabpanel" aria-labelledby="inspector-tab-export" tabIndex={0} hidden={inspectorTab!=='export'}>
- <section className="inspector-section export-section"><div className="section-heading" data-guide="export"><span>EXPORT</span><span className="filetype">PNG</span></div><label className="scale-select">Output size<select aria-label="PNG export scale" value={scale} onChange={e=>setScale(Number(e.target.value))}>{[1,2,4,8].map(s=><option key={s} value={s}>{s}× {d?`· ${d.width*s} × ${d.height*s}`:''}</option>)}</select></label><p>Transparent background.<br/>Clean pixels, ready for your game.</p><button className="secondary full" disabled={!d||busy} onClick={()=>{if(d)download(d.name+'.pixel.json',new Blob([JSON.stringify(d)],{type:'application/json'}));}}>Save editable project <Download size={14}/></button>
-  <button className="secondary full" disabled={!d||busy} onClick={()=>void exportSheet()}>Sprite sheet PNG <Download size={14}/></button>
+ <section className="inspector-section export-section">
+  <div className="section-heading" data-guide="export"><span>EXPORT</span><span className="filetype">{exportFormat.toUpperCase()}</span></div>
+  <label className="scale-select">Format<select aria-label="Export format" value={exportFormat} onChange={e=>setExportFormat(e.target.value as 'png'|'svg')}><option value="png">PNG · raster</option><option value="svg">SVG · vector</option></select></label>
+  <label className="scale-select">Frame size<select aria-label="Frame export scale" value={scale} onChange={e=>setScale(Number(e.target.value))}>{[1,2,4,8].map(s=><option key={s} value={s}>{s}× {d?`· ${d.width*s} × ${d.height*s}`:''}</option>)}</select></label>
+  <p>{exportFormat==='svg'?'Scalable vector pixels with transparency. Visible layers are combined; the pixel-art shape stays crisp.':'Transparent background. Clean pixels, ready for your game.'}</p>
+  <button className="secondary full" disabled={!d||busy} onClick={()=>void exportFrame()}>Current frame {exportFormat.toUpperCase()} <Download size={14}/></button>
+  <button className="secondary full" disabled={!d||busy} onClick={()=>void exportSheet()}>Sprite sheet {exportFormat.toUpperCase()} <Download size={14}/></button>
   <button className="secondary full" disabled={!d||busy} onClick={exportAtlas}>Animation atlas JSON <Download size={14}/></button>
+  <p>Sprite sheets use native dimensions and contain every frame. The atlas matches the selected format.</p>
+  <button className="secondary full" disabled={!d||busy} onClick={()=>{if(d)download(d.name+'.pixel.json',new Blob([JSON.stringify(d)],{type:'application/json'}));}}>Save editable project <Download size={14}/></button>
   <div className="tileset-export-block" data-guide="tileset">
    <p>Building a tile-based game? Slice the current frame into a coordinate-accurate grid, keeping empty tiles and their IDs.</p>
    <label className="effect-field">Tile size<input aria-label="Tileset tile size" type="number" min={1} max={256} value={tileSize} onChange={e=>setTileSize(Number(e.target.value))}/></label>
-   <button type="button" className="secondary full" disabled={!d||busy||!Number.isInteger(tileSize)||tileSize<1||d.width%tileSize!==0||d.height%tileSize!==0} onClick={()=>void exportTiles()}><Grid2X2 size={14}/>Tileset ZIP (PNG + JSON + source) <Download size={14}/></button>
+   <button type="button" className="secondary full" disabled={!d||busy||!Number.isInteger(tileSize)||tileSize<1||d.width%tileSize!==0||d.height%tileSize!==0} onClick={()=>void exportTiles()}><Grid2X2 size={14}/>Tileset ZIP (PNG + SVG + source) <Download size={14}/></button>
    {d&&tileSize>0&&(d.width%tileSize!==0||d.height%tileSize!==0)&&<p className="tileset-warning">Canvas must divide evenly by tile size.</p>}
   </div>
   <div className="pack-export-block" data-guide="pack">
-   <p>Export several sprites with their original editable layers, PNG sheets, named clips and a ready-to-use manifest.</p>
+   <p>Export several sprites with their original editable layers, PNG and SVG sheets, named clips and a ready-to-use manifest.</p>
    <button type="button" className="secondary full pack-export-button" disabled={!list.length||busy} onClick={openPack}><FolderOpen size={15}/>Export game pack ZIP <Download size={14}/></button>
   </div>
   </section>
@@ -969,7 +991,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
    <section className="new-dialog pack-dialog" role="dialog" aria-modal="true" aria-labelledby="pack-dialog-heading" onClick={e=>e.stopPropagation()}>
     <button className="dialog-close icon-button" type="button" aria-label="Close game pack exporter" disabled={busy} onClick={()=>setPackModal(false)}><X size={18}/></button>
     <span className="eyebrow">GAME ASSET PIPELINE</span><h2 id="pack-dialog-heading">Pack it all together.</h2>
-    <p className="pack-description">Choose up to 30 projects. Each becomes a folder containing the editable source, RGBA sprite sheet and animation atlas, all indexed by manifest.json.</p>
+    <p className="pack-description">Choose up to 30 projects. Each becomes a folder containing the editable source, PNG and SVG sprite sheets and matching animation atlases, all indexed by manifest.json.</p>
     <div className="pack-dialog-actions">
      <button type="button" disabled={busy} onClick={()=>setPackIds(list.slice(0,30).map(item=>item.id))}>Select first 30</button>
      <button type="button" disabled={busy} onClick={()=>setPackIds([])}>Clear all</button>

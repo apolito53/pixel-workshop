@@ -608,3 +608,5 @@
 .timeline-track{min-height:84px;flex:1 1 auto}
 @media(max-width:800px){.timeline{height:206px}.timeline-header{padding:6px 9px}}
 @media(max-width:450px){.timeline{height:220px}.timeline-controls{justify-content:flex-start}}
+
+.export-section .scale-select+.scale-select{margin-top:12px}

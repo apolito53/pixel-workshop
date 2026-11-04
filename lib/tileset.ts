@@ -1,5 +1,6 @@
 import {composite,frameCount,frameView,requireInt,type PixelDocument} from './pixels.ts';
 import {encodeBrowserPng} from './browser-png.ts';
+import {encodeSvg} from './svg.ts';
 import {createStoreZip} from './zip-store.ts';
 
 const enc=new TextEncoder();
@@ -31,12 +32,14 @@ export function buildTileAtlas(doc:PixelDocument,tileWidth:number,tileHeight=til
  return {format:'pixel-workshop-tileset/1',image:slug+'-tiles.png',frame,tileWidth,tileHeight,columns,rows,
   width:doc.width,height:doc.height,tiles};
 }
-/** Portable three-file tileset bundle: pixels, source layers and tile coordinates. */
+/** Portable tileset bundle: PNG/SVG images with matching atlases and source layers. */
 export function buildTilesetPack(doc:PixelDocument,tileWidth:number,tileHeight=tileWidth,frame=0){
  const atlas=buildTileAtlas(doc,tileWidth,tileHeight,frame),slug=atlas.image.replace(/-tiles\.png$/,'');
  const bytes=createStoreZip([
   {path:atlas.image,data:encodeBrowserPng(frameView(doc,frame))},
   {path:slug+'-tileset.json',data:enc.encode(JSON.stringify(atlas,null,2))},
+  {path:slug+'-tiles.svg',data:enc.encode(encodeSvg(frameView(doc,frame)))},
+  {path:slug+'-tileset-svg.json',data:enc.encode(JSON.stringify({...atlas,image:slug+'-tiles.svg'},null,2))},
   {path:slug+'.pixel.json',data:enc.encode(JSON.stringify(doc))},
  ]);
  return {bytes,atlas};

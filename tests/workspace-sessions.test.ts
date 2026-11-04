@@ -72,6 +72,7 @@ test('two browsers get independent persistent workspaces and cannot list, read, 
   for(const attempt of [
     await f.project('GET','projects/'+doc.id,bc),
     await f.project('GET','projects/'+doc.id+'/png',bc),
+    await f.project('GET','projects/'+doc.id+'/svg',bc),
     await f.project('POST','projects/'+doc.id,bc,{revision:0,edits:[{action:'paint',commands:[{op:'clear'}]}]}),
   ])assert.equal(attempt.status,400,'another workspace must not access this project');
   assert.equal((await f.project('GET','projects/'+doc.id,ac)).status,200);

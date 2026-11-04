@@ -3,6 +3,7 @@ import { frameCount, frameView, type PaintCommand } from './pixels.ts';
 import { buildSpriteSheet } from './sprite-sheet.ts';
 import { EFFECT_KINDS, generateEffectCommands, regenerateEffectCommands, type EffectKind } from './effects.ts';
 import { encodePng, encodeRgbaPng } from './png.ts';
+import { encodeSvg, encodeRgbaSvg } from './svg.ts';
 
 const id={type:'string',description:'Project ID returned by create_canvas or list_canvases.'};
 const rev={type:'integer',minimum:0,description:'Current document revision. Reload with get_canvas after a conflict.'};
@@ -31,8 +32,10 @@ export const toolDefinitions=[
     inputSchema:schema({id,revision:rev},['id','revision'])},
   {name:'export_png',description:'Export a RGBA PNG of an animation frame (default frame 0). Integer nearest-neighbor scale.',
     inputSchema:schema({id,frame,scale:{type:'integer',minimum:1,maximum:16}},['id']),annotations:{readOnlyHint:true}},
-  {name:'export_sprite_sheet',description:'Export a composited PNG sprite sheet and JSON atlas for all frames.',
-    inputSchema:schema({id,columns:{type:'integer',minimum:1,maximum:32}},['id']),annotations:{readOnlyHint:true}},
+  {name:'export_svg',description:'Export one animation frame (default 0) as real vector pixel rectangles with transparency. Returns SVG text as an embedded resource. Scale sets display size; the native viewBox stays unchanged.',
+    inputSchema:schema({id,frame,scale:{type:'integer',minimum:1,maximum:16}},['id']),annotations:{readOnlyHint:true}},
+  {name:'export_sprite_sheet',description:'Export a composited PNG (default) or SVG sprite sheet and matching JSON atlas for all frames. SVG is a static sheet of vector pixels.',
+    inputSchema:schema({id,columns:{type:'integer',minimum:1,maximum:32},format:{type:'string',enum:['png','svg']}},['id']),annotations:{readOnlyHint:true}},
   {name:'generate_effect',description:'Generate a seeded, editable procedural VFX layer and save a recipe so it can be regenerated.',
     inputSchema:schema({id,revision:rev,kind:{type:'string',enum:[...EFFECT_KINDS]},
       seed:{type:'integer',minimum:0,maximum:2147483647},ink:{type:'string'},
@@ -51,7 +54,7 @@ export async function callTool(service:ProjectService,name:string,args:Record<st
         revision:d.revision,layers:d.layers.map(({id,name,visible})=>({id,name,visible})),frames:frameCount(d)})))}]};
     let doc;
     if(name==='create_canvas')doc=await service.create(args.name as string,args.width as number,args.height as number);
-    else if(['get_canvas','export_png','export_sprite_sheet','generate_effect','regenerate_effect'].includes(name)) {
+    else if(['get_canvas','export_png','export_svg','export_sprite_sheet','generate_effect','regenerate_effect'].includes(name)) {
       const original=(await service.get(args.id as string)).entry.doc;
       if(name==='generate_effect'){
         doc=await service.edit(args.id as string,args.revision as number,'paint',
@@ -80,8 +83,17 @@ export async function callTool(service:ProjectService,name:string,args:Record<st
         frame:index,scale,download:`/api/pixel/projects/${doc.id}/png?scale=${scale}&frame=${index}`})},
         {type:'image' as const,mimeType:'image/png',data:encodePng(view,scale).toString('base64')}]};
     }
+    if(name==='export_svg'){
+      const index=(args.frame as number)??0,scale=(args.scale as number)??1;
+      const svg=encodeSvg(frameView(doc,index),scale);
+      return {content:[{type:'text' as const,text:JSON.stringify({id:doc.id,width:doc.width,height:doc.height,
+        frame:index,scale,download:`/api/pixel/projects/${doc.id}/svg?scale=${scale}&frame=${index}`})},
+        {type:'resource' as const,resource:{uri:`pixel-workshop://projects/${encodeURIComponent(doc.id)}/frame-${index}.svg`,mimeType:'image/svg+xml',text:svg}}]};
+    }
     if(name==='export_sprite_sheet'){
-      const sheet=buildSpriteSheet(doc,args.columns as number|undefined);
+      const sheet=buildSpriteSheet(doc,args.columns as number|undefined,(args.format??'png') as 'png'|'svg');
+      if(args.format==='svg')return {content:[{type:'text' as const,text:JSON.stringify(sheet.atlas)},
+        {type:'resource' as const,resource:{uri:`pixel-workshop://projects/${encodeURIComponent(doc.id)}/sheet.svg`,mimeType:'image/svg+xml',text:encodeRgbaSvg(sheet.bytes,sheet.width,sheet.height)}}]};
       return {content:[{type:'text' as const,text:JSON.stringify(sheet.atlas)},
         {type:'image' as const,mimeType:'image/png',data:encodeRgbaPng(sheet.bytes,sheet.width,sheet.height).toString('base64')}]};
     }

@@ -30,7 +30,7 @@ test('stored ZIP can be read without compression and rejects traversal or duplic
   {path:'SAME.txt',data:new Uint8Array()},{path:'same.txt',data:new Uint8Array()}
  ]),/duplicate/);
 });
-test('game pack includes editable JSON, PNG sheets, named-clip atlases and a manifest',()=>{
+test('game pack includes editable JSON, PNG and SVG sheets, matching named-clip atlases and a manifest',()=>{
  const hero=applyCommands(createDocument('Hero',4,4,'hero'),[
   {op:'pixel',x:1,y:1,color:'#facade'},
   {op:'frame_add',source_frame:0},
@@ -51,6 +51,12 @@ test('game pack includes editable JSON, PNG sheets, named-clip atlases and a man
   assert.equal(source.name,entry.name);
   assert.equal(atlas.frames.length,entry.frames);
   assert.equal(png.width,atlas.width);assert.equal(png.height,atlas.height);
+  const svg=new TextDecoder().decode(contents[entry.svgSheet]);
+  const svgAtlas=JSON.parse(new TextDecoder().decode(contents[entry.svgAtlas]));
+  assert.match(svg,new RegExp(`viewBox="0 0 ${atlas.width} ${atlas.height}"`));
+  assert.equal(svgAtlas.image,entry.svgSheet.split('/').pop());
+  assert.deepEqual({...svgAtlas,image:atlas.image},atlas);
+  assert.doesNotMatch(svg,/<image/);
  }
  const heroAtlas=JSON.parse(new TextDecoder().decode(contents[manifest.assets[0].atlas]));
  assert.deepEqual(heroAtlas.clips[0].frames,[0,1]);

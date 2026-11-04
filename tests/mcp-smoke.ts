@@ -20,11 +20,17 @@ const client=new Client({name:'pixel-workshop-verification',version:'1.0.0'});
 const transport=remote?new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)):new StdioClientTransport({command:process.execPath,args:['--experimental-strip-types','server/stdio.ts'],env:{...process.env,PIXEL_DATA_DIR:'./artifacts/mcp-projects'} as Record<string,string>});
 try {
 await client.connect(transport);
-const listed=await client.listTools();assert.equal(listed.tools.length,9);
+const listed=await client.listTools();assert.ok(listed.tools.some(tool=>tool.name==='export_svg'));assert.ok(listed.tools.some(tool=>tool.name==='export_png'));
 const created=await client.callTool({name:'create_canvas',arguments:{name:cottage?'Moonkeeper’s cottage':remote?'MCP-painted lantern':'Stdio-painted lantern',width:size,height:size}}) as any;
 assert.ok(!created.isError,created.content[0].text);const doc=JSON.parse(created.content[0].text);
 const painted=await client.callTool({name:'paint',arguments:{id:doc.id,revision:0,commands}}) as any;assert.ok(!painted.isError,painted.content[0].text);
 const exported=await client.callTool({name:'export_png',arguments:{id:doc.id}}) as any;assert.ok(!exported.isError);const bytes=Buffer.from(exported.content.find((c:any)=>c.type==='image').data,'base64'),png=PNG.sync.read(bytes);assert.equal(png.width,size);assert.equal(png.height,size);assert.equal(png.data[3],0);
+const vector=await client.callTool({name:'export_svg',arguments:{id:doc.id,scale:2}}) as any;
+assert.ok(!vector.isError);const svg=vector.content.find((c:any)=>c.type==='resource').resource;
+assert.equal(svg.mimeType,'image/svg+xml');assert.match(svg.text,new RegExp(`viewBox="0 0 ${size} ${size}"`));assert.match(svg.text,/<rect /);assert.doesNotMatch(svg.text,/<image/);
+const vectorSheet=await client.callTool({name:'export_sprite_sheet',arguments:{id:doc.id,format:'svg'}}) as any;
+assert.ok(!vectorSheet.isError);assert.ok(JSON.parse(vectorSheet.content[0].text).image.endsWith('-sheet.svg'));
+assert.equal(vectorSheet.content[1].resource.mimeType,'image/svg+xml');
 const inspected=await client.callTool({name:'get_canvas',arguments:{id:doc.id,include_pixels:true}}) as any;let saved=JSON.parse(inspected.content[0].text);assert.equal(saved.layers.length,cottage?5:2);assert.equal(saved.revision,1);
 if(process.argv.includes('--blob')){
  const contenders=await Promise.allSettled([service.edit(doc.id,1,'paint',[{op:'rename',name:saved.name}]),service.edit(doc.id,1,'paint',[{op:'rename',name:saved.name}])]);

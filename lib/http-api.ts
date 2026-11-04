@@ -2,6 +2,7 @@ import type { ProjectService } from './project-service.ts';
 import { lanternDemo } from './demo.ts';
 import { cottageDemo } from './cottage.ts';
 import { encodePng } from './png.ts';
+import { encodeSvg } from './svg.ts';
 import { frameView } from './pixels.ts';
 export async function pixelApi(request:Request,service:ProjectService) {
   const url=new URL(request.url),parts=url.pathname.replace(/^\/api\/pixel\/?/,'').split('/').filter(Boolean);
@@ -10,6 +11,7 @@ export async function pixelApi(request:Request,service:ProjectService) {
       if(!parts[1])return Response.json((await service.store.list()).map(({id,name,width,height,revision,updatedAt})=>({id,name,width,height,revision,updatedAt})),{headers:{'cache-control':'no-store'}});
       const {entry}=await service.get(parts[1]);
       if(parts[2]==='png')return new Response(new Uint8Array(encodePng(frameView(entry.doc,Number(url.searchParams.get('frame')||0)),Number(url.searchParams.get('scale')||1))),{headers:{'content-type':'image/png','content-disposition':`attachment; filename="${entry.doc.name.replace(/[^a-z0-9_-]/gi,'-')}.png"`,'cache-control':'no-store'}});
+      if(parts[2]==='svg')return new Response(encodeSvg(frameView(entry.doc,Number(url.searchParams.get('frame')||0)),Number(url.searchParams.get('scale')||1)),{headers:{'content-type':'image/svg+xml; charset=utf-8','content-disposition':`attachment; filename="${entry.doc.name.replace(/[^a-z0-9_-]/gi,'-')}.svg"`,'cache-control':'no-store','x-content-type-options':'nosniff'}});
       return Response.json({doc:entry.doc,canUndo:entry.undo.length>0,canRedo:entry.redo.length>0},{headers:{'cache-control':'no-store'}});
     }
     if(request.method==='POST'&&parts[0]==='projects'){

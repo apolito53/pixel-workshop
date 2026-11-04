@@ -24,3 +24,21 @@ test('tileset export rejects uneven dimensions or impossible sizes',()=>{
  assert.throws(()=>buildTileAtlas(d,0),/tile width/);
  assert.throws(()=>buildTileAtlas(d,16),/divide evenly/);
 });
+test('tileset ZIP includes SVG for the selected frame with matching tile coordinates',()=>{
+ const doc=applyCommands(createDocument('Tiles',4,4),[
+  {op:'frame_add',blank:true},{op:'pixel',frame:1,x:3,y:3,color:'#abcdef80'},
+ ]);
+ const {bytes,atlas}=buildTilesetPack(doc,2,2,1);
+ const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),text=new TextDecoder();
+ const files:Record<string,string>={};let offset=0;
+ while(view.getUint32(offset,true)===0x04034b50){
+  const length=view.getUint32(offset+18,true),nameSize=view.getUint16(offset+26,true),extra=view.getUint16(offset+28,true);
+  const start=offset+30+nameSize+extra;
+  files[text.decode(bytes.subarray(offset+30,offset+30+nameSize))]=text.decode(bytes.subarray(start,start+length));
+  offset=start+length;
+ }
+ assert.equal(Object.keys(files).length,5);
+ assert.match(files['Tiles-tiles.svg'],/<rect x="3" y="3" width="1" height="1" fill="#abcdef" fill-opacity=/);
+ assert.deepEqual(JSON.parse(files['Tiles-tileset-svg.json']),{...atlas,image:'Tiles-tiles.svg'});
+ assert.equal(atlas.frame,1);
+});
