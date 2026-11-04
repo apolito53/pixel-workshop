@@ -23,7 +23,7 @@ export async function pixelApi(request:Request,service:ProjectService) {
         return Response.json({doc,canUndo:false,canRedo:false});
       }
       const edits=body.edits??[{action:body.action,commands:body.commands}];
-      return Response.json(await service.editSnapshot(parts[1],body.revision,edits,body.requestId));
+      return Response.json(await service.editSnapshot(parts[1],body.revision,edits,body.requestId,body.expectedLastRequestId));
     }
     return Response.json({error:'Route not found'},{status:404});
   }catch(e){const message=e instanceof Error?e.message:'Request failed';return Response.json({error:message},{status:/changed/.test(message)?409:400});}

@@ -14,16 +14,18 @@ export class ProjectService {
   async edit(id:string,revision:number,action:'paint'|'undo'|'redo',commands?:PaintCommand[]){
     return (await this.editSnapshot(id,revision,[{action,commands}])).doc;
   }
-  async editSnapshot(id:string,revision:number,edits:EditorEdit[],requestId?:string):Promise<EditorSnapshot>{
+  async editSnapshot(id:string,revision:number,edits:EditorEdit[],requestId?:string,expectedLastRequestId?:string):Promise<EditorSnapshot>{
     if(!Array.isArray(edits)||!edits.length||edits.length>8||edits.some(e=>!e||!['paint','undo','redo'].includes(e.action)))throw new Error('Send 1–8 valid edits in one save.');
     if(edits.reduce((n,e)=>n+(e.commands?.length??0),0)>5000)throw new Error('Send at most 5000 drawing commands in one save.');
     if(requestId!==undefined&&(typeof requestId!=='string'||!/^[a-z0-9_-]{1,100}$/i.test(requestId)))throw new Error('Invalid save request ID.');
+    if(expectedLastRequestId!==undefined&&(typeof expectedLastRequestId!=='string'||!/^[a-z0-9_-]{1,100}$/i.test(expectedLastRequestId)||edits.length!==1||edits[0].action!=='undo'))throw new Error('Invalid guarded undo.');
     const {entry,etag}=await this.get(id);
     const snapshot=()=>({doc:entry.doc,canUndo:!!entry.undo.length,canRedo:!!entry.redo.length});
     // A lost response can be retried without painting twice or adding another
     // undo step. A later external edit still triggers the revision guard.
     if(requestId&&entry.lastRequest?.id===requestId&&entry.lastRequest.revision===entry.doc.revision)return snapshot();
     if(revision!==entry.doc.revision)throw new Error('This project changed. Reload it before applying your edit.');
+    if(expectedLastRequestId&&(entry.lastRequest?.id!==expectedLastRequestId||entry.lastRequest.revision!==entry.doc.revision))throw new Error('This project changed since the kit edit.');
     const work={spent:0};
     for(const {action,commands} of edits){
      const old=entry.doc;

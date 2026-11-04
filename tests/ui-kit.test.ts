@@ -2,7 +2,10 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {applyCommands,composite,createDocument,frameView,validateDocument,type PixelDocument} from '../lib/pixels.ts';
 import type {Entry} from '../lib/project-service.ts';
-import {stretchNineSlice} from '../lib/ui-metadata.ts';
+import {nineSliceContentBounds,stretchNineSlice} from '../lib/ui-metadata.ts';
+import {hasUiDraft,parseUiDrafts,setProjectDraft} from '../lib/ui-drafts.ts';
+import {matchUiReturn,parseUiReturn} from '../lib/ui-return.ts';
+import {kitSignature,overviewKit,parseKitUndo,reviewKitColor,validateKitUndo} from '../lib/kit-review.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
 import {buildGamePack} from '../lib/game-pack.ts';
 
@@ -18,6 +21,34 @@ test('nine-slice preview preserves corners and alpha while scaling the center',(
  assert.deepEqual(get(image,9,4,3),get(source,5,2,2));
  assert.throws(()=>stretchNineSlice(source,5,5,{left:3,right:2,top:1,bottom:1},9,7),/center pixel/);
  assert.throws(()=>stretchNineSlice(source,5,5,{left:2,right:2,top:1,bottom:1},4,7),/Preview width/);
+});
+test('content bounds follow the fixed edges and stretched center',()=>{
+ const slice={left:2,right:2,top:2,bottom:2,content:{left:3,right:3,top:1,bottom:3}};
+ const bounds=nineSliceContentBounds(10,10,slice,22,16)!;
+ assert.equal(bounds.left,5);assert.equal(bounds.width,12);
+ assert.equal(bounds.top,1);assert.equal(bounds.height,11);
+ assert.equal(nineSliceContentBounds(10,10,{left:2,right:2,top:2,bottom:2},22,16),null);
+ assert.throws(()=>nineSliceContentBounds(10,10,slice,4,16),/Preview width/);
+});
+test('UI drafts survive serialization and stay scoped to their project',()=>{
+ const slice={left:2,right:2,top:2,bottom:2,content:{left:3,right:3,top:3,bottom:3}};
+ const draft={slice:{base:'null',value:slice},slot:{base:'[]',name:'hover',frame:1},
+  assignment:{base:'["",""]',kitId:'moon',assetKey:'uiPanel'},
+  text:{'base@0':{base:'null',value:{text:'WIP',color:'#bad',x:1,y:1,frame:0,scale:1,spacing:1}}}};
+ const original={},stored=setProjectDraft(original,'one',draft);
+ assert.deepEqual(original,{});assert.deepEqual(parseUiDrafts(JSON.stringify(stored)),stored);
+ assert.equal(hasUiDraft(stored.one),true);assert.deepEqual(setProjectDraft(stored,'one',{}),{});
+ assert.deepEqual(parseUiDrafts('not json'),{});assert.deepEqual(parseUiDrafts('x'.repeat(300_001)),{});
+ assert.deepEqual(parseUiDrafts(JSON.stringify({'../other':draft,valid:{slot:{name:'bad'}}})),{});
+});
+test('editor return points are validated and cannot cross workspace boundaries',()=>{
+ const point={format:'pixel-workshop-ui-return/1',workspaceId:'workspace-a',projectId:'project-1',frame:2,layer:'details',sections:['panel','kit']};
+ const parsed=parseUiReturn(JSON.stringify(point));assert.deepEqual(parsed,point);
+ assert.equal(matchUiReturn(parsed,'workspace-a',['project-1']),parsed);
+ assert.equal(matchUiReturn(parsed,'workspace-b',['project-1']),null);
+ assert.equal(matchUiReturn(parsed,'workspace-a',['other']),null);
+ assert.equal(parseUiReturn(JSON.stringify({...point,frame:99})),null);
+ assert.equal(parseUiReturn(JSON.stringify({...point,sections:['unknown']})),null);
 });
 test('UI metadata survives native projects and both atlas and pack exports',()=>{
  const slice={left:2,top:2,right:2,bottom:2,content:{left:3,top:3,right:3,bottom:3}};
@@ -66,6 +97,47 @@ test('palette remapping reaches hidden layers and every frame without changing t
  assert.equal(changed.animation?.frames[0].pixels.base[0],0x00ff0080);
  assert.deepEqual(changed.palette,['#00ff00','#12345680']);
  assert.equal(d.layers[0].pixels[0],0xff000080);
+});
+test('kit review previews visible pixels and counts all frames, hidden layers and palette entries',()=>{
+ const doc=applyCommands(createDocument('Panel',8,8,'panel'),[
+  {op:'pixel',x:0,y:0,color:'#ff000080'},{op:'add_layer',id:'hidden',name:'Hidden'},
+  {op:'pixel',layer:'hidden',x:1,y:1,color:'#ff000040'},{op:'visibility',layer:'hidden',visible:false},
+  {op:'frame_add',id:'second',source_frame:0},{op:'palette',colors:['#ff0000']},
+  {op:'ui_set',ui:{kitId:'kit-one',assetKey:'uiPanel'}}
+ ]);
+ const untouched=createDocument('Other',8,8,'other');
+ const review=reviewKitColor([doc,untouched],'kit-one','#ff0000','#00ff00');
+ assert.equal(review.impacts.length,1);assert.equal(review.impacts[0].pixels,4);assert.equal(review.impacts[0].metadata,true);
+ assert.deepEqual(Array.from(review.impacts[0].before.slice(0,4)),[255,0,0,128]);
+ assert.deepEqual(Array.from(review.impacts[0].after.slice(0,4)),[0,255,0,128]);
+ assert.equal(review.signature,kitSignature([untouched,doc]));
+ assert.notEqual(review.signature,kitSignature([{...doc,revision:doc.revision+1},untouched]));
+ const overview=overviewKit([doc,untouched]);assert.equal(overview.count,2);
+ assert.equal(overview.members.find(item=>item.id==='panel')?.assetKey,'uiPanel');
+ assert.ok(overview.colors.includes('#ff0000'));
+});
+test('kit-wide undo requires the exact latest recolor and retries safely after a lost response',async()=>{
+ const {ProjectService}=await import('../lib/project-service.ts');
+ const {pixelApi}=await import('../lib/http-api.ts');
+ const entries=new Map<string,{entry:Entry;etag:string}>();let version=0;
+ const service=new ProjectService({
+  async list(){return [...entries.values()].map(item=>structuredClone(item.entry.doc));},
+  async get(id){return structuredClone(entries.get(id)??null);},
+  async put(id,entry,etag){if(entries.get(id)?.etag!==etag)throw new Error('This project changed.');entries.set(id,{entry:structuredClone(entry),etag:String(++version)});}
+ });
+ const initial=await service.create('Panel',8,8);
+ const painted=await service.editSnapshot(initial.id,initial.revision,[{action:'paint',commands:[{op:'pixel',x:0,y:0,color:'#ff0000'}]}],'original-edit');
+ const recolored=await service.editSnapshot(initial.id,painted.doc.revision,[{action:'paint',commands:[{op:'palette_remap',fromColor:'#ff0000',toColor:'#00ff00'}]}],'kit-color-1');
+ const journal={kitId:'kit-one',from:'#ff0000',to:'#00ff00',entries:[{id:initial.id,name:'Panel',revision:recolored.doc.revision,requestId:'kit-color-1'}]};
+ assert.deepEqual(parseKitUndo(JSON.stringify(journal)),journal);assert.equal(validateKitUndo(journal,[recolored.doc]),null);
+ assert.match(validateKitUndo(journal,[{...recolored.doc,revision:recolored.doc.revision+1}])!,/changed/);
+ const request=(expected:string)=>new Request(`https://workshop.test/api/pixel/projects/${initial.id}`,{method:'POST',body:JSON.stringify({revision:recolored.doc.revision,action:'undo',requestId:'kit-undo-1',expectedLastRequestId:expected})});
+ const blocked=await pixelApi(request('different-edit'),service);assert.equal(blocked.status,409);
+ assert.equal((await service.get(initial.id)).entry.doc.layers[0].pixels[0],0x00ff00ff);
+ const undone=await pixelApi(request('kit-color-1'),service);assert.equal(undone.status,200);
+ const repeated=await pixelApi(request('kit-color-1'),service);assert.equal(repeated.status,200);
+ assert.equal((await service.get(initial.id)).entry.doc.layers[0].pixels[0],0xff0000ff);
+ assert.equal((await service.get(initial.id)).entry.doc.revision,recolored.doc.revision+1);
 });
 
 test('exported kit can be read back and refuses corrupted ZIP contents',async()=>{

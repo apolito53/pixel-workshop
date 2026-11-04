@@ -6,6 +6,7 @@ import {composite,frameCount,frameView,type PixelDocument} from '../../../lib/pi
 import {createStardropArt,STARDROP_ASSETS,type StardropArt,type StardropArtName} from '../../../lib/stardrop-art.ts';
 import {STARDROP_UI_ASSETS,UI_ICONS,UI_STATES,UI_SLICES,type UiIconName} from '../../../lib/stardrop-ui-art.ts';
 import {applyStardropUiKit,uiFrame} from '../../../lib/stardrop-kit.ts';
+import {parseUiReturn,UI_RETURN_KEY} from '../../../lib/ui-return.ts';
 import {buildSpriteSheet} from '../../../lib/sprite-sheet.ts';
 import {encodeRgbaSvg} from '../../../lib/svg.ts';
 import './stardrop.css';
@@ -221,7 +222,7 @@ export default function MoonkeeperGame(){
   const [skin,setSkin]=useState<CSSProperties>({});
   const [error,setError]=useState('');
   const [packError,setPackError]=useState(''),[downloadingPack,setDownloadingPack]=useState(false);
-  const [kitMessage,setKitMessage]=useState('Original Stardrop UI kit'),[customKit,setCustomKit]=useState(false);
+  const [kitMessage,setKitMessage]=useState('Original Stardrop UI kit'),[customKit,setCustomKit]=useState(false),[canReturnToEditor,setCanReturnToEditor]=useState(false);
   const [ui,setUi]=useState<View>(()=>view(gameRef.current,0));
   const playSound=useCallback((kind:'star'|'hurt'|'jump'|'pulse'|'win')=>{
     if(!soundOnRef.current)return;
@@ -294,7 +295,8 @@ export default function MoonkeeperGame(){
           const raw=sessionStorage.getItem('pixel-workshop-ui-preview-v1');
           if(raw){const payload=JSON.parse(raw) as {format?:string;documents?:unknown[]};
             if(payload.format!=='pixel-workshop-ui-preview/1'||!payload.documents)throw new Error('This UI preview is invalid.');
-            const merged=applyStardropUiKit(a,payload.documents);a=merged.art;setCustomKit(true);setKitMessage(`Previewing ${merged.count} edited UI assets`);}
+            const merged=applyStardropUiKit(a,payload.documents);a=merged.art;setCustomKit(true);setKitMessage(`Previewing ${merged.count} edited UI assets in this tab`);
+            setCanReturnToEditor(!!parseUiReturn(sessionStorage.getItem(UI_RETURN_KEY)));}
         }catch(e){setPackError((e as Error).message+' The original kit is shown.');}
       }
       installArt(a);
@@ -396,6 +398,7 @@ export default function MoonkeeperGame(){
       const kitId='kit-'+crypto.randomUUID();
       const documents=STARDROP_UI_ASSETS.map(({key})=>art[key]);
       sessionStorage.setItem('pixel-workshop-pending-ui-kit-v1',JSON.stringify({format:'pixel-workshop-ui-kit-import/1',kitId,documents}));
+      sessionStorage.removeItem(UI_RETURN_KEY);
       window.location.assign('/');
     }catch(e){setPackError(e instanceof Error?e.message:'Could not open the UI kit.');}
   };
@@ -406,19 +409,20 @@ export default function MoonkeeperGame(){
       const documents=readGamePack(new Uint8Array(await file.arrayBuffer()));
       const merged=applyStardropUiKit(createStardropArt(),documents);
       sessionStorage.setItem('pixel-workshop-ui-preview-v1',JSON.stringify({format:'pixel-workshop-ui-preview/1',documents}));
+      sessionStorage.removeItem(UI_RETURN_KEY);setCanReturnToEditor(false);
       window.history.replaceState(null,'','/play/moonkeeper?uiPreview=1');
       if(gameRef.current.phase==='running')gameRef.current.phase='paused';keysRef.current.clear();
-      installArt(merged.art);setUi(view(gameRef.current,bestRef.current));setCustomKit(true);setPackError('');setKitMessage(`Previewing ${merged.count} edited UI assets`);
+      installArt(merged.art);setUi(view(gameRef.current,bestRef.current));setCustomKit(true);setPackError('');setKitMessage(`Previewing ${merged.count} edited UI assets in this tab`);
     }catch(e){setPackError(e instanceof Error?e.message:'Unable to load that UI kit.');}
   };
   const restoreKit=()=>{
-    try{sessionStorage.removeItem('pixel-workshop-ui-preview-v1');window.history.replaceState(null,'','/play/moonkeeper');}catch{}
+    try{sessionStorage.removeItem('pixel-workshop-ui-preview-v1');sessionStorage.removeItem(UI_RETURN_KEY);window.history.replaceState(null,'','/play/moonkeeper');}catch{}
     if(gameRef.current.phase==='running')gameRef.current.phase='paused';keysRef.current.clear();
-    installArt(createStardropArt());setUi(view(gameRef.current,bestRef.current));setCustomKit(false);setKitMessage('Original Stardrop UI kit');setPackError('');
+    installArt(createStardropArt());setUi(view(gameRef.current,bestRef.current));setCustomKit(false);setCanReturnToEditor(false);setKitMessage('Original Stardrop UI kit');setPackError('');
   };
   return <main className="stardrop" style={skin}>
     <header className="stardrop-topbar">
-      <Link className="stardrop-back stardrop-button" href="/"><UiIcon name="back"/>PIXEL WORKSHOP</Link>
+      <Link className="stardrop-back stardrop-button" href={canReturnToEditor?'/?resumeUiKit=1':'/'}><UiIcon name="back"/>{canReturnToEditor?'RETURN TO EDITOR':'PIXEL WORKSHOP'}</Link>
       <span className="stardrop-edition">A LITTLE WORLD, MADE OF PIXELS <span>·</span> BUILD 02</span>
       <button className="stardrop-sound stardrop-button" type="button" onClick={toggleSound} aria-pressed={soundOn}><UiIcon name={soundOn?'sound':'soundOff'}/>{soundOn?'SOUND ON':'SOUND OFF'}</button>
     </header>
@@ -480,7 +484,8 @@ export default function MoonkeeperGame(){
         <div className="stardrop-kit-tools" aria-label="Stardrop UI kit">
           <div><strong>Make this interface yours</strong><span role="status">{kitMessage}</span></div>
           <div className="stardrop-kit-actions">
-            <button className="stardrop-button" type="button" disabled={!art} onClick={editUiKit}>EDIT UI KIT IN WORKSHOP</button>
+            {canReturnToEditor&&<Link className="stardrop-button" href="/?resumeUiKit=1">RETURN TO EDITOR</Link>}
+            <button className="stardrop-button" type="button" disabled={!art} onClick={editUiKit}>{canReturnToEditor?'MAKE A NEW KIT COPY':'EDIT UI KIT IN WORKSHOP'}</button>
             <button className="stardrop-button" type="button" onClick={()=>kitFile.current?.click()}>LOAD UI KIT ZIP</button>
             {customKit&&<button className="stardrop-button" type="button" onClick={restoreKit}>RESTORE ORIGINAL</button>}
           </div>

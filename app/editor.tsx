@@ -12,6 +12,9 @@ import {EditQueue,type EditorSnapshot,type QueueState} from '../lib/edit-queue.t
 import {beginPinch,movePinch,finishPinch,touchMidpoint,type GesturePoint,type PinchStart,type PinchView,type GestureViewport} from '../lib/touch-gestures.ts';
 import {INSPECTOR_TABS,inspectorTabForKey,type InspectorTab} from '../lib/inspector-tabs.ts';
 import UiKitPanel from './ui-kit-panel.tsx';
+import {hasUiDraft,parseUiDrafts,setProjectDraft,type UiDraft,type UiDraftMap} from '../lib/ui-drafts.ts';
+import {matchUiReturn,parseUiReturn,UI_RETURN_KEY,type UiReturn,type UiSection} from '../lib/ui-return.ts';
+import {kitSignature,overviewKit,parseKitUndo,reviewKitColor,validateKitUndo,type KitColorReview,type KitUndo} from '../lib/kit-review.ts';
 import {guideSteps,type GuideScope} from '../lib/workshop-guide.ts';
 import {clipRange,clipsAtFrame,type ClipRange} from '../lib/clip-range.ts';
 import WorkshopGuide from './workshop-tour.tsx';
@@ -27,6 +30,7 @@ const tools=[['pencil',Pencil,'Pencil','B'],['eraser',Eraser,'Eraser','E'],['fil
 const drawerToolLabels:Partial<Record<Tool,string>>={stamp:'Stamp'};
 async function api<T>(path:string,body?:unknown):Promise<T>{const r=await fetch('/api/pixel/'+path,{method:body?'POST':'GET',headers:body?{'content-type':'application/json'}:{},...(body?{body:JSON.stringify(body)}:{}),cache:'no-store'});const d=await r.json() as T & {error?:string};if(!r.ok)throw Object.assign(new Error(d.error||'Request failed'),{status:r.status});return d;}
 const PENDING_UI_KIT='pixel-workshop-pending-ui-kit-v1';
+const NO_UI_DRAFT:UiDraft={};
 let pendingUiImport:Promise<string|null>|null=null;
 /** Import copies into the active workspace, keeping progress if a request fails. */
 async function importPendingKit():Promise<string|null>{
@@ -75,6 +79,41 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  const guideToggleRef=useRef<HTMLButtonElement>(null);
  const guidePreviousRef=useRef<{tab:InspectorTab;inspectorOpen:boolean;drawOpen:boolean}|null>(null);
  const [inspectorTab,setInspectorTab]=useState<InspectorTab>('draw');
+ const [uiSections,setUiSections]=useState<UiSection[]>(['panel']);
+ const [uiDrafts,setUiDrafts]=useState<UiDraftMap>({}),[uiDraftStorageError,setUiDraftStorageError]=useState(false);
+ const [kitUndo,setKitUndo]=useState<KitUndo|null>(null),[kitUndoStorageError,setKitUndoStorageError]=useState(false);
+ const uiDraftsRef=useRef<UiDraftMap>({}),uiDraftStorageErrorRef=useRef(false);
+ const uiDraftStoreKey='pixel-workshop-ui-drafts-v1-'+(workspaceId||'local');
+ const kitUndoStoreKey='pixel-workshop-kit-undo-v1-'+(workspaceId||'local');
+ useEffect(()=>{
+  try{const saved=parseUiDrafts(localStorage.getItem(uiDraftStoreKey));uiDraftsRef.current=saved;setUiDrafts(saved);uiDraftStorageErrorRef.current=false;setUiDraftStorageError(false);}
+  catch{uiDraftsRef.current={};setUiDrafts({});uiDraftStorageErrorRef.current=true;setUiDraftStorageError(true);}
+ },[uiDraftStoreKey]);
+ useEffect(()=>{try{setKitUndo(parseKitUndo(localStorage.getItem(kitUndoStoreKey)));setKitUndoStorageError(false);}catch{setKitUndo(null);setKitUndoStorageError(true);}},[kitUndoStoreKey]);
+ const keepKitUndo=useCallback((journal:KitUndo|null)=>{
+  setKitUndo(journal);
+  try{if(journal?.entries.length)localStorage.setItem(kitUndoStoreKey,JSON.stringify(journal));else localStorage.removeItem(kitUndoStoreKey);setKitUndoStorageError(false);}
+  catch{setKitUndoStorageError(true);}
+ },[kitUndoStoreKey]);
+ const updateUiDraft=useCallback((id:string,change:(old:UiDraft)=>UiDraft)=>{
+  // Preserve drafts made in other projects by another tab. A single project
+  // should still be edited in one tab at a time so its fields do not race.
+  let otherDrafts:UiDraftMap={};
+  try{otherDrafts=parseUiDrafts(localStorage.getItem(uiDraftStoreKey));}catch{}
+  const combined=uiDraftStorageErrorRef.current?{...otherDrafts,...uiDraftsRef.current}:{...uiDraftsRef.current,...otherDrafts};
+  const next=setProjectDraft(combined,id,change(uiDraftsRef.current[id]??otherDrafts[id]??NO_UI_DRAFT));
+  uiDraftsRef.current=next;setUiDrafts(next);
+  try{
+   const serialized=JSON.stringify(next);
+   if(serialized.length>300_000||Object.keys(next).length>100)throw new Error('Too many local drafts.');
+   if(Object.keys(next).length)localStorage.setItem(uiDraftStoreKey,serialized);else localStorage.removeItem(uiDraftStoreKey);
+   uiDraftStorageErrorRef.current=false;setUiDraftStorageError(false);
+  }catch{uiDraftStorageErrorRef.current=true;setUiDraftStorageError(true);}
+ },[uiDraftStoreKey]);
+ const toggleUiSection=useCallback((section:UiSection,open:boolean)=>setUiSections(old=>{
+  if(old.includes(section)===open)return old;
+  return open?[...old,section]:old.filter(item=>item!==section);
+ }),[]);
  const [canvasPan,setCanvasPan]=useState<GesturePoint>({x:0,y:0});
  const [pinchScale,setPinchScale]=useState(1);
  const panRef=useRef<GesturePoint>({x:0,y:0});
@@ -108,6 +147,19 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  const previewPosition=useRef(0);
  const guideStep=guide.mode==='tour'?guideSteps(guide.scope)[guide.index]:undefined;
  const queue=useRef<EditQueue|null>(null),viewport=useRef<HTMLDivElement>(null),selectionDrag=useRef<{base:Snapshot;start:{x:number;y:number};source:PixelRegion|null;region:PixelRegion;layer:string;frame:number}|null>(null),canvas=useRef<HTMLCanvasElement>(null),preview=useRef<HTMLCanvasElement>(null),file=useRef<HTMLInputElement>(null),current=useRef(snap),locked=useRef(false),stroke=useRef<{base:Snapshot;start:{x:number;y:number};last:{x:number;y:number};ops:PaintCommand[];frame:number}|null>(null);
+ useEffect(()=>{
+  const receive=(event:StorageEvent)=>{
+   if(event.key!==uiDraftStoreKey)return;
+   try{
+    const saved=parseUiDrafts(localStorage.getItem(uiDraftStoreKey)),previous=uiDraftsRef.current,active=current.current?.doc.id;
+    // Never replace the draft currently being edited in this tab.
+    const next=uiDraftStorageErrorRef.current?{...saved,...previous}:{...saved};
+    if(active&&previous[active])next[active]=previous[active];
+    uiDraftsRef.current=next;setUiDrafts(next);
+   }catch{}
+  };
+  window.addEventListener('storage',receive);return()=>window.removeEventListener('storage',receive);
+ },[uiDraftStoreKey]);
  const stampStoreKey='pixel-workshop-stamps-v1-'+(workspaceId||'local');
  useEffect(()=>{
   try{const saved=localStorage.getItem(stampStoreKey);setStampLibrary(saved?loadStamps(JSON.parse(saved)):[]);}
@@ -194,7 +246,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   const d=state.snapshot.doc;setList(items=>items.map(p=>p.id===d.id?{...p,name:d.name,revision:d.revision,updatedAt:d.updatedAt}:p));
  },[present]);
  const adopt=useCallback((s:Snapshot)=>{
-  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);setPreviewClip(null);setEffectTarget(null);setFxPreview(null);setConfirmFxOverwrite(false);setClipOriginal(null);setClipName('idle');setClipFrom(0);setClipTo(0);setClipRangeSelection(null);setRangeSelectMode(false);clipDragRef.current=null;resetPan();setFitMode(true);}
+  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);setPreviewClip(null);setEffectTarget(null);setFxPreview(null);setConfirmFxOverwrite(false);setClipOriginal(null);setClipName('idle');setClipFrom(0);setClipTo(0);setClipRangeSelection(null);setRangeSelectMode(false);setUiSections(['panel']);clipDragRef.current=null;resetPan();setFitMode(true);}
   queue.current?.dispose();queue.current=new EditQueue(s,request=>api<Snapshot>('projects/'+s.doc.id,request),showQueue);
   setSaveState({pending:0,saving:false,error:null});present(s);
  },[present,showQueue,resetPan]);
@@ -213,9 +265,20 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  },[snap?.doc.id]);
  useEffect(()=>{let alive=true;(async()=>{try{
   const imported=await importPendingKit();const entries=await api<PixelDocument[]>('projects');if(!alive)return;setList(entries);
-  const s=imported?await api<Snapshot>('projects/'+imported):entries.length?await api<Snapshot>('projects/'+entries[0].id):await api<Snapshot>('projects',{demo:true});
-  if(alive){adopt(s);if(imported){setInspectorTab('ui');setNotice('Stardrop UI kit added to your workspace');}else setNotice('All changes saved');await refresh();}
- }catch(e){if(alive)setError((e as Error).message);}})();return()=>{alive=false;queue.current?.dispose();};},[adopt,refresh]);
+  const wantsReturn=new URLSearchParams(window.location.search).get('resumeUiKit')==='1';
+  let resume:UiReturn|null=null;
+  if(wantsReturn)try{resume=parseUiReturn(sessionStorage.getItem(UI_RETURN_KEY));}catch{}
+  resume=matchUiReturn(resume,workspaceId||'local',entries.map(item=>item.id));
+  const s=imported?await api<Snapshot>('projects/'+imported):resume?await api<Snapshot>('projects/'+resume.projectId):entries.length?await api<Snapshot>('projects/'+entries[0].id):await api<Snapshot>('projects',{demo:true});
+  if(alive){adopt(s);
+   if(imported){setInspectorTab('ui');setNotice('Stardrop UI kit added to your workspace');}
+   else if(resume){setInspectorTab('ui');setInspectorOpen(true);setFrame(Math.min(resume.frame,frameCount(s.doc)-1));
+    if(s.doc.layers.some(item=>item.id===resume!.layer))setLayer(resume.layer);
+    setUiSections(resume.sections);setNotice('Returned to your UI kit');}
+   else setNotice(wantsReturn?'Could not restore that project in this workspace.':'All changes saved');
+   if(wantsReturn){try{sessionStorage.removeItem(UI_RETURN_KEY);window.history.replaceState(null,'','/');}catch{}}
+   await refresh();}
+ }catch(e){if(alive)setError((e as Error).message);}})();return()=>{alive=false;queue.current?.dispose();};},[adopt,refresh,workspaceId]);
  useEffect(()=>{
   const doc=snap?.doc;if(!doc)return;
   const index=Math.min(frame,frameCount(doc)-1),ghosts:PixelDocument[]=[];
@@ -351,23 +414,28 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
    if(queue.current===q&&!q.state.pending)await refresh();
   }catch{}
  },3000);return()=>clearInterval(t);},[adopt,refresh]);
- useEffect(()=>{const beforeUnload=(e:BeforeUnloadEvent)=>{if(queue.current?.state.pending||stroke.current||selectionDrag.current){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',beforeUnload);return()=>window.removeEventListener('beforeunload',beforeUnload);},[]);
+ useEffect(()=>{const beforeUnload=(e:BeforeUnloadEvent)=>{if(queue.current?.state.pending||stroke.current||selectionDrag.current||(uiDraftStorageErrorRef.current&&Object.keys(uiDraftsRef.current).length)){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',beforeUnload);return()=>window.removeEventListener('beforeunload',beforeUnload);},[]);
  const commit=useCallback(async(ops:PaintCommand[],base?:Snapshot,action='paint')=>{
   const q=queue.current;if(!q||locked.current||base&&base.doc.id!==q.state.snapshot.doc.id)return false;
   if(action==='undo'&&!q.state.snapshot.canUndo||action==='redo'&&!q.state.snapshot.canRedo)return false;
   setError('');try{q.enqueue({action:action as 'paint'|'undo'|'redo',...(action==='paint'?{commands:targetFrame(ops,Math.min(frame,frameCount(q.state.snapshot.doc)-1))}:{})});return true;}
   catch(e){present(q.state.snapshot);setError((e as Error).message);return false;}
  },[present,frame]);
+ const saveUiDraft=useCallback(async(ops:PaintCommand[])=>{
+  const q=queue.current;if(!q||!await commit(ops))return false;
+  try{await q.flush();return true;}catch(e){setError((e as Error).message);return false;}
+ },[commit]);
  const create=async(demo:boolean|'cottage'=false,document?:unknown,asCopy=false)=>{
   if(locked.current||stroke.current||selectionDrag.current)return;locked.current=true;setBusy(true);
   try{if(!asCopy)await queue.current?.flush();const s=await api<Snapshot>('projects',{name,width,height,demo,document});adopt(s);setFitMode(true);setModal(false);setError('');setNotice('All changes saved');await refresh();}
   catch(e){setError((e as Error).message);}finally{locked.current=false;setBusy(false);}
  };
  const open=async(id:string)=>{
-  if(locked.current||stroke.current||selectionDrag.current)return;locked.current=true;setBusy(true);
-  try{await queue.current?.flush();adopt(await api<Snapshot>('projects/'+id));setError('');setNotice('All changes saved');}
-  catch(e){setError((e as Error).message);}finally{locked.current=false;setBusy(false);}
+  if(locked.current||stroke.current||selectionDrag.current)return false;locked.current=true;setBusy(true);
+  try{await queue.current?.flush();adopt(await api<Snapshot>('projects/'+id));setError('');setNotice('All changes saved');return true;}
+  catch(e){setError((e as Error).message);return false;}finally{locked.current=false;setBusy(false);}
  };
+ const openKitMember=async(id:string)=>{if(await open(id)){setInspectorTab('ui');setUiSections(['kit']);if(mobileLayout)setInspectorOpen(true);}};
  const getKitDocuments=async(kitId:string)=>{
   const items=await api<PixelDocument[]>('projects');const found:PixelDocument[]=[];
   for(let i=0;i<items.length;i+=4){
@@ -378,43 +446,76 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   if(found.length>30)throw new Error('A kit can contain at most 30 projects.');
   return found;
  };
- const remapKitColors=async(from:string,to:string,kitId:string)=>{
-  if(locked.current||stroke.current||selectionDrag.current)return;
-  locked.current=true;setBusy(true);setError('');let done=0,total=0;
+ const requireAppliedKit=(docs:PixelDocument[])=>{
+  let otherDrafts:UiDraftMap={};try{otherDrafts=parseUiDrafts(localStorage.getItem(uiDraftStoreKey));}catch{}
+  const pending=docs.filter(doc=>hasUiDraft(uiDraftsRef.current[doc.id])||hasUiDraft(otherDrafts[doc.id]));
+  if(pending.length)throw new Error(`Save or discard UI drafts in ${pending.map(doc=>doc.name).join(', ')} before using the kit.`);
+ };
+ const sendKitEdit=async(id:string,body:Record<string,unknown>)=>{
+  try{return await api<Snapshot>('projects/'+id,body);}
+  catch(e){if((e as Error&{status?:number}).status!==undefined)throw e;return await api<Snapshot>('projects/'+id,body);}
+ };
+ const remapKitColors=async(review:KitColorReview)=>{
+  if(locked.current||stroke.current||selectionDrag.current)return false;
+  locked.current=true;setBusy(true);setError('');let done=0,total=review.impacts.length,uncertain=false;
+  let journal:KitUndo={kitId:review.kitId,from:review.from,to:review.to,entries:[]};
   try{
-   await queue.current?.flush();const docs=await getKitDocuments(kitId);total=docs.length;
-   for(const doc of docs){
-    const s=await api<Snapshot>('projects/'+doc.id,{revision:doc.revision,action:'paint',commands:[{op:'palette_remap',fromColor:from,toColor:to}],requestId:'kit-color-'+crypto.randomUUID()});
+   await queue.current?.flush();const docs=await getKitDocuments(review.kitId);requireAppliedKit(docs);
+   if(kitSignature(docs)!==review.signature)throw new Error('The kit changed since this review. Review the colors again.');
+   if(!total)throw new Error('This color is not used in the kit.');
+   const affected=new Set(review.impacts.map(item=>item.id));
+   for(const doc of docs.filter(item=>affected.has(item.id))){
+    let s:Snapshot;const requestId='kit-color-'+crypto.randomUUID();
+    try{s=await sendKitEdit(doc.id,{revision:doc.revision,action:'paint',commands:[{op:'palette_remap',fromColor:review.from,toColor:review.to}],requestId});}
+    catch(e){uncertain=(e as Error&{status?:number}).status===undefined;throw e;}
+    journal={...journal,entries:[...journal.entries,{id:doc.id,name:doc.name,revision:s.doc.revision,requestId}]};keepKitUndo(journal);
     done++;if(doc.id===current.current?.doc.id)adopt(s);
    }
-   await refresh();setNotice(`Recolored ${done} kit project${done===1?'':'s'}`);
-  }catch(e){setError(`${done} of ${total||'?'} projects updated. ${(e as Error).message}`);await refresh();}
+   await refresh();setNotice(`Recolored ${done} kit project${done===1?'':'s'}`);return true;
+  }catch(e){setError(`${done} of ${total||'?'} projects updated. ${(e as Error).message}${uncertain?' The last project may also have changed; inspect it before retrying.':''}`);try{await refresh();}catch{}return false;}
   finally{locked.current=false;setBusy(false);}
  };
  const inspectKitColors=async(kitId:string)=>{
   await queue.current?.flush();const docs=await getKitDocuments(kitId);
-  const usage=new Map<string,number>();
-  for(const doc of docs){
-   const used=new Set<string>();
-   for(const frame of [doc.layers.map(layer=>layer.pixels),...(doc.animation?.frames??[]).map(cel=>Object.values(cel.pixels))])
-    for(const pixels of frame)for(const pixel of pixels)if((pixel&255)!==0)used.add('#'+(pixel>>>8).toString(16).padStart(6,'0'));
-   for(const ink of doc.palette)used.add(ink.slice(0,7).toLowerCase());
-   for(const color of used)usage.set(color,(usage.get(color)??0)+1);
-  }
-  return {count:docs.length,colors:[...usage.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).slice(0,64).map(([color])=>color)};
+  return overviewKit(docs);
+ };
+ const reviewKitColors=async(from:string,to:string,kitId:string)=>{
+  await queue.current?.flush();const docs=await getKitDocuments(kitId);requireAppliedKit(docs);return reviewKitColor(docs,kitId,from,to);
+ };
+ const undoKitColors=async()=>{
+  const saved=kitUndo;if(!saved||locked.current||stroke.current||selectionDrag.current)return;
+  locked.current=true;setBusy(true);setError('');let done=0,remaining=saved,uncertain=false;
+  try{
+   await queue.current?.flush();const docs=await getKitDocuments(saved.kitId);
+   const affected=new Set(saved.entries.map(entry=>entry.id));requireAppliedKit(docs.filter(doc=>affected.has(doc.id)));
+   const conflict=validateKitUndo(saved,docs);if(conflict)throw new Error(conflict);
+   for(const entry of saved.entries){
+    let s:Snapshot;
+    try{s=await sendKitEdit(entry.id,{revision:entry.revision,action:'undo',requestId:'kit-undo-'+crypto.randomUUID(),expectedLastRequestId:entry.requestId});}
+    catch(e){uncertain=(e as Error&{status?:number}).status===undefined;throw e;}
+    done++;remaining={...remaining,entries:remaining.entries.filter(item=>item.id!==entry.id)};keepKitUndo(remaining.entries.length?remaining:null);
+    if(entry.id===current.current?.doc.id)adopt(s);
+   }
+   await refresh();setNotice(`Undid recolor in ${done} kit project${done===1?'':'s'}`);
+  }catch(e){setError(`${done} of ${saved.entries.length} projects restored. ${(e as Error).message}${uncertain?' The last project may also have changed; inspect it before retrying.':''}`);try{await refresh();}catch{}}
+  finally{locked.current=false;setBusy(false);}
  };
  const exportCurrentKit=async()=>{
   const kitId=current.current?.doc.ui?.kitId;if(!kitId||locked.current)return;
   locked.current=true;setBusy(true);setError('');
-  try{await queue.current?.flush();const docs=await getKitDocuments(kitId);const {buildGamePack}=await import('../lib/game-pack.ts');
+  try{await queue.current?.flush();const docs=await getKitDocuments(kitId);requireAppliedKit(docs);const {buildGamePack}=await import('../lib/game-pack.ts');
    const {bytes}=buildGamePack(docs);download(kitId+'.zip',new Blob([bytes],{type:'application/zip'}));setNotice(`Exported ${docs.length} kit projects`);
   }catch(e){setError((e as Error).message);}finally{locked.current=false;setBusy(false);}
  };
  const previewCurrentKit=async()=>{
   const kitId=current.current?.doc.ui?.kitId;if(!kitId||locked.current)return;
   locked.current=true;setBusy(true);setError('');
-  try{await queue.current?.flush();const docs=await getKitDocuments(kitId);
+  try{await queue.current?.flush();const docs=await getKitDocuments(kitId);requireAppliedKit(docs);
    if(!docs.some(doc=>doc.ui?.assetKey?.startsWith('ui')))throw new Error('Assign at least one Stardrop asset key before previewing.');
+   const currentDoc=current.current!.doc;
+   const returnPoint:UiReturn={format:'pixel-workshop-ui-return/1',workspaceId:workspaceId||'local',projectId:currentDoc.id,
+    frame:Math.min(frame,frameCount(currentDoc)-1),layer,sections:uiSections};
+   sessionStorage.setItem(UI_RETURN_KEY,JSON.stringify(returnPoint));
    sessionStorage.setItem('pixel-workshop-ui-preview-v1',JSON.stringify({format:'pixel-workshop-ui-preview/1',documents:docs}));
    window.location.assign('/play/moonkeeper?uiPreview=1');
   }catch(e){setError((e as Error).message);locked.current=false;setBusy(false);}
@@ -786,6 +887,8 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   if(inspectorRef.current)inspectorRef.current.scrollTop=0;
  };
  const d=snap?.doc,activeFrame=d?Math.min(frame,frameCount(d)-1):0,displayError=error||saveState.error?.message;
+ const uiDraftCount=Object.values(uiDrafts).filter(hasUiDraft).length;
+ const displayStatus=displayError||(uiDraftCount?`${saveState.pending?notice+' · ':''}${uiDraftCount===1?'UI draft':'UI drafts in '+uiDraftCount+' projects'} not applied · ${uiDraftStorageError?'temporary only':'kept on this device'}`:notice);
  const canBackUpFx=!!(d&&d.layers.length<8&&frameCount(d)*(d.layers.length+1)*d.width*d.height<=MAX_ANIMATION_CELLS&&
   4*d.width*d.height*frameCount(d)<=2_000_000);
  const previewKey=JSON.stringify([d?.id,d?.revision,effectTarget,activeFrame,effectKind,effectSeed,ink,effectSpeed,effectOpacity,effectDrift]);
@@ -1036,8 +1139,10 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   </section>
  </div>
  <div className="inspector-panel" id="inspector-panel-ui" role="tabpanel" aria-labelledby="inspector-tab-ui" tabIndex={0} hidden={inspectorTab!=='ui'}>
-  {d&&inspectorTab==='ui'&&<UiKitPanel key={d.id} doc={d} frame={activeFrame} layer={layer} ink={ink} busy={busy} onCommit={commit} onFrame={setFrame} onLayer={setLayer}
-   onRemap={remapKitColors} onInspectKit={inspectKitColors} onExportKit={exportCurrentKit} onPreviewKit={previewCurrentKit}/>}
+  {d&&inspectorTab==='ui'&&<UiKitPanel key={d.id} doc={d} frame={activeFrame} layer={layer} ink={ink} busy={busy} onCommit={commit} onSaveDraft={saveUiDraft} onFrame={setFrame} onLayer={setLayer}
+   draft={uiDrafts[d.id]??NO_UI_DRAFT} draftStorageError={uiDraftStorageError} onDraftChange={change=>updateUiDraft(d.id,change)} sections={uiSections} onSectionToggle={toggleUiSection}
+   onRemap={remapKitColors} onInspectKit={inspectKitColors} onReviewKit={reviewKitColors} onOpenProject={openKitMember}
+   kitUndo={kitUndo?.kitId===d.ui?.kitId?kitUndo:null} kitUndoStorageError={kitUndoStorageError} onUndoKit={undoKitColors} onExportKit={exportCurrentKit} onPreviewKit={previewCurrentKit}/>}
  </div>
  <div className="inspector-panel" id="inspector-panel-export" role="tabpanel" aria-labelledby="inspector-tab-export" tabIndex={0} hidden={inspectorTab!=='export'}>
  <section className="inspector-section export-section">
@@ -1063,7 +1168,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   </section>
  </div>
  </aside></div>
- <footer className="status-bar"><span data-guide="save-status" className={'save-status '+(displayError?'error':'')}><i className={busy||saveState.pending?'saving':''}/>{displayError||notice}</span>{saveState.error&&<>{!saveState.error.conflict&&<button className="text-button save-retry" disabled={busy} onClick={()=>{setError('');queue.current?.retry();}}>Retry save</button>}<button className="text-button save-retry" disabled={busy} onClick={()=>void create(false,current.current?.doc,true)}>Save a copy</button></>}<span className="status-detail">{cursor}</span><span className="status-detail">{d?.layers.length||0} LAYERS</span><span className="status-shortcuts">B pencil<span>E eraser</span><span>G fill</span><span>H grid</span></span></footer>
+ <footer className="status-bar"><span data-guide="save-status" className={'save-status '+(displayError?'error':uiDraftCount?'draft':'')}><i className={busy||saveState.pending?'saving':''}/>{displayStatus}</span>{saveState.error&&<>{!saveState.error.conflict&&<button className="text-button save-retry" disabled={busy} onClick={()=>{setError('');queue.current?.retry();}}>Retry save</button>}<button className="text-button save-retry" disabled={busy} onClick={()=>void create(false,current.current?.doc,true)}>Save a copy</button></>}<span className="status-detail">{cursor}</span><span className="status-detail">{d?.layers.length||0} LAYERS</span><span className="status-shortcuts">B pencil<span>E eraser</span><span>G fill</span><span>H grid</span></span></footer>
  <input ref={file} type="file" accept=".json,.pixel.json" className="visually-hidden" aria-label="Import editable project" onChange={async e=>{const f=e.target.files?.[0];if(!f)return;try{if(f.size>12_000_000)throw new Error('Project file is too large.');await create(false,JSON.parse(await f.text()));}catch(err){setError((err as Error).message);}e.target.value='';}}/>
  {packModal&&<div className="modal-backdrop" onClick={()=>!busy&&setPackModal(false)}>
    <section className="new-dialog pack-dialog" role="dialog" aria-modal="true" aria-labelledby="pack-dialog-heading" onClick={e=>e.stopPropagation()}>

@@ -49,6 +49,17 @@ export function validatePixelText(value:unknown,width:number,height:number,frame
  if(typeof t.color!=='string'||!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(t.color))throw new Error('Choose a text color such as #f6da92.');
  return {text:t.text,x:n(t.x,0,width-1,'Text x'),y:n(t.y,0,height-1,'Text y'),scale:n(t.scale,1,8,'Text scale'),spacing:n(t.spacing,0,8,'Letter spacing'),color:t.color,frame:n(t.frame,0,frames-1,'Text frame')};
 }
+/** Map saved content insets through the same fixed-edge/stretch-center geometry. */
+export function nineSliceContentBounds(width:number,height:number,slice:UiSlice,targetWidth:number,targetHeight:number){
+ const s=validateSlice(slice,width,height);
+ n(targetWidth,s.left+s.right+1,1024,'Preview width');n(targetHeight,s.top+s.bottom+1,1024,'Preview height');
+ if(!s.content)return null;
+ const map=(position:number,original:number,target:number,start:number,end:number)=>position<=start?position:
+  position>=original-end?target-(original-position):start+(position-start)*(target-start-end)/(original-start-end);
+ const left=map(s.content.left,width,targetWidth,s.left,s.right),right=map(width-s.content.right,width,targetWidth,s.left,s.right);
+ const top=map(s.content.top,height,targetHeight,s.top,s.bottom),bottom=map(height-s.content.bottom,height,targetHeight,s.top,s.bottom);
+ return {left,top,width:right-left,height:bottom-top};
+}
 /** Nearest-neighbor nine-slice rendering, used by the live component preview. */
 export function stretchNineSlice(source:Uint8Array,width:number,height:number,slice:UiSlice,targetWidth:number,targetHeight:number):Uint8Array{
  const s=validateSlice(slice,width,height);
