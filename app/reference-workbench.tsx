@@ -116,7 +116,7 @@ function AlignmentDialog({source,doc,busy,onClose,onApply}:{source:ReferenceSour
 
 
 function PixelifyPanel({onCreate,busy}:{onCreate:(doc:PixelDocument)=>Promise<void>;busy:boolean}){
- const [fileName,setFileName]=useState(''),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[colors,setColors]=useState(24),[dither,setDither]=useState(true),[preview,setPreview]=useState<PixelDocument|null>(null),[error,setError]=useState(''),[working,setWorking]=useState(false);
+ const [fileName,setFileName]=useState(''),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[aspect,setAspect]=useState(1),[colors,setColors]=useState(24),[dither,setDither]=useState(true),[preview,setPreview]=useState<PixelDocument|null>(null),[error,setError]=useState(''),[working,setWorking]=useState(false);
  const input=useRef<HTMLInputElement>(null);
  const convert=async(file:File)=>{
   setError('');setWorking(true);setPreview(null);
@@ -125,6 +125,7 @@ function PixelifyPanel({onCreate,busy}:{onCreate:(doc:PixelDocument)=>Promise<vo
    const bitmap=await createImageBitmap(file);
    try{
     if(bitmap.width>4096||bitmap.height>4096||bitmap.width*bitmap.height>4_000_000)throw new Error('Source images are limited to 4096 px per side and 4 million pixels.');
+    const ratio=bitmap.height/bitmap.width;setAspect(ratio);setHeight(Math.max(8,Math.min(256,Math.round(width*ratio))));
     const c=document.createElement('canvas');c.width=width;c.height=height;
     const ctx=c.getContext('2d',{willReadFrequently:true});if(!ctx)throw new Error('Could not prepare image pixels.');
     ctx.clearRect(0,0,width,height);ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(bitmap,0,0,width,height);
@@ -155,8 +156,8 @@ function PixelifyPanel({onCreate,busy}:{onCreate:(doc:PixelDocument)=>Promise<vo
   <input ref={input} className="visually-hidden" type="file" accept="image/*" aria-label="Choose image to pixel-ify" onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void choose(f);}}/>
   <button className="secondary reference-load" disabled={busy||working} onClick={()=>input.current?.click()}><ImagePlus size={14}/>{working?'Converting…':fileName?'Choose another image':'Upload image'}</button>
   <div className="reference-number-fields">
-   <label className="reference-field">Pixel width · {width}<input type="range" min="8" max="256" step="1" value={width} onChange={e=>setWidth(Number(e.target.value))}/></label>
-   <label className="reference-field">Pixel height · {height}<input type="range" min="8" max="256" step="1" value={height} onChange={e=>setHeight(Number(e.target.value))}/></label>
+   <label className="reference-field">Pixel width · {width}<input type="range" min="8" max="256" step="1" value={width} onChange={e=>{const v=Number(e.target.value);setWidth(v);setHeight(Math.max(8,Math.min(256,Math.round(v*aspect))));}}/></label>
+   <label className="reference-field">Pixel height · {height}<span className="muted">Auto-fitted to source aspect ratio ({aspect.toFixed(2)}:1)</span></label>
    <label className="reference-field">Color count · {colors}<input type="range" min="8" max="64" step="1" value={colors} onChange={e=>setColors(Number(e.target.value))}/></label>
   </div>
   <label className="reference-check"><input type="checkbox" checked={dither} onChange={e=>setDither(e.target.checked)}/>Use dithering for smoother gradients</label>
