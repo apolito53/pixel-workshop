@@ -1,7 +1,11 @@
 'use client';
 import {useCallback,useEffect,useRef,useState,type PointerEvent as PE} from 'react';
 import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,EyeOff,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound,Stamp,BookOpen,PanelsTopLeft} from 'lucide-react';
-import {applyCommands,clipFrameSequence,composite,frameCount,frameView,readRegion,validateDocument,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
+import {applyCommands,clipFrameSequence,composite,createDocument,documentCells,frameCount,frameView,readRegion,validateDocument,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
+import {MAX_CANVAS_SIDE} from '../lib/canvas-limits.ts';
+import {buildCanvasPreview,maxPreviewZoom,type CanvasPreviewOptions,type CanvasView} from '../lib/canvas-preview.ts';
+import type {ReferenceImage} from '../lib/reference.ts';
+import ReferenceWorkbench from './reference-workbench.tsx';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
 import {encodeSvg,encodeRgbaSvg} from '../lib/svg.ts';
 import {MAX_ANIMATION_CELLS} from '../lib/pixels.ts';
@@ -52,12 +56,18 @@ function download(name:string,data:Blob){const url=URL.createObjectURL(data),a=d
 const pixelOps = new Set(['pixel','fill','line','rect','ellipse','transform','paste','clear']);
 const targetFrame=(ops:PaintCommand[],frame:number):PaintCommand[]=>
   ops.map(op=>pixelOps.has(op.op)&&op.frame===undefined?{...op,frame}:op);
-function render(c:HTMLCanvasElement|null,d:PixelDocument|null,z:number,grid=false,ghosts:PixelDocument[]=[]){
+function render(c:HTMLCanvasElement|null,d:PixelDocument|null,z:number,grid=false,ghosts:PixelDocument[]=[],options:CanvasPreviewOptions={view:'artwork'}){
  if(!c||!d)return;
+ z=Math.min(z,maxPreviewZoom(d.width,d.height));
  c.width=d.width*z;c.height=d.height*z;
  const ctx=c.getContext('2d')!,temp=document.createElement('canvas');temp.width=d.width;temp.height=d.height;
  const t= temp.getContext('2d')!;
  ctx.imageSmoothingEnabled=false;
+ if(d.reference&&options.view!=='artwork'){
+  const image=buildCanvasPreview(d,{...options,scale:Math.min(z,maxPreviewZoom(d.width,d.height)),grid});
+  c.width=image.width;c.height=image.height;
+  c.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(image.bytes),image.width,image.height),0,0);return;
+ }
  const paint=(doc:PixelDocument,alpha:number)=>{
    t.putImageData(new ImageData(new Uint8ClampedArray(composite(doc)),doc.width,doc.height),0,0);
    ctx.globalAlpha=alpha;ctx.drawImage(temp,0,0,c.width,c.height);
@@ -127,7 +137,9 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  const drawToolsRef=useRef<HTMLElement>(null),drawToolsToggleRef=useRef<HTMLButtonElement>(null),drawToolsCloseRef=useRef<HTMLButtonElement>(null);
  const [frame,setFrame]=useState(0),[playing,setPlaying]=useState(false),[onion,setOnion]=useState(false),[effectKind,setEffectKind]=useState<EffectKind>('embers'),[effectSeed,setEffectSeed]=useState(53),[snap,setSnap]=useState<Snapshot|null>(null),[list,setList]=useState<PixelDocument[]>([]),[tool,setTool]=useState<Tool>('pencil'),[ink,setInk]=useState('#f6da92'),[hexDraft,setHexDraft]=useState('#f6da92'),[recentColors,setRecentColors]=useState<string[]>([]),[layer,setLayer]=useState('base'),[zoom,setZoom]=useState(10),[grid,setGrid]=useState(true),[filled,setFilled]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState('Opening workspace…'),[error,setError]=useState(''),[cursor,setCursor]=useState('X —   Y —'),[hover,setHover]=useState<{x:number;y:number}|null>(null),[modal,setModal]=useState(false),[name,setName]=useState('Untitled sprite'),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[scale,setScale]=useState(1),[selection,setSelection]=useState<PixelRegion|null>(null),[clipboard,setClipboard]=useState<{width:number;height:number;pixels:number[]}|null>(null),[previewScale,setPreviewScale]=useState(1),[fitMode,setFitMode]=useState(true),[saveState,setSaveState]=useState<Pick<QueueState,'pending'|'saving'|'error'>>({pending:0,saving:false,error:null});
  const [quickColorsOpen,setQuickColorsOpen]=useState(false);
+ const [referenceView,setReferenceView]=useState<CanvasView>('overlay'),[referenceOpacity,setReferenceOpacity]=useState(.5),[artworkOpacity,setArtworkOpacity]=useState(1);
  const [exportFormat,setExportFormat]=useState<'png'|'svg'>('png');
+ useEffect(()=>{const d=snap?.doc;if(d&&exportFormat==='png')setScale(s=>[8,4,2,1].find(n=>n<=s&&d.width*d.height*n*n<=4_194_304)??1);},[snap?.doc.width,snap?.doc.height,exportFormat]);
  const quickColorsRef=useRef<HTMLDivElement>(null),quickColorsButtonRef=useRef<HTMLButtonElement>(null);
  const [stampSnap,setStampSnap]=useState(0),[tileSize,setTileSize]=useState(16);
  const [activeStamp,setActiveStamp]=useState<StampAsset|null>(null),[stampCapture,setStampCapture]=useState(false);
@@ -287,8 +299,9 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
     if(index+1<frameCount(doc))ghosts.push(frameView(doc,index+1));
   }
   const view=frameView(doc,index);
-  render(canvas.current,view,zoom,grid,ghosts);render(preview.current,view,previewScale);
- },[snap,frame,zoom,grid,previewScale,onion]);
+  render(canvas.current,view,zoom,grid,ghosts,{view:referenceView,referenceOpacity,artworkOpacity});render(preview.current,view,previewScale);
+ },[snap,frame,zoom,grid,previewScale,onion,referenceView,referenceOpacity,artworkOpacity]);
+ useEffect(()=>{const d=snap?.doc;if(d)setZoom(z=>Math.min(z,maxPreviewZoom(d.width,d.height)));},[snap?.doc.id,snap?.doc.width,snap?.doc.height]);
  useEffect(()=>{if(snap)setFrame(i=>Math.min(i,frameCount(snap.doc)-1));},[snap?.doc.animation?.frames.length,snap?.doc.id]);
  useEffect(()=>{
    if(!playing||!snap)return;
@@ -352,6 +365,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   if(!compactDrawTools||!drawToolsOpen||guide.mode!=='off')return;
   drawToolsCloseRef.current?.focus();
   const handle=(e:KeyboardEvent)=>{
+   if((e.target as HTMLElement).closest('.reference-dialog'))return;
    if(e.key==='Escape'){
     e.preventDefault();e.stopImmediatePropagation();
     setDrawToolsOpen(false);drawToolsToggleRef.current?.focus();return;
@@ -377,6 +391,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   if(!mobileLayout||!inspectorOpen||guide.mode!=='off')return;
   drawerCloseRef.current?.focus();
   const handle=(e:KeyboardEvent)=>{
+   if((e.target as HTMLElement).closest('.reference-dialog'))return;
    if(e.key==='Escape'){
     e.preventDefault();e.stopImmediatePropagation();
     setInspectorOpen(false);drawerToggleRef.current?.focus();return;
@@ -398,7 +413,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   const fit=()=>{
    const narrow=window.matchMedia('(max-width: 800px)').matches;
    const horizontal=narrow?28:112,vertical=narrow?54:97;
-   setZoom(Math.max(1,Math.min(24,Math.floor(Math.min((element.clientWidth-horizontal)/snap.doc.width,
+   setZoom(Math.max(1,Math.min(maxPreviewZoom(snap.doc.width,snap.doc.height),Math.floor(Math.min((element.clientWidth-horizontal)/snap.doc.width,
     (element.clientHeight-vertical)/snap.doc.height)))));
   };
   fit();const observer=new ResizeObserver(fit);observer.observe(element);
@@ -434,6 +449,20 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   if(locked.current||stroke.current||selectionDrag.current)return false;locked.current=true;setBusy(true);
   try{await queue.current?.flush();adopt(await api<Snapshot>('projects/'+id));setError('');setNotice('All changes saved');return true;}
   catch(e){setError((e as Error).message);return false;}finally{locked.current=false;setBusy(false);}
+ };
+ const applyReference=async(reference:ReferenceImage,newCanvas:boolean)=>{
+  if(locked.current||stroke.current||selectionDrag.current)return false;
+  if(!newCanvas){
+   const success=await commit([{op:'reference_set',reference}]);
+   if(!success)throw new Error('Could not attach the reference. Check the canvas pixel budget and save status.');
+   setReferenceView('overlay');return true;
+  }
+  locked.current=true;setBusy(true);
+  try{
+   await queue.current?.flush();
+   const document={...createDocument(reference.name,reference.width,reference.height,'prepared-reference'),reference};
+   adopt(await api<Snapshot>('projects',{document}));setFitMode(true);setReferenceView('overlay');setError('');setNotice('Tracing canvas saved');await refresh();return true;
+  }finally{locked.current=false;setBusy(false);}
  };
  const openKitMember=async(id:string)=>{if(await open(id)){setInspectorTab('ui');setUiSections(['kit']);if(mobileLayout)setInspectorOpen(true);}};
  const getKitDocuments=async(kitId:string)=>{
@@ -559,7 +588,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   if(!gesture||!doc||!el)return;
   const a=touchPoints.current.get(gesture.ids[0]),b=touchPoints.current.get(gesture.ids[1]);
   if(!a||!b)return;
-  const result=movePinch(gesture.start,a,b,gestureViewport(el),{width:doc.width,height:doc.height});
+  const result=movePinch(gesture.start,a,b,gestureViewport(el),{width:doc.width,height:doc.height},maxPreviewZoom(doc.width,doc.height));
   gesture.last=result;panRef.current=result.pan;
   setCanvasPan(result.pan);setPinchScale(result.scale);
  };
@@ -585,9 +614,9 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   updateGesture();
   const gesture=touchGesture.current,doc=current.current?.doc;
   if(gesture&&gesture.ids.includes(e.pointerId)&&doc){
-   const finished=finishPinch(gesture.start,gesture.last,gestureViewport(e.currentTarget),{width:doc.width,height:doc.height});
+   const finished=finishPinch(gesture.start,gesture.last,gestureViewport(e.currentTarget),{width:doc.width,height:doc.height},maxPreviewZoom(doc.width,doc.height));
    panRef.current=finished.pan;setCanvasPan(finished.pan);
-   setZoom(finished.zoom);setPinchScale(1);touchGesture.current=null;setFitMode(false);
+   setZoom(Math.min(finished.zoom,maxPreviewZoom(doc.width,doc.height)));setPinchScale(1);touchGesture.current=null;setFitMode(false);
    e.preventDefault();
   }
   touchPoints.current.delete(e.pointerId);
@@ -606,7 +635,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  const transformSelection=(mode:string,dx=0,dy=0)=>{const doc=current.current?.doc;if(!doc||!selection||locked.current)return;const region={...selection,x:Math.max(0,Math.min(doc.width-selection.width,selection.x+dx)),y:Math.max(0,Math.min(doc.height-selection.height,selection.y+dy))};if(mode==='move'&&region.x===selection.x&&region.y===selection.y)return;void commit([{op:'transform',layer,mode,...selection,x2:region.x,y2:region.y}]);setSelection(region);};
  const clearSelection=()=>{if(selection)void commit([{op:'rect',layer,...selection,color:'transparent'}]);};
  const shape=(a:{x:number;y:number},b:{x:number;y:number}):PaintCommand=>tool==='line'?{op:'line',layer,color:ink,...a,x2:b.x,y2:b.y}:{op:tool,layer,color:ink,x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),width:Math.abs(a.x-b.x)+1,height:Math.abs(a.y-b.y)+1,filled};
- const down=(e:PE<HTMLCanvasElement>)=>{const s=current.current;if(e.button!==0||!s||locked.current||stroke.current||selectionDrag.current||e.pointerType==='touch'&&(touchGesture.current!==null||suppressTouchDrawing.current))return;e.preventDefault();const p=point(e);setHover(p);if(playing)return;
+ const down=(e:PE<HTMLCanvasElement>)=>{const s=current.current;if(e.button!==0||!s||locked.current||stroke.current||selectionDrag.current||s.doc.reference&&referenceView==='reference'||e.pointerType==='touch'&&(touchGesture.current!==null||suppressTouchDrawing.current))return;e.preventDefault();const p=point(e);setHover(p);if(playing)return;
  if(tool==='stamp'&&(stampCapture||!activeStamp)){
   e.currentTarget.setPointerCapture(e.pointerId);
   const region={x:p.x,y:p.y,width:1,height:1};
@@ -889,7 +918,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  const d=snap?.doc,activeFrame=d?Math.min(frame,frameCount(d)-1):0,displayError=error||saveState.error?.message;
  const uiDraftCount=Object.values(uiDrafts).filter(hasUiDraft).length;
  const displayStatus=displayError||(uiDraftCount?`${saveState.pending?notice+' · ':''}${uiDraftCount===1?'UI draft':'UI drafts in '+uiDraftCount+' projects'} not applied · ${uiDraftStorageError?'temporary only':'kept on this device'}`:notice);
- const canBackUpFx=!!(d&&d.layers.length<8&&frameCount(d)*(d.layers.length+1)*d.width*d.height<=MAX_ANIMATION_CELLS&&
+ const canBackUpFx=!!(d&&d.layers.length<8&&documentCells(d,d.layers.length+1)<=MAX_ANIMATION_CELLS&&
   4*d.width*d.height*frameCount(d)<=2_000_000);
  const previewKey=JSON.stringify([d?.id,d?.revision,effectTarget,activeFrame,effectKind,effectSeed,ink,effectSpeed,effectOpacity,effectDrift]);
  const validFxPreview=fxPreview?.key===previewKey?fxPreview.comparison:null;
@@ -1015,7 +1044,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
          title={entry.clip.name} className="frame-clip-indicator"/>)}
       </span>
     </button>)}</div>
- </div>}<div className="canvas-footer" data-guide="zoom"><div className="zoom-control"><button aria-label="Zoom out" onClick={()=>{setFitMode(false);setZoom(z=>Math.max(1,z-1));}}><ZoomOut size={16}/></button><span>{Math.round(zoom*pinchScale*100)}%</span><button aria-label="Zoom in" onClick={()=>{setFitMode(false);setZoom(z=>Math.min(24,z+1));}}><ZoomIn size={16}/></button></div><button className={'small-toggle fit-button '+(fitMode?'on':'')} aria-label="Fit canvas to workspace" onClick={()=>{resetPan();setFitMode(true);}}><Maximize size={14}/>Fit</button><span className="scale-caption">{zoom>=3?'1 cell = 1 output pixel':'Zoom in to see the cell grid'}</span><span className="spacer"/><button className={'small-toggle '+(grid?'on':'')} onClick={()=>setGrid(v=>!v)}><Grid2X2 size={14}/>Grid {grid?'on':'off'}</button></div></section>
+ </div>}<div className="canvas-footer" data-guide="zoom"><div className="zoom-control"><button aria-label="Zoom out" onClick={()=>{setFitMode(false);setZoom(z=>Math.max(1,z-1));}}><ZoomOut size={16}/></button><span>{Math.round(zoom*pinchScale*100)}%</span><button aria-label="Zoom in" onClick={()=>{setFitMode(false);setZoom(z=>Math.min(d?maxPreviewZoom(d.width,d.height):24,z+1));}}><ZoomIn size={16}/></button></div><button className={'small-toggle fit-button '+(fitMode?'on':'')} aria-label="Fit canvas to workspace" onClick={()=>{resetPan();setFitMode(true);}}><Maximize size={14}/>Fit</button><span className="scale-caption">{zoom>=3?'1 cell = 1 output pixel':'Zoom in to see the cell grid'}</span><span className="spacer"/>{d?.reference&&<button className={'small-toggle '+(referenceView!=='artwork'?'on':'')} aria-label="Toggle tracing reference" aria-pressed={referenceView!=='artwork'} onClick={()=>setReferenceView(v=>v==='artwork'?'overlay':'artwork')}><Eye size={14}/>Trace {referenceView==='artwork'?'off':'on'}</button>}<button className={'small-toggle '+(grid?'on':'')} onClick={()=>setGrid(v=>!v)}><Grid2X2 size={14}/>Grid {grid?'on':'off'}</button></div></section>
   <button type="button" className="inspector-backdrop" aria-label="Close tools" onClick={closeMobileInspector}/>
   <aside id="pixel-inspector" className="inspector" ref={inspectorRef} aria-label="Editor inspector"
    role={mobileLayout&&inspectorOpen&&guide.mode==='off'?'dialog':undefined}
@@ -1044,6 +1073,9 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   })}
  </nav>
  <div className="inspector-panel" id="inspector-panel-draw" role="tabpanel" aria-labelledby="inspector-tab-draw" tabIndex={0} hidden={inspectorTab!=='draw'}>
+ <div data-guide="tracing-reference"><ReferenceWorkbench doc={d??null} busy={busy} view={referenceView} referenceOpacity={referenceOpacity} artworkOpacity={artworkOpacity}
+  onView={setReferenceView} onReferenceOpacity={setReferenceOpacity} onArtworkOpacity={setArtworkOpacity}
+  onApply={applyReference} onRemove={()=>void commit([{op:'reference_set',reference:null}])}/></div>
  <section className="inspector-section preview-section"><div className="section-heading"><span>PREVIEW</span><div className="preview-scales">{[1,2].map(s=><button key={s} aria-label={`Preview at ${s}×`} aria-pressed={previewScale===s} className={previewScale===s?'active':''} onClick={()=>setPreviewScale(s)}>{s}×</button>)}</div></div><div className="navigator"><canvas ref={preview} aria-label="Artwork preview"/></div><div className="preview-caption"><span>{d?.name||'Your artwork'}</span><span>{d?`${d.width} × ${d.height}`:''}</span></div></section>
  <ColorWorkbench doc={d??null} frame={activeFrame} ink={ink} hexDraft={hexDraft} recent={recentColors} busy={busy}
   onPick={selectInk} onDraft={onHexDraft} onCommitHex={finishHexDraft}
@@ -1148,7 +1180,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  <section className="inspector-section export-section">
   <div className="section-heading" data-guide="export"><span>EXPORT</span><span className="filetype">{exportFormat.toUpperCase()}</span></div>
   <label className="scale-select">Format<select aria-label="Export format" value={exportFormat} onChange={e=>setExportFormat(e.target.value as 'png'|'svg')}><option value="png">PNG · raster</option><option value="svg">SVG · vector</option></select></label>
-  <label className="scale-select">Frame size<select aria-label="Frame export scale" value={scale} onChange={e=>setScale(Number(e.target.value))}>{[1,2,4,8].map(s=><option key={s} value={s}>{s}× {d?`· ${d.width*s} × ${d.height*s}`:''}</option>)}</select></label>
+  <label className="scale-select">Frame size<select aria-label="Frame export scale" value={scale} onChange={e=>setScale(Number(e.target.value))}>{[1,2,4,8].map(s=><option key={s} value={s} disabled={!!d&&exportFormat==='png'&&d.width*d.height*s*s>4_194_304}>{s}× {d?`· ${d.width*s} × ${d.height*s}`:''}</option>)}</select></label>
   <p>{exportFormat==='svg'?'Scalable vector pixels with transparency. Visible layers are combined; the pixel-art shape stays crisp.':'Transparent background. Clean pixels, ready for your game.'}</p>
   <button className="secondary full" disabled={!d||busy} onClick={()=>void exportFrame()}>Current frame {exportFormat.toUpperCase()} <Download size={14}/></button>
   <button className="secondary full" disabled={!d||busy} onClick={()=>void exportSheet()}>Sprite sheet {exportFormat.toUpperCase()} <Download size={14}/></button>
@@ -1195,6 +1227,6 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   </div>}
  {guide.mode!=='off'&&!modal&&!packModal&&<WorkshopGuide mode={guide.mode} scope={guide.scope} index={guide.index}
   onStart={startGuide} onMove={moveGuide} onClose={closeGuide} onMenu={guideMenu}/>}
-  {modal&&<div className="modal-backdrop" onClick={()=>setModal(false)}><section className="new-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" onClick={e=>e.stopPropagation()}><button className="dialog-close icon-button" aria-label="Close new canvas dialog" onClick={()=>setModal(false)}><X size={18}/></button><span className="eyebrow">A FRESH LITTLE START</span><h2 id="dialog-title">Make room for an idea.</h2><label>Canvas name<input autoFocus value={name} maxLength={80} onChange={e=>setName(e.target.value)}/></label><div className="dimension-inputs"><label>Width<input type="number" min={1} max={256} value={width} onChange={e=>setWidth(Number(e.target.value))}/></label><span>×</span><label>Height<input type="number" min={1} max={256} value={height} onChange={e=>setHeight(Number(e.target.value))}/></label></div><div className="size-presets">{[16,32,48,64,128].map(s=><button key={s} className={width===s&&height===s?'selected':''} onClick={()=>{setWidth(s);setHeight(s);}}>{s}×{s}</button>)}</div>{error&&<p className="error-text">{error}</p>}<button className="primary full" disabled={busy} onClick={()=>void create()}><Plus size={16}/>Create canvas</button><button className="text-button example-button" disabled={busy} onClick={()=>void create('cottage')}>Open Moonkeeper’s cottage · 64 × 64</button><button className="text-button example-button" disabled={busy} onClick={()=>void create(true)}>Or open the little lantern</button></section></div>}
+  {modal&&<div className="modal-backdrop" onClick={()=>setModal(false)}><section className="new-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" onClick={e=>e.stopPropagation()}><button className="dialog-close icon-button" aria-label="Close new canvas dialog" onClick={()=>setModal(false)}><X size={18}/></button><span className="eyebrow">A FRESH LITTLE START</span><h2 id="dialog-title">Make room for an idea.</h2><label>Canvas name<input autoFocus value={name} maxLength={80} onChange={e=>setName(e.target.value)}/></label><div className="dimension-inputs"><label>Width<input type="number" min={1} max={MAX_CANVAS_SIDE} value={width} onChange={e=>setWidth(Number(e.target.value))}/></label><span>×</span><label>Height<input type="number" min={1} max={MAX_CANVAS_SIDE} value={height} onChange={e=>setHeight(Number(e.target.value))}/></label></div><div className="size-presets">{[16,32,48,64,128].map(s=><button key={s} className={width===s&&height===s?'selected':''} onClick={()=>{setWidth(s);setHeight(s);}}>{s}×{s}</button>)}</div>{error&&<p className="error-text">{error}</p>}<button className="primary full" disabled={busy} onClick={()=>void create()}><Plus size={16}/>Create canvas</button><button className="text-button example-button" disabled={busy} onClick={()=>void create('cottage')}>Open Moonkeeper’s cottage · 64 × 64</button><button className="text-button example-button" disabled={busy} onClick={()=>void create(true)}>Or open the little lantern</button></section></div>}
  </main>;
 }

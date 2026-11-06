@@ -311,11 +311,12 @@ export function generateEffectCommands(d: PixelDocument, recipe: EffectRecipe): 
   const full=normalizeEffectRecipe(recipe);
   if (!hasFreeEffectLayerSlot(d)) throw new Error('The effect needs a free layer (maximum eight).');
   const area = d.width * d.height, currentFrames = frameCount(d);
-  const capacity = Math.min(8, Math.floor(MAX_ANIMATION_CELLS / (area * (d.layers.length + 1))),
+  const availableCells=MAX_ANIMATION_CELLS-(d.reference?area:0);
+  const capacity = Math.min(8, Math.floor(availableCells / (area * (d.layers.length + 1))),
     Math.floor(1_800_000 / (area * (d.layers.length + 3))));
   const totalFrames = currentFrames === 1 ? capacity : currentFrames;
   if (totalFrames < 2 || totalFrames > 32 ||
-    totalFrames * (d.layers.length+1) * area > MAX_ANIMATION_CELLS ||
+    totalFrames * (d.layers.length+1) * area > availableCells ||
     area * (totalFrames * 3 + (totalFrames-currentFrames) * (d.layers.length+1)) > 1_950_000)
     throw new Error('This animation is too large for a new effect. Use fewer frames or layers.');
   const layer = 'fx-' + crypto.randomUUID().slice(0,8);

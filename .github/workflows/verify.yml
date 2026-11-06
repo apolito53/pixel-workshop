@@ -21,4 +21,5 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm exec tsc --noEmit
+      - run: node --experimental-strip-types tests/mcp-reference-smoke.ts
       - run: pnpm build:node

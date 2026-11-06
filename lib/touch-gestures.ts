@@ -55,15 +55,15 @@ function anchorPan(anchor:GesturePoint,mid:GesturePoint,viewport:GestureViewport
 
 /** Continuous CSS-only zoom while the gesture is active; raster pixels stay crisp. */
 export function movePinch(start:PinchStart,a:GesturePoint,b:GesturePoint,
-  viewport:GestureViewport,canvas:GestureSize):PinchView {
+  viewport:GestureViewport,canvas:GestureSize,maxZoom=MAX_CANVAS_ZOOM):PinchView {
   const midpoint=touchMidpoint(a,b);
   const scale=clamp(touchDistance(a,b)/start.distance,
-    MIN_CANVAS_ZOOM/start.zoom,MAX_CANVAS_ZOOM/start.zoom);
+    MIN_CANVAS_ZOOM/start.zoom,maxZoom/start.zoom);
   return {scale,midpoint,pan:anchorPan(start.anchor,midpoint,viewport,canvas,start.zoom*scale)};
 }
 
 /** Snap back to exact pixel-grid zoom when the last gesture finger lifts. */
-export function finishPinch(start:PinchStart,last:PinchView,viewport:GestureViewport,canvas:GestureSize) {
-  const zoom=clamp(Math.round(start.zoom*last.scale),MIN_CANVAS_ZOOM,MAX_CANVAS_ZOOM);
+export function finishPinch(start:PinchStart,last:PinchView,viewport:GestureViewport,canvas:GestureSize,maxZoom=MAX_CANVAS_ZOOM) {
+  const zoom=clamp(Math.round(start.zoom*last.scale),MIN_CANVAS_ZOOM,maxZoom);
   return {zoom,pan:anchorPan(start.anchor,last.midpoint,viewport,canvas,zoom)};
 }

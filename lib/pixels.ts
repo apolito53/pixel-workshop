@@ -1,5 +1,7 @@
 import {validatePixelText,validateUi,type PixelTextRecipe,type UiMetadata} from './ui-metadata.ts';
 import {renderPixelText} from './pixel-font.ts';
+import {MAX_CANVAS_SIDE} from './canvas-limits.ts';
+import {validateReference,type ReferenceImage} from './reference.ts';
 export const PIXEL_EFFECT_KINDS = ['embers','sparkles','bubbles','leaves','fire','smoke','explosion','shockwave','lightning','rain','snow','arcane'] as const;
 export type PixelEffectKind=typeof PIXEL_EFFECT_KINDS[number];
 export type StoredEffectRecipe={kind:PixelEffectKind;seed:number;ink:string;speed:number;opacity:number;drift:number};
@@ -21,10 +23,13 @@ export function clipFrameSequence(clip: AnimationClip): number[] {
   const frames = Array.from({length:clip.to-clip.from+1},(_,i)=>clip.from+i);
   return clip.mode==='pingpong'&&frames.length>2?[...frames,...frames.slice(1,-1).reverse()]:frames;
 }
-export type PixelDocument = { format: 'pixel-workshop/1'; id: string; name: string; width: number; height: number; revision: number; palette: string[]; layers: Layer[]; updatedAt: string; animation?: { fps: number; frames: AnimationFrame[]; clips?: AnimationClip[] }; ui?:UiMetadata };
+export type PixelDocument = { format: 'pixel-workshop/1'; id: string; name: string; width: number; height: number; revision: number; palette: string[]; layers: Layer[]; updatedAt: string; animation?: { fps: number; frames: AnimationFrame[]; clips?: AnimationClip[] }; ui?:UiMetadata; reference?:ReferenceImage };
 export const MAX_ANIMATION_FRAMES = 32;
 export const MAX_ANIMATION_CELLS = 900_000;
 export function frameCount(d: PixelDocument) { return 1 + (d.animation?.frames.length ?? 0); }
+export function documentCells(d:PixelDocument,layers=d.layers.length,frames=frameCount(d)){
+ return (layers*frames+(d.reference?1:0))*d.width*d.height;
+}
 export function frameView(d: PixelDocument, frame = 0): PixelDocument {
   requireInt(frame, 0, frameCount(d) - 1, 'frame');
   if (frame === 0) return d;
@@ -51,13 +56,14 @@ export function color(value: unknown): number {
 }
 export function hex(value: number): string { return '#' + (value >>> 0).toString(16).padStart(8, '0'); }
 export function createDocument(name: string, width: number, height: number, id = crypto.randomUUID()): PixelDocument {
-  requireInt(width, 1, 256, 'Width'); requireInt(height, 1, 256, 'Height');
+  requireInt(width, 1, MAX_CANVAS_SIDE, 'Width'); requireInt(height, 1, MAX_CANVAS_SIDE, 'Height');
   return { format:'pixel-workshop/1', id, name: String(name || 'Untitled sprite').slice(0,80), width, height, revision:0, palette:[], layers:[{id:'base',name:'Base',visible:true,pixels:Array(width*height).fill(0)}], updatedAt:new Date().toISOString() };
 }
 export function validateDocument(input: unknown): PixelDocument {
   const d = input as PixelDocument;
   if (!d || d.format !== 'pixel-workshop/1') throw new Error('This is not a Pixel Workshop project.');
-  requireInt(d.width,1,256,'Width'); requireInt(d.height,1,256,'Height');
+  requireInt(d.width,1,MAX_CANVAS_SIDE,'Width'); requireInt(d.height,1,MAX_CANVAS_SIDE,'Height');
+  if(d.reference!==undefined)validateReference(d.reference,d.width,d.height);
   if (typeof d.name !== 'string' || d.name.length > 80) throw new Error('Invalid project name.');
   if (!Array.isArray(d.layers) || !d.layers.length || d.layers.length>8) throw new Error('Projects need 1–8 layers.');
   const ids = new Set<string>();
@@ -103,9 +109,8 @@ export function validateDocument(input: unknown): PixelDocument {
         names.add(clip.name.toLowerCase());
       }
     }
-    if (frameCount(d) * d.layers.length * d.width * d.height > MAX_ANIMATION_CELLS)
-      throw new Error('Animation exceeds the pixel budget.');
   }
+  if(documentCells(d)>MAX_ANIMATION_CELLS)throw new Error('Animation or reference exceeds the pixel budget.');
   if(d.ui!==undefined)validateUi(d.ui,d.width,d.height,frameCount(d));
   for(const layer of d.layers)if(layer.text!==undefined)validatePixelText(layer.text,d.width,d.height,frameCount(d));
   return structuredClone(d);
@@ -125,7 +130,7 @@ export function composite(d: PixelDocument): Uint8Array {
   }
   return rgba;
 }
-export function historyLimit(d:PixelDocument){return Math.max(1,Math.min(12,Math.floor(400000/(d.width*d.height*d.layers.length*frameCount(d)))));}
+export function historyLimit(d:PixelDocument){return Math.max(1,Math.min(12,Math.floor(400000/documentCells(d))));}
 export function applyCommands(source: PixelDocument, commands: PaintCommand[], work={spent:0}): PixelDocument {
   if (!Array.isArray(commands)||commands.length<1||commands.length>5000) throw new Error('Send 1–5000 drawing commands in one batch.');
   const d=structuredClone(source);
@@ -134,6 +139,12 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
     if (!c || typeof c.op!=='string') throw new Error('Every command needs an op.');
     if(c.op==='rename'){if(typeof c.name!=='string'||!c.name.trim())throw new Error('Enter a project name.');d.name=c.name.slice(0,80);continue;}
     if(c.op==='palette'){if(!Array.isArray(c.colors)||c.colors.length>128)throw new Error('Choose up to 128 palette colors.');c.colors.forEach(color);d.palette=c.colors as string[];continue;}
+    if(c.op==='reference_set'){
+      if(c.reference===null)delete d.reference;
+      else d.reference=validateReference(c.reference,d.width,d.height);
+      if(documentCells(d)>MAX_ANIMATION_CELLS)throw new Error('Reference exceeds the pixel budget.');
+      spend(d.reference?.pixels.length??0);continue;
+    }
     if(c.op==='ui_set'){
       if(c.ui===null)delete d.ui;
       else d.ui=validateUi(c.ui,d.width,d.height,frameCount(d));
@@ -184,7 +195,7 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
     }
     if(c.op==='frame_add'){
       if(frameCount(d)>=MAX_ANIMATION_FRAMES)throw new Error('Animation supports up to 32 frames.');
-      if((frameCount(d)+1)*d.layers.length*d.width*d.height>MAX_ANIMATION_CELLS)
+      if(documentCells(d,d.layers.length,frameCount(d)+1)>MAX_ANIMATION_CELLS)
         throw new Error('Animation exceeds the pixel budget.');
       const from=requireInt(c.source_frame ?? 0,0,frameCount(d)-1,'source_frame');
       const sourceLayers=frameView(d,from).layers;
@@ -210,7 +221,7 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
     }
     if(c.op==='add_layer'){
       if(d.layers.length>=8)throw new Error('A project can have up to 8 layers.');
-      if(frameCount(d)*(d.layers.length+1)*d.width*d.height>MAX_ANIMATION_CELLS)
+      if(documentCells(d,d.layers.length+1)>MAX_ANIMATION_CELLS)
         throw new Error('Animation exceeds the pixel budget.');
       const id=String(c.id||'layer-'+d.layers.length);
       if(!/^[a-z0-9_-]{1,64}$/i.test(id)||d.layers.some(l=>l.id===id))throw new Error('Choose a unique layer ID.');
@@ -234,7 +245,7 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
     if(c.op==='rename_layer'){metadataLayer.name=String(c.name||'Layer').slice(0,60);continue;}
     if(c.op==='duplicate_layer'){
       if(d.layers.length>=8)throw new Error('Cannot preserve a layer: all eight slots are used.');
-      if(frameCount(d)*(d.layers.length+1)*d.width*d.height>MAX_ANIMATION_CELLS)
+      if(documentCells(d,d.layers.length+1)>MAX_ANIMATION_CELLS)
         throw new Error('Cannot preserve a layer: animation pixel budget reached.');
       const id=String(c.id||'backup-'+d.layers.length);
       if(!/^[a-z0-9_-]{1,64}$/i.test(id)||d.layers.some(l=>l.id===id))

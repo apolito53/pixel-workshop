@@ -43,6 +43,15 @@ test('large pans keep a small part of the canvas visible',()=>{
  const maxX=(viewport.width+canvas.width*2)/2-28;
  close(view.pan.x,maxX);
 });
+test('larger reference canvases retain the finger anchor when reaching their smaller raster zoom limit',()=>{
+ const large={width:512,height:512};
+ const start=beginPinch({x:170,y:300},{x:250,y:300},viewport,large,3,{x:12,y:-8});
+ const view=movePinch(start,{x:80,y:320},{x:340,y:320},viewport,large,4);
+ close(view.scale,4/3);
+ const end=finishPinch(start,view,viewport,large,4);assert.equal(end.zoom,4);
+ close(view.pan.x,end.pan.x);close(view.pan.y,end.pan.y);
+ close(view.midpoint.x,viewport.center.x+end.pan.x+(start.anchor.x-large.width/2)*end.zoom);
+});
 
 test('basic midpoint and distance geometry',()=>{
  assert.deepEqual(touchMidpoint({x:1,y:3},{x:5,y:7}),{x:3,y:5});

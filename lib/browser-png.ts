@@ -1,5 +1,16 @@
 import pngjs from 'pngjs/browser.js';
 import { composite, type PixelDocument } from './pixels.ts';
+import {checkReferencePng,packRgba,type ReferenceSource} from './reference.ts';
+
+export function decodeBrowserReference(bytes:Uint8Array):ReferenceSource{
+  checkReferencePng(bytes);
+  // pngjs/browser ships its own Buffer. Use that implementation for its binary
+  // reader without requiring a Node Buffer global in the browser bundle.
+  const BrowserBuffer=new pngjs.PNG({width:1,height:1}).data.constructor as typeof Buffer;
+  const png=pngjs.PNG.sync.read(BrowserBuffer.from(bytes));
+  if(png.depth===16)throw new Error('Use an 8-bit or indexed PNG reference.');
+  return {width:png.width,height:png.height,pixels:packRgba(png.data)};
+}
 
 // Encode straight RGBA bytes directly: a canvas round-trip can round partially
 // transparent RGB channels when the browser premultiplies its backing buffer.

@@ -10,7 +10,7 @@ A precise pixel-art editor with one TypeScript drawing engine shared by a React 
 
 ## In-app Field Guide
 
-Once you create or open a workspace, a **Guide** button appears in the editor header. On first visit, a skippable introduction offers an interactive tour. Choose the complete 22-stop walkthrough or one of six chapters: **Start here**, **Draw & arrange**, **Bring it to life**, **Procedural magic**, **Ship your assets**, or **Workspaces & agents**.
+Once you create or open a workspace, a **Guide** button appears in the editor header. On first visit, a skippable introduction offers an interactive tour. Choose the complete 33-stop walkthrough or one of seven chapters: **Start here**, **Draw & arrange**, **Bring it to life**, **Procedural magic**, **Make a UI kit**, **Ship your assets**, or **Workspaces & agents**.
 
 The guide highlights the actual controls and, on compact layouts, opens the drawing drawer or appropriate inspector tab for you. Use **Back**, **Next**, **Chapters**, or **Close**; Escape also closes it. Short optional “try it” prompts explain real workflows without automatically changing your artwork, exporting files, or issuing agent tokens. Opening a project or export dialog temporarily hides the guide and returns to the same step when the dialog closes. You can reopen the guide at any time. Read the [guide-driven UX audit](docs/tutorial-ux-audit.md) for the prioritized improvements we uncovered while teaching every feature.
 
@@ -29,7 +29,7 @@ Open http://127.0.0.1:4317. The Node service serves the React/Vite build, projec
 
 For a client that launches a local server, run `node --experimental-strip-types server/stdio.ts` with this repository as its working directory. `PIXEL_DATA_DIR` should point to the same directory used by the browser service. Both processes use revision checks, a file lock, and atomic writes.
 
-Available tools: `create_canvas`, `list_canvases`, `get_canvas`, `paint`, `undo`, `redo`, `export_png`, `export_svg`, `export_sprite_sheet`, `generate_effect`, `regenerate_effect`. Recipes are persisted on FX layers and returned by `get_canvas`. Drawing commands accept a zero-based `frame` index; animation controls are `frame_add`, `frame_delete`, and `set_fps`. The public HTTP `/mcp` endpoint requires an `Authorization: Bearer <workspace-token>` header. Inside the editor, open **Workspace → Copy MCP connection** to get a ready-to-use endpoint/header configuration. This is a secret providing access to that one workspace; keep it private. The stand-alone local stdio process deliberately uses its separate local filesystem and does not need a remote bearer token.
+Available tools: `create_canvas`, `list_canvases`, `get_canvas`, `import_reference`, `paint`, `undo`, `redo`, `export_png`, `export_svg`, `export_sprite_sheet`, `generate_effect`, `regenerate_effect`. Recipes are persisted on FX layers and returned by `get_canvas`. Drawing commands accept a zero-based `frame` index; animation controls are `frame_add`, `frame_delete`, and `set_fps`. The public HTTP `/mcp` endpoint requires an `Authorization: Bearer <workspace-token>` header. Inside the editor, open **Workspace → Copy MCP connection** to get a ready-to-use endpoint/header configuration. This is a secret providing access to that one workspace; keep it private. The stand-alone local stdio process deliberately uses its separate local filesystem and does not need a remote bearer token.
 
 Example drawing batch (use the ID and revision returned by `create_canvas`):
 
@@ -68,6 +68,24 @@ Failed saves pause the queue without discarding the drawing. Retry uses the same
 
 Undo and Redo remain beneath the drawing controls on roomy screens; on short or narrow screens the drawing tools move into a left-hand drawer, keeping history and a quick color well reachable. The existing Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z shortcuts remain available.
 
+## Tracing reference and grid alignment
+
+![Reference grid calibration over an enlarged lantern](docs/images/tracing-alignment.png)
+
+[Editor view](docs/images/tracing-editor.png) · [Verification notes](docs/tracing-verification.md)
+
+Open **Draw → Tracing Reference → Load reference PNG**. The alignment dialog shows the original image with a draggable green grid and a separate prepared-image preview. Set output width/height (up to 512 each), source pixels per cell, and grid offsets. **Keep cells square** links horizontal/vertical spacing; uncheck it to calibrate a source that has been stretched. **Fit full image into output** chooses spacing for the current output size; square cells preserve aspect ratio with transparent padding if needed. **Reset to native file pixels** returns to 1:1 when the source fits.
+
+A generated or enlarged image may have several file pixels per apparent art pixel. For a 256×384 image with 4× enlarged pixels, choose a 64×96 output and spacing 4×4, then drag/nudge the grid until its boundaries follow the artwork. There is no automatic assumption that generated art has a regular pixel lattice. The grid becomes visible at three display pixels per cell; zoom the source to inspect smaller cells. Source zoom affects viewing only.
+
+**Create matching tracing canvas** makes a blank artwork layer at the prepared dimensions. **Use on current canvas** requires an exact dimension match and preserves existing artwork. Applying performs one deterministic nearest-neighbor conversion, sampling each cell center. Out-of-image samples become transparent. The prepared reference is then fixed at canvas `(0,0)`, one prepared pixel per drawing cell. Its source dimensions, spacing and offsets are retained as calibration metadata. Reupload the original PNG to recalibrate; the original full-resolution file is not embedded.
+
+Use **Trace overlay**, **Reference only**, or **Artwork only**, plus separate reference/artwork viewing opacities. The canvas-footer **Trace** toggle quickly compares artwork and overlay. Reference-only view pauses painting. The underlay shares the artwork's canvas transform through zoom, scroll, and touch pan/pinch. PNG, SVG, sprite-sheet and tileset artwork omit it; editable `.pixel.json` and native projects in game packs preserve it. Adding, replacing or removing a reference is undoable.
+
+PNG uploads may be up to 8 MB, 4096 pixels per side and 4 million source pixels (8-bit or indexed PNG). Source dimensions above the output limit must be explicitly prepared in the dialog; attaching a mismatched image never silently stretches the canvas.
+
+MCP agents use **`import_reference`** with `png_base64` and an optional name. Omit `id`/`revision` to create a matching blank canvas; provide both to attach to an existing canvas. Optional `alignment` contains `{width,height,offsetX,offsetY,cellWidth,cellHeight}` in the same source-pixel coordinates used by the dialog. Omit alignment for literal native-pixel import. `get_canvas` supports `view:"overlay"|"reference"|"artwork"`, `referenceOpacity`, `artworkOpacity`, `grid`, integer `scale` and a native `region:{x,y,width,height}` for close-ups. Previews default to overlay when a reference exists. Browser and MCP tracing use the same compositor. `paint` accepts `{op:"reference_set",reference:null}` to remove the underlay, or a prepared `{name,width,height,pixels}` reference to attach one. Artwork export tools continue to return artwork only.
+
 ## Color workbench
 
 **Current color is always visible beside the canvas, alongside a Quick palette button.** Click its color swatch to open your operating system's color picker without opening the right inspector. On compact screens it remains a clickable square. The Draw panel provides exact `#RRGGBB`/`#RRGGBBAA` entry and an **Opacity** slider; selecting another RGB hue preserves the current alpha.
@@ -102,7 +120,7 @@ Stardrop's art workbench has an **SVG SHEET** download for every asset. Game pac
 
 `.pixel.json` uses `format: "pixel-workshop/1"`, dimensions, palette and bottom-to-top layers. Layer pixels are unsigned packed RGBA values (`0xRRGGBBAA`), with zero fully transparent. Import validates dimensions, colors, layer IDs, and buffer lengths and creates a new project instead of overwriting an existing one.
 
-Canvases support 1–256 pixels per side, eight layers, up to 128 palette colors, up to 32 named animation clips and up to twelve undo steps (history is reduced for larger animated documents). The optional `animation` section retains the original base layer pixels as frame 0 and stores additional frame cels by layer ID. Its optional `clips` array keeps named frame ranges, clip FPS and playback behavior. Each layer can also carry an optional validated `effect` recipe; older files without these fields remain valid. Existing static `.pixel.json` imports remain valid. Animation is limited to 32 frames and 900,000 total layer-cells per document. Project listing shows up to 100 hosted projects. Larger canvases remain future work.
+Canvases support 1–512 pixels per side, eight layers, up to 128 palette colors, up to 32 named animation clips and up to twelve undo steps (history is reduced for larger animated documents). The optional `animation` section retains the original base layer pixels as frame 0 and stores additional frame cels by layer ID. Its optional `clips` array keeps named frame ranges, clip FPS and playback behavior. Each layer can also carry an optional validated `effect` recipe; older files without these fields remain valid. Existing static `.pixel.json` imports remain valid. Animation is limited to 32 frames. All documents share a 900,000-cell budget counting every layer, every frame, and one prepared reference buffer when present. Project listing shows up to 100 hosted projects.
 
 
 ## Game production exports
@@ -154,6 +172,7 @@ pnpm exec tsc --noEmit
 node --experimental-strip-types tests/mcp-smoke.ts
 node --experimental-strip-types tests/mcp-smoke.ts --http
 node --experimental-strip-types tests/mcp-smoke.ts --http --cottage
+node --experimental-strip-types tests/mcp-reference-smoke.ts
 ```
 
 The HTTP smoke test starts a temporary loopback server using the same hosted MCP handler. It creates a canvas through the official MCP client, paints the 42-command original lantern, inspects its layers and exports the actual PNG under `artifacts/`. The stdio test uses a separate disposable project directory.
