@@ -12,18 +12,29 @@ type Props={doc:PixelDocument|null;busy:boolean;view:CanvasView;referenceOpacity
  onApply:(reference:ReferenceImage,newCanvas:boolean)=>Promise<boolean>;onRemove:()=>void};
 export default function ReferenceWorkbench(props:Props){
  const {doc,busy}=props,file=useRef<HTMLInputElement>(null);
- const [source,setSource]=useState<(ReferenceSource & {name:string})|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(false);
+ const [source,setSource]=useState<(ReferenceSource & {name:string})|null>(null),[showAlignment,setShowAlignment]=useState(false),[error,setError]=useState(''),[loading,setLoading]=useState(false);
  const load=async(f:File)=>{
   setError('');setLoading(true);
-  try{if(f.size>MAX_REFERENCE_PNG_BYTES)throw new Error('Reference PNG must be at most 8 MB.');
+  try{
+   if(f.size>MAX_REFERENCE_PNG_BYTES)throw new Error('Reference PNG must be at most 8 MB.');
    const {decodeBrowserReference}=await import('../lib/browser-png.ts');
-   const pixels=decodeBrowserReference(new Uint8Array(await f.arrayBuffer()));setSource({...pixels,name:f.name.replace(/\.png$/i,'').slice(0,80)});
+   const pixels=decodeBrowserReference(new Uint8Array(await f.arrayBuffer()));
+   const nextSource={...pixels,name:f.name.replace(/\.png$/i,'').slice(0,80)};
+   // Default to literal source pixels. Oversized images get one predictable,
+   // uniform nearest-neighbor resize to the editor's supported maximum.
+   const scale=Math.max(1,pixels.width/MAX_CANVAS_SIDE,pixels.height/MAX_CANVAS_SIDE);
+   const width=Math.max(1,Math.round(pixels.width/scale)),height=Math.max(1,Math.round(pixels.height/scale));
+   const reference=prepareReference(nextSource,nextSource.name,{width,height,offsetX:0,offsetY:0,cellWidth:scale,cellHeight:scale});
+   const applied=await props.onApply(reference,true);
+   setSource(nextSource);setShowAlignment(!applied);
+   if(applied)setError('');
   }catch(e){setError((e as Error).message);}finally{setLoading(false);}
  };
  return <section className="inspector-section reference-workbench" aria-label="Tracing reference">
   <div className="section-heading"><span>TRACING REFERENCE</span><span className="muted">1 CELL = 1 PIXEL</span></div>
-  <p className="reference-help">Align an image’s pixel grid, resize once, then trace the locked reference.</p>
-  <button className="secondary reference-load" disabled={busy||loading} onClick={()=>file.current?.click()}><ImagePlus size={14}/>{loading?'Reading PNG…':doc?.reference?'Load / realign PNG':'Load reference PNG'}</button>
+  <p className="reference-help">The canvas matches the PNG automatically: one image pixel per drawing cell. Larger images are resized uniformly to fit.</p>
+  <button className="secondary reference-load" disabled={busy||loading} onClick={()=>file.current?.click()}><ImagePlus size={14}/>{loading?'Reading PNG…':doc?.reference?'Replace reference PNG':'Load reference PNG'}</button>
+  {source&&doc?.reference&&<button className="text-button" disabled={busy||loading} onClick={()=>setShowAlignment(true)}>Fine-tune pixel alignment</button>}
   <input ref={file} className="visually-hidden" type="file" accept="image/png,.png" aria-label="Load tracing reference PNG" onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void load(f);}}/>
   {error&&<p className="error-text" role="alert">{error}</p>}
   {doc?.reference&&<>
@@ -34,7 +45,7 @@ export default function ReferenceWorkbench(props:Props){
    <p className="reference-help">Viewing opacity affects the overlay. Downloads use your artwork’s original opacity. Reference-only view pauses drawing.</p>
    <button className="text-button" disabled={busy} onClick={props.onRemove}><Trash2 size={13}/>Remove reference</button>
   </>}
-  {source&&createPortal(<AlignmentDialog source={source} doc={doc} busy={busy} onClose={()=>setSource(null)} onApply={async(r,newCanvas)=>{if(await props.onApply(r,newCanvas))setSource(null);}}/>,document.body)}
+  {source&&showAlignment&&createPortal(<AlignmentDialog source={source} doc={doc} busy={busy} onClose={()=>setShowAlignment(false)} onApply={async(r,newCanvas)=>{if(await props.onApply(r,newCanvas))setShowAlignment(false);}}/>,document.body)}
  </section>;
 }
 
