@@ -116,7 +116,7 @@ function AlignmentDialog({source,doc,busy,onClose,onApply}:{source:ReferenceSour
 
 
 function PixelifyPanel({onCreate,busy}:{onCreate:(doc:PixelDocument)=>Promise<void>;busy:boolean}){
- const [fileName,setFileName]=useState(''),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[aspect,setAspect]=useState(1),[colors,setColors]=useState(24),[dither,setDither]=useState(true),[preview,setPreview]=useState<PixelDocument|null>(null),[error,setError]=useState(''),[working,setWorking]=useState(false);
+ const [fileName,setFileName]=useState(''),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[aspect,setAspect]=useState(1),[colors,setColors]=useState(24),[dither,setDither]=useState(true),[preview,setPreview]=useState<PixelDocument|null>(null),[sourceFile,setSourceFile]=useState<File|null>(null),[error,setError]=useState(''),[working,setWorking]=useState(false);
  const input=useRef<HTMLInputElement>(null);
  const convert=async(file:File)=>{
   setError('');setWorking(true);setPreview(null);
@@ -149,7 +149,7 @@ function PixelifyPanel({onCreate,busy}:{onCreate:(doc:PixelDocument)=>Promise<vo
    }finally{bitmap.close();}
   }catch(e){setError((e as Error).message);}finally{setWorking(false);}
  };
- const choose=async(f:File)=>{await convert(f);};
+ const choose=async(f:File)=>{setSourceFile(f);await convert(f);};
  return <section className="inspector-section" aria-label="Pixel-ify image">
   <div className="section-heading"><span>PIXEL-IFY</span><span className="muted">IMAGE → PIXELS</span></div>
   <p className="reference-help">Turn a photo, illustration, or screenshot into editable pixel art. Choose a small output size and color depth, then open it as a new canvas.</p>
@@ -160,6 +160,7 @@ function PixelifyPanel({onCreate,busy}:{onCreate:(doc:PixelDocument)=>Promise<vo
    <label className="reference-field">Pixel height · {height}<span className="muted">Auto-fitted to source aspect ratio ({aspect.toFixed(2)}:1)</span></label>
    <label className="reference-field">Color count · {colors}<input type="range" min="8" max="64" step="1" value={colors} onChange={e=>setColors(Number(e.target.value))}/></label>
   </div>
+  {sourceFile&&<button className="secondary" disabled={busy||working} onClick={()=>void convert(sourceFile)}>Update preview with these settings</button>}
   <label className="reference-check"><input type="checkbox" checked={dither} onChange={e=>setDither(e.target.checked)}/>Use dithering for smoother gradients</label>
   {error&&<p className="error-text" role="alert">{error}</p>}
   {preview&&<><p className="reference-name">{preview.width} × {preview.height} · {preview.palette.length} palette colors<br/><span className="muted">Preview is the exact editable pixel data.</span></p>
