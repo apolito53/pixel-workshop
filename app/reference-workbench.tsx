@@ -5,11 +5,11 @@ import {X,ImagePlus,Eye,Trash2} from 'lucide-react';
 import {MAX_CANVAS_SIDE,MAX_REFERENCE_PNG_BYTES} from '../lib/canvas-limits.ts';
 import {prepareReference,referenceRgba,fitReferenceAlignment,type ReferenceAlignment,type ReferenceImage,type ReferenceSource} from '../lib/reference.ts';
 import type {CanvasView} from '../lib/canvas-preview.ts';
-import type {PixelDocument} from '../lib/pixels.ts';
+import {createDocument,type PixelDocument} from '../lib/pixels.ts';
 
 type Props={doc:PixelDocument|null;busy:boolean;view:CanvasView;referenceOpacity:number;artworkOpacity:number;
  onView:(view:CanvasView)=>void;onReferenceOpacity:(v:number)=>void;onArtworkOpacity:(v:number)=>void;
- onApply:(reference:ReferenceImage,newCanvas:boolean)=>Promise<boolean>;onRemove:()=>void};
+ onApply:(reference:ReferenceImage,newCanvas:boolean)=>Promise<boolean>;onCreatePixelified:(doc:PixelDocument)=>Promise<void>;onRemove:()=>void};
 export default function ReferenceWorkbench(props:Props){
  const {doc,busy}=props,file=useRef<HTMLInputElement>(null);
  const [source,setSource]=useState<(ReferenceSource & {name:string})|null>(null),[showAlignment,setShowAlignment]=useState(false),[error,setError]=useState(''),[loading,setLoading]=useState(false);
@@ -29,6 +29,7 @@ export default function ReferenceWorkbench(props:Props){
   }catch(e){setError((e as Error).message);}finally{setLoading(false);}
  };
  return <section className="inspector-section reference-workbench" aria-label="Tracing reference">
+  <PixelifyPanel onCreate={props.onCreatePixelified} busy={busy}/>
   <div className="section-heading"><span>TRACING REFERENCE</span><span className="muted">1 CELL = 1 PIXEL</span></div>
   <p className="reference-help">The canvas matches the PNG automatically: one image pixel per drawing cell. Larger images are resized uniformly to fit.</p>
   <button className="secondary reference-load" disabled={busy||loading} onClick={()=>file.current?.click()}><ImagePlus size={14}/>{loading?'Reading PNG…':doc?.reference?'Replace reference PNG':'Load reference PNG'}</button>
@@ -111,4 +112,58 @@ function AlignmentDialog({source,doc,busy,onClose,onApply}:{source:ReferenceSour
    {!matching&&doc&&<p className="reference-help">Current canvas: {doc.width} × {doc.height}. Match that output size to attach here.</p>}
   </div></div>
  </section></div>;
+}
+
+
+function PixelifyPanel({onCreate,busy}:{onCreate:(doc:PixelDocument)=>Promise<void>;busy:boolean}){
+ const [fileName,setFileName]=useState(''),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[colors,setColors]=useState(24),[dither,setDither]=useState(true),[preview,setPreview]=useState<PixelDocument|null>(null),[error,setError]=useState(''),[working,setWorking]=useState(false);
+ const input=useRef<HTMLInputElement>(null);
+ const convert=async(file:File)=>{
+  setError('');setWorking(true);setPreview(null);
+  try{
+   if(file.size>12*1024*1024)throw new Error('Choose an image smaller than 12 MB.');
+   const bitmap=await createImageBitmap(file);
+   try{
+    if(bitmap.width>4096||bitmap.height>4096||bitmap.width*bitmap.height>4_000_000)throw new Error('Source images are limited to 4096 px per side and 4 million pixels.');
+    const c=document.createElement('canvas');c.width=width;c.height=height;
+    const ctx=c.getContext('2d',{willReadFrequently:true});if(!ctx)throw new Error('Could not prepare image pixels.');
+    ctx.clearRect(0,0,width,height);ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(bitmap,0,0,width,height);
+    const data=ctx.getImageData(0,0,width,height).data, work=new Float32Array(width*height*4);
+    for(let i=0;i<width*height;i++){work[i*4]=data[i*4];work[i*4+1]=data[i*4+1];work[i*4+2]=data[i*4+2];work[i*4+3]=data[i*4+3];}
+    const levels=Math.max(2,Math.min(8,Math.round(Math.cbrt(colors))));
+    const step=255/(levels-1),palette=new Set<string>(),pixels:number[]=[];
+    for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+     const i=y*width+x,o=i*4,a=Math.round(work[o+3]);if(a<12){pixels.push(0);continue;}
+     const quant=(v:number)=>Math.max(0,Math.min(255,Math.round(v/step)*step));
+     const r=quant(work[o]),g=quant(work[o+1]),b=quant(work[o+2]),hex='#'+[r,g,b].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('');
+     palette.add(hex);pixels.push((((Math.round(r)&255)<<24)|((Math.round(g)&255)<<16)|((Math.round(b)&255)<<8)|a)>>>0);
+     if(dither){
+      const er=work[o]-r,eg=work[o+1]-g,eb=work[o+2]-b;
+      const spread=(xx:number,yy:number,f:number)=>{if(xx<0||xx>=width||yy>=height)return;const p=(yy*width+xx)*4;if(work[p+3]<12)return;work[p]+=er*f;work[p+1]+=eg*f;work[p+2]+=eb*f;};
+      spread(x+1,y,7/16);spread(x-1,y+1,3/16);spread(x,y+1,5/16);spread(x+1,y+1,1/16);
+     }
+    }
+    const doc=createDocument(file.name.replace(/\.[^.]+$/,'').slice(0,72)||'Pixelified image',width,height,'pixelified-image');
+    doc.layers[0].pixels=pixels;doc.palette=[...palette].slice(0,128);setPreview(doc);setFileName(file.name);
+   }finally{bitmap.close();}
+  }catch(e){setError((e as Error).message);}finally{setWorking(false);}
+ };
+ const choose=async(f:File)=>{await convert(f);};
+ return <section className="inspector-section" aria-label="Pixel-ify image">
+  <div className="section-heading"><span>PIXEL-IFY</span><span className="muted">IMAGE → PIXELS</span></div>
+  <p className="reference-help">Turn a photo, illustration, or screenshot into editable pixel art. Choose a small output size and color depth, then open it as a new canvas.</p>
+  <input ref={input} className="visually-hidden" type="file" accept="image/*" aria-label="Choose image to pixel-ify" onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void choose(f);}}/>
+  <button className="secondary reference-load" disabled={busy||working} onClick={()=>input.current?.click()}><ImagePlus size={14}/>{working?'Converting…':fileName?'Choose another image':'Upload image'}</button>
+  <div className="reference-number-fields">
+   <label className="reference-field">Pixel width · {width}<input type="range" min="8" max="256" step="1" value={width} onChange={e=>setWidth(Number(e.target.value))}/></label>
+   <label className="reference-field">Pixel height · {height}<input type="range" min="8" max="256" step="1" value={height} onChange={e=>setHeight(Number(e.target.value))}/></label>
+   <label className="reference-field">Color count · {colors}<input type="range" min="8" max="64" step="1" value={colors} onChange={e=>setColors(Number(e.target.value))}/></label>
+  </div>
+  <label className="reference-check"><input type="checkbox" checked={dither} onChange={e=>setDither(e.target.checked)}/>Use dithering for smoother gradients</label>
+  {error&&<p className="error-text" role="alert">{error}</p>}
+  {preview&&<><p className="reference-name">{preview.width} × {preview.height} · {preview.palette.length} palette colors<br/><span className="muted">Preview is the exact editable pixel data.</span></p>
+   <div style={{background:'var(--panel)',padding:8,display:'grid',placeItems:'center',maxHeight:240,overflow:'auto'}}><canvas ref={el=>{if(!el)return;el.width=preview.width;el.height=preview.height;const c=el.getContext('2d');if(!c)return;const img=c.createImageData(preview.width,preview.height);preview.layers[0].pixels.forEach((p,i)=>{img.data[i*4]=p>>>24;img.data[i*4+1]=(p>>>16)&255;img.data[i*4+2]=(p>>>8)&255;img.data[i*4+3]=p&255;});c.putImageData(img,0,0);el.style.width=Math.min(220,preview.width*4)+'px';el.style.height='auto';el.style.imageRendering='pixelated';}}/></div>
+   <button className="primary full" disabled={busy||working} onClick={()=>void onCreate(preview)}>Open as editable canvas</button>
+  </>}
+ </section>;
 }
