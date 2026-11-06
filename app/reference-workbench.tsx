@@ -3,7 +3,7 @@ import {useEffect,useId,useMemo,useRef,useState,type PointerEvent} from 'react';
 import {createPortal} from 'react-dom';
 import {X,ImagePlus,Eye,Trash2} from 'lucide-react';
 import {MAX_CANVAS_SIDE,MAX_REFERENCE_PNG_BYTES} from '../lib/canvas-limits.ts';
-import {prepareReference,referenceRgba,type ReferenceAlignment,type ReferenceImage,type ReferenceSource} from '../lib/reference.ts';
+import {prepareReference,referenceRgba,fitReferenceAlignment,type ReferenceAlignment,type ReferenceImage,type ReferenceSource} from '../lib/reference.ts';
 import type {CanvasView} from '../lib/canvas-preview.ts';
 import type {PixelDocument} from '../lib/pixels.ts';
 
@@ -22,9 +22,7 @@ export default function ReferenceWorkbench(props:Props){
    const nextSource={...pixels,name:f.name.replace(/\.png$/i,'').slice(0,80)};
    // Default to literal source pixels. Oversized images get one predictable,
    // uniform nearest-neighbor resize to the editor's supported maximum.
-   const scale=Math.max(1,pixels.width/MAX_CANVAS_SIDE,pixels.height/MAX_CANVAS_SIDE);
-   const width=Math.max(1,Math.round(pixels.width/scale)),height=Math.max(1,Math.round(pixels.height/scale));
-   const reference=prepareReference(nextSource,nextSource.name,{width,height,offsetX:0,offsetY:0,cellWidth:scale,cellHeight:scale});
+   const reference=prepareReference(nextSource,nextSource.name,fitReferenceAlignment(pixels.width,pixels.height));
    const applied=await props.onApply(reference,true);
    setSource(nextSource);setShowAlignment(!applied);
    if(applied)setError('');
@@ -51,8 +49,7 @@ export default function ReferenceWorkbench(props:Props){
 
 function AlignmentDialog({source,doc,busy,onClose,onApply}:{source:ReferenceSource & {name:string};doc:PixelDocument|null;busy:boolean;onClose:()=>void;onApply:(r:ReferenceImage,newCanvas:boolean)=>Promise<void>}){
  const patternId=useId().replace(/:/g,''),dialog=useRef<HTMLElement>(null),sourceCanvas=useRef<HTMLCanvasElement>(null),preparedCanvas=useRef<HTMLCanvasElement>(null);
- const scale=Math.max(1,source.width/MAX_CANVAS_SIDE,source.height/MAX_CANVAS_SIDE);
- const [alignment,setAlignment]=useState<ReferenceAlignment>({width:Math.round(source.width/scale),height:Math.round(source.height/scale),offsetX:0,offsetY:0,cellWidth:scale,cellHeight:scale});
+ const [alignment,setAlignment]=useState<ReferenceAlignment>(()=>fitReferenceAlignment(source.width,source.height));
  const [square,setSquare]=useState(true),[displayScale,setDisplayScale]=useState(Math.min(2,560/source.width,360/source.height)),[grid,setGrid]=useState(true),[saving,setSaving]=useState(false),[error,setError]=useState('');
  const drag=useRef<{x:number;y:number;offsetX:number;offsetY:number}|null>(null);
  const result=useMemo(()=>{try{return {reference:prepareReference(source,source.name,alignment),error:''};}catch(e){return {reference:null,error:(e as Error).message};}},[source,alignment]);

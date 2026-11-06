@@ -22,4 +22,5 @@ jobs:
       - run: pnpm test
       - run: pnpm exec tsc --noEmit
       - run: node --experimental-strip-types tests/mcp-reference-smoke.ts
+      - run: node --experimental-strip-types tests/mcp-reference-smoke.ts --http
       - run: pnpm build:node

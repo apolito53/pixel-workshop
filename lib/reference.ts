@@ -4,6 +4,16 @@ export type ReferenceAlignment={width:number;height:number;offsetX:number;offset
 export type ReferenceImage={name:string;width:number;height:number;pixels:number[];source?:ReferenceAlignment & {widthPixels:number;heightPixels:number}};
 export type ReferenceSource={width:number;height:number;pixels:number[]};
 
+/** Shared browser/MCP default: native pixels when possible, otherwise fit once. */
+export function fitReferenceAlignment(width:number,height:number):ReferenceAlignment{
+ if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width>MAX_SOURCE_SIDE||height>MAX_SOURCE_SIDE||width*height>MAX_SOURCE_PIXELS)
+  throw new Error('Reference source is too large or invalid (maximum 4096 per side and 4 million pixels).');
+ const scale=Math.max(1,width/MAX_CANVAS_SIDE,height/MAX_CANVAS_SIDE);
+ const outputWidth=Math.max(1,Math.round(width/scale)),outputHeight=Math.max(1,Math.round(height/scale));
+ // Account for integer rounding independently on each axis, including 1px strips.
+ return {width:outputWidth,height:outputHeight,offsetX:0,offsetY:0,cellWidth:width/outputWidth,cellHeight:height/outputHeight};
+}
+
 const integer=(v:unknown,max:number)=>Number.isInteger(v)&&(v as number)>0&&(v as number)<=max;
 export function validateAlignment(input:unknown,sourceWidth:number,sourceHeight:number):ReferenceAlignment{
  const a=input as ReferenceAlignment;

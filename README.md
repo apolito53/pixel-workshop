@@ -29,7 +29,7 @@ Open http://127.0.0.1:4317. The Node service serves the React/Vite build, projec
 
 For a client that launches a local server, run `node --experimental-strip-types server/stdio.ts` with this repository as its working directory. `PIXEL_DATA_DIR` should point to the same directory used by the browser service. Both processes use revision checks, a file lock, and atomic writes.
 
-Available tools: `create_canvas`, `list_canvases`, `get_canvas`, `import_reference`, `paint`, `undo`, `redo`, `export_png`, `export_svg`, `export_sprite_sheet`, `generate_effect`, `regenerate_effect`. Recipes are persisted on FX layers and returned by `get_canvas`. Drawing commands accept a zero-based `frame` index; animation controls are `frame_add`, `frame_delete`, and `set_fps`. The public HTTP `/mcp` endpoint requires an `Authorization: Bearer <workspace-token>` header. Inside the editor, open **Workspace → Copy MCP connection** to get a ready-to-use endpoint/header configuration. This is a secret providing access to that one workspace; keep it private. The stand-alone local stdio process deliberately uses its separate local filesystem and does not need a remote bearer token.
+Available tools (MCP server v0.3.0): `create_canvas`, `list_canvases`, `get_canvas`, `import_reference`, `copy_reference`, `compare_reference`, `paint`, `undo`, `redo`, `export_png`, `export_svg`, `export_sprite_sheet`, `generate_effect`, `regenerate_effect`. Recipes are persisted on FX layers and returned by `get_canvas`. Drawing commands accept a zero-based `frame` index; animation controls are `frame_add`, `frame_delete`, and `set_fps`. The public HTTP `/mcp` endpoint requires an `Authorization: Bearer <workspace-token>` header. Inside the editor, open **Workspace → Copy MCP connection** to get a ready-to-use endpoint/header configuration. This is a secret providing access to that one workspace; keep it private. The stand-alone local stdio process deliberately uses its separate local filesystem and does not need a remote bearer token. Pull the latest code and restart a local stdio process; refresh your MCP client's tool list after updating either transport.
 
 Example drawing batch (use the ID and revision returned by `create_canvas`):
 
@@ -84,7 +84,29 @@ Use **Trace overlay**, **Reference only**, or **Artwork only**, plus separate re
 
 PNG uploads may be up to 8 MB, 4096 pixels per side and 4 million source pixels (8-bit or indexed PNG). Source dimensions above the output limit must be explicitly prepared in the dialog; attaching a mismatched image never silently stretches the canvas.
 
-MCP agents use **`import_reference`** with `png_base64` and an optional name. Omit `id`/`revision` to create a matching blank canvas; provide both to attach to an existing canvas. Optional `alignment` contains `{width,height,offsetX,offsetY,cellWidth,cellHeight}` in the same source-pixel coordinates used by the dialog. Omit alignment for literal native-pixel import. `get_canvas` supports `view:"overlay"|"reference"|"artwork"`, `referenceOpacity`, `artworkOpacity`, `grid`, integer `scale` and a native `region:{x,y,width,height}` for close-ups. Previews default to overlay when a reference exists. Browser and MCP tracing use the same compositor. `paint` accepts `{op:"reference_set",reference:null}` to remove the underlay, or a prepared `{name,width,height,pixels}` reference to attach one. Artwork export tools continue to return artwork only.
+MCP agents use **`import_reference`** with `png_base64` and an optional name. Omit `id`/`revision` to create a matching canvas; provide both to attach to an existing canvas whose dimensions already match. The default `sizing:"fit"` shares the browser's sizing calculation: sources up to 512 pixels per side retain every pixel, and larger sources fit proportionally into that limit with nearest-neighbor sampling. `sizing:"native"` rejects oversized inputs instead of losing pixels. Optional `alignment` contains `{width,height,offsetX,offsetY,cellWidth,cellHeight}` and cannot be combined with explicit `sizing`. To extract an exact native sprite from a larger image, set both cell dimensions to 1 and specify the source offset and output size. Responses include `referencePreparation` with original/working sizes and explicit `resampled` and `croppedOrPadded` flags.
+
+### Generated image to editable game asset through MCP
+
+Upload the PNG once with `import_reference({png_base64, name, copy_to_layer:true})`. A new project gets both a locked reference and an exact editable copy in its base layer. This is initial project creation, not an undoable edit; subsequent painting is undoable. On an existing matching canvas, the same option attaches the reference and copies it into a new layer in one revision-guarded, undoable transaction. Existing artwork is preserved. The returned `copy` report identifies the destination layer and verifies every RGBA pixel against the prepared reference. No raw pixel arrays are returned by default.
+
+For a reference already loaded, call `copy_reference({id, revision})`. This creates a new layer; optional `name` labels it. Supply `layer` only when intentionally replacing a whole existing layer cel, including transparent pixels. Optional `frame` selects the animation cel (default 0). Copying an existing layer detaches its procedural recipe and any text recipe for that cel. Other layers, frames and reference pixels remain intact. Copying and adding its layer form one undo step; revision conflicts, invalid frames and budget failures leave the document unchanged.
+
+Use `compare_reference({id, layer, frame})` to check raw editable pixels without transferring their arrays, or omit `layer` to check visible composited artwork as exported. The result includes matching/different pixel counts, `exactMatch`, `visibleMatch`, and the first differing coordinate and colors. Fully transparent RGB is preserved in editable layers but normalized during compositing; `visibleMatch` ignores only RGB differences when both pixels have zero alpha. Comparisons always use the **prepared reference**: a perfect copy after downsizing is not an exact copy of the original larger source. For original-pixel fidelity, use native sizing or exact source crops.
+
+After copying, use normal `paint` commands for sprite cleanup, layers and animation, then `export_png`, `export_svg` or `export_sprite_sheet`. The reference itself never appears in artwork exports. `get_canvas` supports `view:"overlay"|"reference"|"artwork"`, viewing opacities, a grid, integer scale and native-coordinate close-ups. Copies preview artwork by default; ordinary reference imports preview the overlay. Browser and MCP use the same compositor.
+
+For example, an MCP SDK client can upload a generated file without printing its base64 or pixels into the conversation:
+
+```js
+const png_base64 = (await readFile(imagePath)).toString('base64');
+const result = await client.callTool({name:'import_reference', arguments:{
+  name:'Generated sprite', png_base64, copy_to_layer:true, sizing:'native'
+}});
+// Check result.isError first. Oversized native inputs require an explicit fit or crop.
+const asset = JSON.parse(result.content.find(block => block.type === 'text').text);
+// asset.id and asset.copy.layer identify the editable artwork; asset.copy.exactMatch verifies it.
+```
 
 ## Color workbench
 
@@ -173,6 +195,7 @@ node --experimental-strip-types tests/mcp-smoke.ts
 node --experimental-strip-types tests/mcp-smoke.ts --http
 node --experimental-strip-types tests/mcp-smoke.ts --http --cottage
 node --experimental-strip-types tests/mcp-reference-smoke.ts
+node --experimental-strip-types tests/mcp-reference-smoke.ts --http
 ```
 
 The HTTP smoke test starts a temporary loopback server using the same hosted MCP handler. It creates a canvas through the official MCP client, paints the 42-command original lantern, inspects its layers and exports the actual PNG under `artifacts/`. The stdio test uses a separate disposable project directory.

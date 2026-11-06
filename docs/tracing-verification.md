@@ -1,5 +1,17 @@
 # Tracing reference verification
 
+## MCP exact-copy update — November 6, 2026
+
+MCP v0.3.0 adds `copy_reference`, `compare_reference`, and the `copy_to_layer` import option. Import and browser fitting share one sizing helper; native imports and explicit 1:1 source crops provide a path that never resamples source pixels. Fitted imports explicitly report the original and working dimensions. Integer rounding is accounted for on both axes, including 4096×1 and 1×4096 inputs.
+
+The 130-test suite, TypeScript checks, native Next.js production build and portable Node/Vite build passed. New coverage checks exact raw RGBA copying (including RGB under zero alpha), partial-alpha export fidelity, existing-layer preservation, frame targeting, stale revisions, atomic failures, cell budgets, procedural recipe detachment, undo/redo, fitted imports, native-size rejection, and exact source crops. Comparison distinguishes raw equality from visible equality and identifies the first differing coordinate without returning pixel arrays.
+
+Both official MCP SDK transports, stdio and local HTTP, passed the expanded reference smoke test: 256×384 source, 98,304 exact copied pixels, byte-identical decoded PNG export, and undo back to the earlier one-pixel artwork. Each also passed one-call editable import and reported the 1024×768 → 512×384 fit explicitly. These are deterministic fixtures, not a claim of visually redrawing an ImageGen picture. CI now runs the reference smoke test through both transports.
+
+The standalone stdio workspace remains separate from hosted workspaces. Hosted MCP callers use their normal workspace bearer token. Existing clients must refresh tool discovery; a local server must run the updated checkout. No token changes or workspace migrations are required.
+
+## Original tracing implementation
+
 The tracing feature prepares an image against an explicitly calibrated source grid, then stores the resulting native reference at canvas origin. The drawing grid and prepared reference have exactly the same dimensions. Reference pixels live outside paint layers and artwork export compositing.
 
 ## Automated checks

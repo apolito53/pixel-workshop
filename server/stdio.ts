@@ -5,7 +5,7 @@ import { ProjectService } from '../lib/project-service.ts';
 import { callTool, toolDefinitions } from '../lib/mcp-tools.ts';
 import { fileStore } from './file-store.ts';
 import {toolFieldSchema} from '../lib/tool-schema.ts';
-const service=new ProjectService(fileStore()),server=new McpServer({name:'pixel-workshop',version:'0.1.0'});
+const service=new ProjectService(fileStore()),server=new McpServer({name:'pixel-workshop',version:'0.3.0'});
 for(const tool of toolDefinitions){
   const fields:Record<string,z.ZodTypeAny>={};
   for(const [key,raw] of Object.entries(tool.inputSchema.properties)){

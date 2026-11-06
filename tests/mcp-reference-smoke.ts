@@ -1,17 +1,30 @@
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
+import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import assert from 'node:assert/strict';
 import {PNG} from 'pngjs';
+import {createServer} from 'node:http';
+import {ProjectService} from '../lib/project-service.ts';
+import {fileStore} from '../server/file-store.ts';
+import {mcpResponse} from '../lib/mcp-tools.ts';
 
 const dir=await mkdtemp(join(tmpdir(),'pixel-mcp-reference-'));
 const client=new Client({name:'pixel-tracing-verification',version:'1.0.0'});
-const transport=new StdioClientTransport({command:process.execPath,args:['--experimental-strip-types','server/stdio.ts'],env:{...process.env,PIXEL_DATA_DIR:dir} as Record<string,string>});
+const service=new ProjectService(fileStore(dir));
+const httpServer=process.argv.includes('--http')?createServer(async(req,res)=>{
+ const parts:Buffer[]=[];for await(const part of req)parts.push(part);
+ const response=await mcpResponse(new Request('http://localhost/mcp',{method:req.method,headers:{'content-type':'application/json'},...(parts.length?{body:Buffer.concat(parts)}:{})}),service);
+ res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));
+}):null;
+if(httpServer)await new Promise<void>(r=>httpServer.listen(0,'127.0.0.1',r));
+const port=(httpServer?.address() as {port:number}|null)?.port;
+const transport=httpServer?new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)):new StdioClientTransport({command:process.execPath,args:['--experimental-strip-types','server/stdio.ts'],env:{...process.env,PIXEL_DATA_DIR:dir} as Record<string,string>});
 try{
  await client.connect(transport);
- const tools=await client.listTools();assert.ok(tools.tools.some(t=>t.name==='import_reference'));
+ const tools=await client.listTools();for(const name of ['import_reference','copy_reference','compare_reference'])assert.ok(tools.tools.some(t=>t.name===name));
  const call=async(name:string,args:Record<string,unknown>)=>{
   const result=await client.callTool({name,arguments:args});assert.ok(!result.isError,JSON.stringify(result));return result;
  };
@@ -35,5 +48,20 @@ try{
  assert.equal(visible,1);
  const calibrated=await call('import_reference',{name:'Prepared reference',png_base64,alignment:{width:64,height:96,offsetX:0,offsetY:0,cellWidth:4,cellHeight:4}});
  const small=JSON.parse((calibrated.content as any[]).find(c=>c.type==='text').text);assert.deepEqual([small.width,small.height],[64,96]);
- console.log(JSON.stringify({transport:'stdio',nativeReference:'256x384',preparedReference:'64x96',spacing:'4x4',closeUp:'2x2 at 8x',exportVisiblePixels:visible,tools:tools.tools.length}));
-}finally{await client.close();await rm(dir,{recursive:true,force:true});}
+ const copied=await call('copy_reference',{id:summary.id,revision:1});
+ const copiedDoc=JSON.parse((copied.content as any[]).find(c=>c.type==='text').text);
+ assert.equal(copiedDoc.copy.exactMatch,true);assert.equal(copiedDoc.copy.matchingPixels,256*384);assert.equal(copiedDoc.layers[1].pixels,undefined);
+ const comparison=await call('compare_reference',{id:summary.id,layer:copiedDoc.copy.layer});
+ assert.equal(JSON.parse((comparison.content as any[])[0].text).differentPixels,0);
+ const exact=await call('export_png',{id:summary.id});
+ assert.deepEqual(PNG.sync.read(Buffer.from((exact.content as any[]).find(c=>c.type==='image').data,'base64')).data,source.data);
+ await call('undo',{id:summary.id,revision:copiedDoc.revision});
+ const afterUndo=await call('export_png',{id:summary.id});
+ assert.deepEqual(PNG.sync.read(Buffer.from((afterUndo.content as any[]).find(c=>c.type==='image').data,'base64')).data,art.data);
+ const immediate=await call('import_reference',{name:'One-call editable source',png_base64,copy_to_layer:true});
+ const immediateDoc=JSON.parse((immediate.content as any[])[0].text);assert.equal(immediateDoc.copy.exactMatch,true);
+ const large=new PNG({width:1024,height:768});large.data.fill(255);
+ const fitted=await call('import_reference',{png_base64:PNG.sync.write(large).toString('base64'),copy_to_layer:true});
+ const fittedDoc=JSON.parse((fitted.content as any[])[0].text);assert.deepEqual([fittedDoc.width,fittedDoc.height],[512,384]);assert.equal(fittedDoc.referencePreparation.resampled,true);assert.equal(fittedDoc.copy.exactMatch,true);
+ console.log(JSON.stringify({transport:httpServer?'HTTP':'stdio',nativeReference:'256x384',preparedReference:'64x96',fittedReference:'512x384',exactCopyPixels:256*384,exportMatch:true,undo:true,tools:tools.tools.length}));
+}finally{await client.close();if(httpServer)await new Promise<void>(r=>httpServer.close(()=>r()));await rm(dir,{recursive:true,force:true});}
