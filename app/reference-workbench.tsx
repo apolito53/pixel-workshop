@@ -125,26 +125,26 @@ function PixelifyPanel({onCreate,busy}:{onCreate:(doc:PixelDocument)=>Promise<vo
    const bitmap=await createImageBitmap(file);
    try{
     if(bitmap.width>4096||bitmap.height>4096||bitmap.width*bitmap.height>4_000_000)throw new Error('Source images are limited to 4096 px per side and 4 million pixels.');
-    const ratio=bitmap.height/bitmap.width;setAspect(ratio);setHeight(Math.max(8,Math.min(256,Math.round(width*ratio))));
-    const c=document.createElement('canvas');c.width=width;c.height=height;
+    const ratio=bitmap.height/bitmap.width,outHeight=Math.max(8,Math.min(256,Math.round(width*ratio)));setAspect(ratio);setHeight(outHeight);
+    const c=document.createElement('canvas');c.width=width;c.height=outHeight;
     const ctx=c.getContext('2d',{willReadFrequently:true});if(!ctx)throw new Error('Could not prepare image pixels.');
     ctx.clearRect(0,0,width,height);ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(bitmap,0,0,width,height);
-    const data=ctx.getImageData(0,0,width,height).data, work=new Float32Array(width*height*4);
-    for(let i=0;i<width*height;i++){work[i*4]=data[i*4];work[i*4+1]=data[i*4+1];work[i*4+2]=data[i*4+2];work[i*4+3]=data[i*4+3];}
+    const data=ctx.getImageData(0,0,width,outHeight).data, work=new Float32Array(width*outHeight*4);
+    for(let i=0;i<width*outHeight;i++){work[i*4]=data[i*4];work[i*4+1]=data[i*4+1];work[i*4+2]=data[i*4+2];work[i*4+3]=data[i*4+3];}
     const levels=Math.max(2,Math.min(8,Math.round(Math.cbrt(colors))));
     const step=255/(levels-1),palette=new Set<string>(),pixels:number[]=[];
-    for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+    for(let y=0;y<outHeight;y++)for(let x=0;x<width;x++){
      const i=y*width+x,o=i*4,a=Math.round(work[o+3]);if(a<12){pixels.push(0);continue;}
      const quant=(v:number)=>Math.max(0,Math.min(255,Math.round(v/step)*step));
      const r=quant(work[o]),g=quant(work[o+1]),b=quant(work[o+2]),hex='#'+[r,g,b].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('');
      palette.add(hex);pixels.push((((Math.round(r)&255)<<24)|((Math.round(g)&255)<<16)|((Math.round(b)&255)<<8)|a)>>>0);
      if(dither){
       const er=work[o]-r,eg=work[o+1]-g,eb=work[o+2]-b;
-      const spread=(xx:number,yy:number,f:number)=>{if(xx<0||xx>=width||yy>=height)return;const p=(yy*width+xx)*4;if(work[p+3]<12)return;work[p]+=er*f;work[p+1]+=eg*f;work[p+2]+=eb*f;};
+      const spread=(xx:number,yy:number,f:number)=>{if(xx<0||xx>=width||yy>=outHeight)return;const p=(yy*width+xx)*4;if(work[p+3]<12)return;work[p]+=er*f;work[p+1]+=eg*f;work[p+2]+=eb*f;};
       spread(x+1,y,7/16);spread(x-1,y+1,3/16);spread(x,y+1,5/16);spread(x+1,y+1,1/16);
      }
     }
-    const doc=createDocument(file.name.replace(/\.[^.]+$/,'').slice(0,72)||'Pixelified image',width,height,'pixelified-image');
+    const doc=createDocument(file.name.replace(/\.[^.]+$/,'').slice(0,72)||'Pixelified image',width,outHeight,'pixelified-image');
     doc.layers[0].pixels=pixels;doc.palette=[...palette].slice(0,128);setPreview(doc);setFileName(file.name);
    }finally{bitmap.close();}
   }catch(e){setError((e as Error).message);}finally{setWorking(false);}
