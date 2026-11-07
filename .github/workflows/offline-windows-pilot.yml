@@ -1,0 +1,51 @@
+name: Pilot Windows Offline Bundle (internal QA)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/offline-windows-pilot.yml'
+      - 'scripts/offline-bundle.ps1'
+      - 'scripts/offline-smoke.mjs'
+      - 'offline/**'
+
+permissions:
+  contents: read
+
+jobs:
+  pilot:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Test source
+        run: |
+          pnpm test
+          pnpm exec tsc --noEmit
+      - name: Build local editor
+        run: pnpm build:node
+      - name: Stage portable Node runtime and create archive
+        shell: pwsh
+        run: ./scripts/offline-bundle.ps1
+      - name: Test the actual staged Windows runtime
+        shell: pwsh
+        run: node ./scripts/offline-smoke.mjs "$env:RUNNER_TEMP/PixelWorkshopOfflineWin64"
+      - name: Preserve private QA artifacts (not a public release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-workshop-offline-windows-x64-internal-qa
+          path: |
+            ${{ runner.temp }}/PixelWorkshop-Offline-windows-x64.zip
+            ${{ runner.temp }}/PixelWorkshop-Offline-windows-x64.sha256
+          if-no-files-found: error
+          retention-days: 7
