@@ -35,9 +35,18 @@ try {
   }
   $out = Join-Path $env:RUNNER_TEMP "PixelWorkshop-Offline-windows-x64.zip"
   if (Test-Path $out) { Remove-Item -LiteralPath $out -Force }
-  # Windows includes bsdtar, which supports ZIP and long dependency-tree paths.
-  & tar.exe -a -cf $out -C $Stage .
-  if ($LASTEXITCODE -ne 0 -or -not (Test-Path $out)) { throw "Archive creation failed" }
+  # Validate the ZIP before the acceptance test; bsdtar can skip pnpm hardlinks on Windows.
+  $zipper = Join-Path $env:ProgramFiles "7-Zip\\7z.exe"
+  if (-not (Test-Path $zipper)) { throw "Windows runner missing required 7-Zip" }
+  Push-Location $Stage
+  try {
+    & $zipper a -tzip $out ".\\*" -r -mx=5 -y
+    if ($LASTEXITCODE -ne 0) { throw "Archive creation failed: $LASTEXITCODE" }
+  } finally {
+    Pop-Location
+  }
+  & $zipper t $out
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path $out)) { throw "Archive integrity check failed" }
   (Get-FileHash -Algorithm SHA256 -LiteralPath $out).Hash.ToLowerInvariant() |
     Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP "PixelWorkshop-Offline-windows-x64.sha256")
   Write-Output "Internal bundle staged at $Stage; SHA-256 manifest generated; not a public release."
