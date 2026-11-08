@@ -22,6 +22,7 @@ import {kitSignature,overviewKit,parseKitUndo,reviewKitColor,validateKitUndo,typ
 import {guideSteps,type GuideScope} from '../lib/workshop-guide.ts';
 import {clipRange,clipsAtFrame,type ClipRange} from '../lib/clip-range.ts';
 import WorkshopGuide from './workshop-tour.tsx';
+import ReleaseNotes from './release-notes.tsx';
 import ColorWorkbench from './color-workbench.tsx';
 import QuickColorGrid from './quick-color-grid.tsx';
 import StampWorkbench from './stamp-workbench.tsx';
@@ -222,6 +223,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
    if(!quickColorsRef.current?.contains(e.target as Node))setQuickColorsOpen(false);
   };
   const escape=(e:KeyboardEvent)=>{
+   if((e.target as HTMLElement|null)?.closest('[data-release-notes-dialog]'))return;
    if(e.key==='Escape'){
     e.preventDefault();e.stopImmediatePropagation();
     setQuickColorsOpen(false);quickColorsButtonRef.current?.focus();
@@ -365,7 +367,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   if(!compactDrawTools||!drawToolsOpen||guide.mode!=='off')return;
   drawToolsCloseRef.current?.focus();
   const handle=(e:KeyboardEvent)=>{
-   if((e.target as HTMLElement).closest('.reference-dialog'))return;
+   if((e.target as HTMLElement).closest('.reference-dialog,[data-release-notes-dialog]'))return;
    if(e.key==='Escape'){
     e.preventDefault();e.stopImmediatePropagation();
     setDrawToolsOpen(false);drawToolsToggleRef.current?.focus();return;
@@ -391,7 +393,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   if(!mobileLayout||!inspectorOpen||guide.mode!=='off')return;
   drawerCloseRef.current?.focus();
   const handle=(e:KeyboardEvent)=>{
-   if((e.target as HTMLElement).closest('.reference-dialog'))return;
+   if((e.target as HTMLElement).closest('.reference-dialog,[data-release-notes-dialog]'))return;
    if(e.key==='Escape'){
     e.preventDefault();e.stopImmediatePropagation();
     setInspectorOpen(false);drawerToggleRef.current?.focus();return;
@@ -695,7 +697,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
    if(!queue.current?.state.pending)setNotice(`Exported ${doc.width*scale} × ${doc.height*scale} ${exportFormat.toUpperCase()}`);
   }catch(e){setError((e as Error).message);}
  };
- useEffect(()=>{const h=(e:KeyboardEvent)=>{if(e.key==='Escape'&&(modal||packModal)){if(!busy){setModal(false);setPackModal(false);}return;}if(guide.mode==='menu'||e.defaultPrevented||(e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"],[role="tab"]')||stroke.current||selectionDrag.current)return;if(e.key==='Escape'){setModal(false);setPackModal(false);setSelection(null);return;}if(modal||packModal)return;const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='z'){e.preventDefault();void commit([],undefined,e.shiftKey?'redo':'undo');return;}if(mod&&key==='c'&&selection){e.preventDefault();copySelection();return;}if(mod&&key==='v'&&clipboard){e.preventDefault();pasteSelection();return;}if(mod&&key==='x'&&selection){e.preventDefault();copySelection();clearSelection();return;}if(selection&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const step=e.shiftKey?10:1;transformSelection('move',e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0,e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0);return;}if(selection&&['Delete','Backspace'].includes(e.key)){e.preventDefault();clearSelection();return;}if(mod)return;const t=tools.find(t=>t[3].toLowerCase()===key);if(t)chooseTool(t[0]);if(key==='h')setGrid(v=>!v);};window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);});
+ useEffect(()=>{const h=(e:KeyboardEvent)=>{if((e.target as HTMLElement|null)?.closest('[data-release-notes]'))return;if(e.key==='Escape'&&(modal||packModal)){if(!busy){setModal(false);setPackModal(false);}return;}if(guide.mode==='menu'||e.defaultPrevented||(e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"],[role="tab"]')||stroke.current||selectionDrag.current)return;if(e.key==='Escape'){setModal(false);setPackModal(false);setSelection(null);return;}if(modal||packModal)return;const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='z'){e.preventDefault();void commit([],undefined,e.shiftKey?'redo':'undo');return;}if(mod&&key==='c'&&selection){e.preventDefault();copySelection();return;}if(mod&&key==='v'&&clipboard){e.preventDefault();pasteSelection();return;}if(mod&&key==='x'&&selection){e.preventDefault();copySelection();clearSelection();return;}if(selection&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const step=e.shiftKey?10:1;transformSelection('move',e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0,e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0);return;}if(selection&&['Delete','Backspace'].includes(e.key)){e.preventDefault();clearSelection();return;}if(mod)return;const t=tools.find(t=>t[3].toLowerCase()===key);if(t)chooseTool(t[0]);if(key==='h')setGrid(v=>!v);};window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);});
  const addFrame=async()=>{
   const doc=current.current?.doc;if(!doc||playing)return;
   const next=frameCount(doc);
@@ -1200,7 +1202,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   </section>
  </div>
  </aside></div>
- <footer className="status-bar"><span data-guide="save-status" className={'save-status '+(displayError?'error':uiDraftCount?'draft':'')}><i className={busy||saveState.pending?'saving':''}/>{displayStatus}</span>{saveState.error&&<>{!saveState.error.conflict&&<button className="text-button save-retry" disabled={busy} onClick={()=>{setError('');queue.current?.retry();}}>Retry save</button>}<button className="text-button save-retry" disabled={busy} onClick={()=>void create(false,current.current?.doc,true)}>Save a copy</button></>}<span className="status-detail">{cursor}</span><span className="status-detail">{d?.layers.length||0} LAYERS</span><span className="status-shortcuts">B pencil<span>E eraser</span><span>G fill</span><span>H grid</span></span></footer>
+ <footer className="status-bar"><span data-guide="save-status" className={'save-status '+(displayError?'error':uiDraftCount?'draft':'')}><i className={busy||saveState.pending?'saving':''}/>{displayStatus}</span>{saveState.error&&<>{!saveState.error.conflict&&<button className="text-button save-retry" disabled={busy} onClick={()=>{setError('');queue.current?.retry();}}>Retry save</button>}<button className="text-button save-retry" disabled={busy} onClick={()=>void create(false,current.current?.doc,true)}>Save a copy</button></>}<span className="status-detail">{cursor}</span><span className="status-detail">{d?.layers.length||0} LAYERS</span><span className="status-shortcuts">B pencil<span>E eraser</span><span>G fill</span><span>H grid</span></span><ReleaseNotes edition="workshop"/></footer>
  <input ref={file} type="file" accept=".json,.pixel.json" className="visually-hidden" aria-label="Import editable project" onChange={async e=>{const f=e.target.files?.[0];if(!f)return;try{if(f.size>12_000_000)throw new Error('Project file is too large.');await create(false,JSON.parse(await f.text()));}catch(err){setError((err as Error).message);}e.target.value='';}}/>
  {packModal&&<div className="modal-backdrop" onClick={()=>!busy&&setPackModal(false)}>
    <section className="new-dialog pack-dialog" role="dialog" aria-modal="true" aria-labelledby="pack-dialog-heading" onClick={e=>e.stopPropagation()}>

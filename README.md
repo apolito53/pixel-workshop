@@ -8,6 +8,8 @@
 
 A precise pixel-art editor with one TypeScript drawing engine shared by a React browser workspace and MCP tools. Every canvas cell is an actual output pixel. No image-generation API or GPU is needed.
 
+The workspace screen, editor footer, and Stardrop title screen include **What’s new**. Maintain the separate [player-facing release notes](lib/player-release-notes.ts) with each production release, adding plain-language shipped changes to the relevant experience. Project context: [current handoff](WORKING_MEMORY.md) · [durable notes](CRYSTALIZED_MEMORY.md) · [tasks](TODO.md) · [ideas](SPITBALL.md).
+
 ## In-app Field Guide
 
 Once you create or open a workspace, a **Guide** button appears in the editor header. On first visit, a skippable introduction offers an interactive tour. Choose the complete 33-stop walkthrough or one of seven chapters: **Start here**, **Draw & arrange**, **Bring it to life**, **Procedural magic**, **Make a UI kit**, **Ship your assets**, or **Workspaces & agents**.

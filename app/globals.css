@@ -200,6 +200,28 @@
 .workspace-field textarea{width:100%;min-width:0;resize:vertical;max-height:200px;padding:10px;
  background:#191a1e;border:1px solid #4c4d54;color:#ddc4a6;border-radius:5px;
  font:11px/1.6 ui-monospace,monospace}
+
+/* One player-facing changelog for the workspace and the Stardrop title screen. */
+.release-notes-footnote{display:flex;justify-content:flex-end;flex-shrink:0}
+.workspace-card>.release-notes-footnote{margin-top:16px;padding-top:6px;border-top:1px solid #414248}
+.release-notes-trigger{min-height:32px;padding:6px 4px;color:#c7b5a5;font-size:11px;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
+.release-notes-trigger:hover{color:#f4d4ad}
+.release-notes-dialog{width:min(520px,calc(100vw - 32px));max-height:calc(100dvh - 32px);margin:auto;padding:24px;overflow-y:auto;
+ border:1px solid #5a5050;border-radius:10px;background:#252629;color:#e9e7e2;box-shadow:0 24px 80px #000b;overscroll-behavior:contain}
+.release-notes-dialog::backdrop{background:#08080bd9}
+.release-notes-dialog--moonkeeper{background:#211c31;border-color:#786180;color:#eee5dc}
+.release-notes-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.release-notes-heading span{color:#c4a88e;font-size:10px;font-weight:700;letter-spacing:.12em}
+.release-notes-heading h2{margin:6px 0 0;color:#f5dfc5;font-size:25px;letter-spacing:-.04em;line-height:1.1}
+.release-notes-close{min-height:40px;padding:8px 13px;border:1px solid #796b60;border-radius:5px;color:#f4dfcc;font-size:12px}
+.release-notes-close:hover{background:#ffffff14}
+.release-notes-intro{margin:13px 0 22px;color:#b9b3b7;font-size:12px;line-height:1.5}
+.release-notes-entry{margin-top:18px;padding-top:16px;border-top:1px solid #ffffff1c}
+.release-notes-entry h3{margin:0;color:#e7bd91;font-size:11px;letter-spacing:.07em;text-transform:uppercase}
+.release-notes-entry ul{display:grid;gap:10px;margin:12px 0 0;padding-left:20px;list-style:disc;font-size:13px;line-height:1.55}
+.release-notes-entry li::marker{color:#d9ac83}
+.stardrop-bottom>.release-notes-footnote{justify-content:center;margin:0 0 5px}
+.stardrop-bottom .release-notes-trigger{color:#dfc5a6}
 @media(max-width:480px){.app-header{gap:6px;padding-inline:8px}.brand{font-size:17px;gap:7px}
  .workspace-header-button{min-width:32px;width:32px;padding:6px}.app-header>.primary{padding:8px 9px}}
 

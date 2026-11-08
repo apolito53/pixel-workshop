@@ -10,6 +10,7 @@ import {parseUiReturn,UI_RETURN_KEY} from '../../../lib/ui-return.ts';
 import {buildSpriteSheet} from '../../../lib/sprite-sheet.ts';
 import {encodeRgbaSvg} from '../../../lib/svg.ts';
 import './stardrop.css';
+import ReleaseNotes from '../../release-notes.tsx';
 
 const W=384,H=240,FLOOR=201,GOAL=12,ROUND_TIME=75;
 type Phase='title'|'running'|'paused'|'won'|'lost';
@@ -329,6 +330,7 @@ export default function MoonkeeperGame(){
     };
     raf=requestAnimationFrame(tick);
     const keyDown=(e:KeyboardEvent)=>{
+      if((e.target as HTMLElement|null)?.closest('[data-release-notes]'))return;
       const tag=(e.target as HTMLElement|null)?.tagName;
       if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return;
       if(['ArrowLeft','ArrowRight','ArrowUp','Space','ShiftLeft','ShiftRight'].includes(e.code))e.preventDefault();
@@ -458,6 +460,7 @@ export default function MoonkeeperGame(){
           {ui.phase==='running'&&ui.combo>1&&<div className="stardrop-combo">{ui.combo}× COMBO</div>}
         </div>
         <div className="stardrop-bottom">
+          {ui.phase==='title'&&<ReleaseNotes edition="moonkeeper"/>}
           <div className="stardrop-progress" role="progressbar" aria-label="Stars gathered" aria-valuenow={ui.caught} aria-valuemin={0} aria-valuemax={GOAL}><span style={{width:(ui.caught/GOAL)*100+'%'}}/></div>
           <div className="stardrop-status">
             <span className="stardrop-quest"><UiIcon name="star"/>{ui.caught===GOAL?'THE LIGHT HAS RETURNED':'GATHER THE FALLEN STARS'}</span>

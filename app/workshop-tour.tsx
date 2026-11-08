@@ -18,6 +18,7 @@ function GuideMenu({onStart,onClose}:{onStart:(scope:GuideScope)=>void;onClose:(
   const before=document.activeElement instanceof HTMLElement?document.activeElement:null;
   ref.current?.focus();
   const onKey=(e:KeyboardEvent)=>{
+   if((e.target as HTMLElement|null)?.closest('[data-release-notes-dialog]'))return;
    if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();onClose();return;}
    if(e.key==='Tab'&&ref.current){
     const focusable=Array.from(ref.current.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],[tabindex="0"]'))
@@ -127,6 +128,7 @@ function GuideWalkthrough({step,scope,index,count,onMove,onClose,onMenu}:{
  },[step.id]);
  useEffect(()=>{
   const handle=(e:KeyboardEvent)=>{
+   if((e.target as HTMLElement|null)?.closest('[data-release-notes-dialog]'))return;
    if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();onClose();return;}
    if(!card.current?.contains(document.activeElement))return;
    if(e.key==='ArrowRight'){e.preventDefault();e.stopImmediatePropagation();onMove(1);}

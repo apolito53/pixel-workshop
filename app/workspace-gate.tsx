@@ -2,6 +2,7 @@
 import {useEffect,useState,type FormEvent} from 'react';
 import {KeyRound,Copy,LockKeyhole,LogOut,Sparkles,X,Link2} from 'lucide-react';
 import Editor from './editor.tsx';
+import ReleaseNotes from './release-notes.tsx';
 
 type SessionInfo={authenticated:boolean;id?:string;hasPassword?:boolean};
 type SessionResponse=SessionInfo & {error?:string;token?:string};
@@ -136,6 +137,7 @@ export default function WorkspaceGate(){
           {busy?'Opening…':mode==='create'?'Create my workspace':'Open workspace'}
         </button>
       </form>
+      <ReleaseNotes edition="workshop"/>
     </section>
   </main>;
 }
