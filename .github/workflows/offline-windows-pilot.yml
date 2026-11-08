@@ -46,7 +46,7 @@ jobs:
           $archive = Join-Path $env:RUNNER_TEMP "PixelWorkshop-Offline-windows-x64.zip"
           $unpacked = Join-Path $env:RUNNER_TEMP "Pixel Workshop Unpacked QA"
           New-Item -ItemType Directory -Force -Path $unpacked | Out-Null
-          $zipper = Join-Path $env:ProgramFiles "7-Zip\\7z.exe"
+          $zipper = Join-Path $env:ProgramFiles "7-Zip\7z.exe"
           & $zipper x $archive "-o$unpacked" -y -bso0
           if ($LASTEXITCODE -ne 0) { throw "Released ZIP failed to extract: $LASTEXITCODE" }
           node ./scripts/offline-smoke.mjs "$unpacked"
