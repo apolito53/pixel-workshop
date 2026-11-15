@@ -4,6 +4,8 @@
 
 [**Play Stardrop: A Moonkeeper Tale**](https://pixel-workshop-nine.vercel.app/play/moonkeeper) · A small arcade game using ten native, editable Pixel Workshop assets (sprites, cels, environment art, and seeded effects). In-game art workbench exports every asset as `.pixel.json` or a sprite sheet. [Production notes and feature wishlist](docs/stardrop-production-notes.md).
 
+[**Lantern Wisteria**](https://pixel-workshop-nine.vercel.app/studies/lantern-wisteria/index.html) · Watch the coastal wind study, step through the isolated sprite, or download the editable tree, full scene and game atlas.
+
 ![Original lantern drawn through MCP](artifacts/lantern-preview.png)
 
 A precise pixel-art editor with one TypeScript drawing engine shared by a React browser workspace and MCP tools. Every canvas cell is an actual output pixel. No image-generation API or GPU is needed.
@@ -70,13 +72,15 @@ Failed saves pause the queue without discarding the drawing. Retry uses the same
 
 Undo and Redo remain beneath the drawing controls on roomy screens; on short or narrow screens the drawing tools move into a left-hand drawer, keeping history and a quick color well reachable. The existing Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z shortcuts remain available.
 
+On the Draw tab, **Pixel-ify** converts an image into editable pixels. Set a target width from 1 to 1024. Both dimensions scale together to fit within 1024 × 1024, with the resulting size shown before you update the preview.
+
 ## Tracing reference and grid alignment
 
 ![Reference grid calibration over an enlarged lantern](docs/images/tracing-alignment.png)
 
 [Editor view](docs/images/tracing-editor.png) · [Verification notes](docs/tracing-verification.md)
 
-Open **Draw → Tracing Reference → Load reference PNG**. The alignment dialog shows the original image with a draggable green grid and a separate prepared-image preview. Set output width/height (up to 512 each), source pixels per cell, and grid offsets. **Keep cells square** links horizontal/vertical spacing; uncheck it to calibrate a source that has been stretched. **Fit full image into output** chooses spacing for the current output size; square cells preserve aspect ratio with transparent padding if needed. **Reset to native file pixels** returns to 1:1 when the source fits.
+Open **Draw → Tracing Reference → Load reference PNG**. The alignment dialog shows the original image with a draggable green grid and a separate prepared-image preview. Set output width/height (up to 1024 each), source pixels per cell, and grid offsets. **Keep cells square** links horizontal/vertical spacing; uncheck it to calibrate a source that has been stretched. **Fit full image into output** chooses spacing for the current output size; square cells preserve aspect ratio with transparent padding if needed. **Reset to native file pixels** returns to 1:1 when the source fits.
 
 A generated or enlarged image may have several file pixels per apparent art pixel. For a 256×384 image with 4× enlarged pixels, choose a 64×96 output and spacing 4×4, then drag/nudge the grid until its boundaries follow the artwork. There is no automatic assumption that generated art has a regular pixel lattice. The grid becomes visible at three display pixels per cell; zoom the source to inspect smaller cells. Source zoom affects viewing only.
 
@@ -86,7 +90,7 @@ Use **Trace overlay**, **Reference only**, or **Artwork only**, plus separate re
 
 PNG uploads may be up to 8 MB, 4096 pixels per side and 4 million source pixels (8-bit or indexed PNG). Source dimensions above the output limit must be explicitly prepared in the dialog; attaching a mismatched image never silently stretches the canvas.
 
-MCP agents use **`import_reference`** with `png_base64` and an optional name. Omit `id`/`revision` to create a matching canvas; provide both to attach to an existing canvas whose dimensions already match. The default `sizing:"fit"` shares the browser's sizing calculation: sources up to 512 pixels per side retain every pixel, and larger sources fit proportionally into that limit with nearest-neighbor sampling. `sizing:"native"` rejects oversized inputs instead of losing pixels. Optional `alignment` contains `{width,height,offsetX,offsetY,cellWidth,cellHeight}` and cannot be combined with explicit `sizing`. To extract an exact native sprite from a larger image, set both cell dimensions to 1 and specify the source offset and output size. Responses include `referencePreparation` with original/working sizes and explicit `resampled` and `croppedOrPadded` flags.
+MCP agents use **`import_reference`** with `png_base64` and an optional name. Omit `id`/`revision` to create a matching canvas; provide both to attach to an existing canvas whose dimensions already match. The default `sizing:"fit"` shares the browser's sizing calculation: sources up to 1024 pixels per side retain every pixel, and larger sources fit proportionally into that limit with nearest-neighbor sampling. `sizing:"native"` rejects oversized inputs instead of losing pixels. Optional `alignment` contains `{width,height,offsetX,offsetY,cellWidth,cellHeight}` and cannot be combined with explicit `sizing`. To extract an exact native sprite from a larger image, set both cell dimensions to 1 and specify the source offset and output size. Responses include `referencePreparation` with original/working sizes and explicit `resampled` and `croppedOrPadded` flags.
 
 ### Generated image to editable game asset through MCP
 
@@ -144,7 +148,7 @@ Stardrop's art workbench has an **SVG SHEET** download for every asset. Game pac
 
 `.pixel.json` uses `format: "pixel-workshop/1"`, dimensions, palette and bottom-to-top layers. Layer pixels are unsigned packed RGBA values (`0xRRGGBBAA`), with zero fully transparent. Import validates dimensions, colors, layer IDs, and buffer lengths and creates a new project instead of overwriting an existing one.
 
-Canvases support 1–512 pixels per side, eight layers, up to 128 palette colors, up to 32 named animation clips and up to twelve undo steps (history is reduced for larger animated documents). The optional `animation` section retains the original base layer pixels as frame 0 and stores additional frame cels by layer ID. Its optional `clips` array keeps named frame ranges, clip FPS and playback behavior. Each layer can also carry an optional validated `effect` recipe; older files without these fields remain valid. Existing static `.pixel.json` imports remain valid. Animation is limited to 32 frames. All documents share a 900,000-cell budget counting every layer, every frame, and one prepared reference buffer when present. Project listing shows up to 100 hosted projects.
+Canvases support 1–1024 pixels per side, up to 16 layers, up to 128 palette colors, up to 32 named animation clips and up to twelve undo steps (history is reduced for larger animated documents). The optional `animation` section retains the original base layer pixels as frame 0 and stores additional frame cels by layer ID. Its optional `clips` array keeps named frame ranges, clip FPS and playback behavior. Each layer can also carry an optional validated `effect` recipe; older files without these fields remain valid. Existing static `.pixel.json` imports remain valid. Animations support up to 96 frames. The timeline and Layers panel show the capacity at the current dimensions. All documents share a 4,194,304-cell budget counting every layer, every frame, and one prepared reference buffer when present. Project listing shows up to 100 hosted projects. Large editable files store runs of repeated pixels and changes between frames losslessly. The editor opens older dense projects and exports the compact format for large animations.
 
 
 ## Game production exports

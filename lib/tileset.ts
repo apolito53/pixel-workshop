@@ -1,3 +1,4 @@
+import {packProject} from './project-codec.ts';
 import {composite,frameCount,frameView,requireInt,type PixelDocument} from './pixels.ts';
 import {encodeBrowserPng} from './browser-png.ts';
 import {encodeSvg} from './svg.ts';
@@ -40,7 +41,7 @@ export function buildTilesetPack(doc:PixelDocument,tileWidth:number,tileHeight=t
   {path:slug+'-tileset.json',data:enc.encode(JSON.stringify(atlas,null,2))},
   {path:slug+'-tiles.svg',data:enc.encode(encodeSvg(frameView(doc,frame)))},
   {path:slug+'-tileset-svg.json',data:enc.encode(JSON.stringify({...atlas,image:slug+'-tiles.svg'},null,2))},
-  {path:slug+'.pixel.json',data:enc.encode(JSON.stringify(doc))},
+  {path:slug+'.pixel.json',data:enc.encode(JSON.stringify(packProject(doc)))},
  ]);
  return {bytes,atlas};
 }

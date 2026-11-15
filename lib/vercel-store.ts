@@ -1,3 +1,4 @@
+import {packEntry,unpackEntry,unpackProject,projectSummary} from './project-codec.ts';
 import { get, list, put, BlobPreconditionFailedError } from '@vercel/blob';
 import { ProjectService, safeId, type Entry, type ProjectStore } from './project-service.ts';
 import { requireWorkspaceId, type WorkspaceRecord, type WorkspaceRecordStore } from './workspace-session.ts';
@@ -16,21 +17,34 @@ function blobStore(prefix:string):ProjectStore {
       const result = await list({prefix,limit:100});
       const items = await Promise.all(result.blobs.map(async blob => {
         const item = await get(blob.pathname,{access:'private',useCache:false});
-        return item?.statusCode===200?(await new Response(item.stream).json() as Entry).doc:null;
+        return item?.statusCode===200?unpackProject((await new Response(item.stream).json() as Entry).doc):null;
       }));
       return items.filter((doc):doc is NonNullable<typeof doc>=>!!doc)
         .sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
+    },
+    async listSummaries() {
+      requireStorage();
+      const result = await list({prefix,limit:100});
+      const summaries = [];
+      for (const blob of result.blobs) {
+        const item = await get(blob.pathname,{access:'private',useCache:false});
+        if (item?.statusCode === 200) {
+          const stored = await new Response(item.stream).json() as Entry;
+          summaries.push(projectSummary(stored.doc));
+        }
+      }
+      return summaries.sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
     },
     async get(id) {
       requireStorage();
       const item=await get(key(id),{access:'private',useCache:false});
       if(!item||item.statusCode!==200)return null;
-      return {entry:await new Response(item.stream).json() as Entry,etag:item.blob.etag.replace(/^W\//,'')};
+      return {entry:unpackEntry(await new Response(item.stream).json() as Entry),etag:item.blob.etag.replace(/^W\//,'')};
     },
     async put(id,entry,etag) {
       requireStorage();
       try {
-        await put(key(id),JSON.stringify(entry),{
+        await put(key(id),JSON.stringify(packEntry(entry)),{
           access:'private',addRandomSuffix:false,contentType:'application/json',
           allowOverwrite:!!etag,...(etag?{ifMatch:etag}:{}),
         });

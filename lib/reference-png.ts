@@ -9,6 +9,6 @@ export function referenceFromPng(base64:unknown,name:string,alignment?:Reference
  const png=PNG.sync.read(bytes);
  if(png.depth===16)throw new Error('Use an 8-bit or indexed PNG reference.');
  if(!alignment&&sizing==='native'&&(png.width>MAX_CANVAS_SIDE||png.height>MAX_CANVAS_SIDE))
-  throw new Error('Native import needs at most 512 pixels per side. Use sizing:"fit" to resize, or alignment with cellWidth/cellHeight:1 to extract an exact source region.');
+  throw new Error(`Native import needs at most ${MAX_CANVAS_SIDE} pixels per side. Use sizing:"fit" to resize, or alignment with cellWidth/cellHeight:1 to extract an exact source region.`);
  return prepareReference({width:png.width,height:png.height,pixels:packRgba(png.data)},name,alignment??(sizing==='fit'?fitReferenceAlignment(png.width,png.height):undefined));
 }

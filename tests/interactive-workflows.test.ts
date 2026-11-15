@@ -7,6 +7,14 @@ const gate=read('app/workspace-gate.tsx');
 const stamps=read('app/stamp-workbench.tsx'),fx=read('app/fx-comparison.tsx');
 const guide=read('lib/workshop-guide.ts');
 
+test('portable and hosted editors start at the workspace selector',()=>{
+ for(const entry of ['standalone/main.tsx','app/page.tsx']) {
+  const source=read(entry);
+  assert.match(source,/import WorkspaceGate from ['"][^'"]*workspace-gate/);
+  assert.match(source,/<WorkspaceGate\s*\/>/);
+ }
+});
+
 test('Stamp is discoverable, starts capture without a clipboard, and uses true ghost preview',()=>{
  assert.ok(editor.includes("if(next==='stamp'&&!activeStamp)setStampCapture(true)"));
  assert.ok(editor.includes("tool==='stamp'&&(stampCapture||!activeStamp)"));

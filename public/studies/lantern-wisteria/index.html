@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#181725">
+<title>Lantern Wisteria · Pixel Workshop</title>
+<style>
+:root{color-scheme:dark;--ink:#f4e8db;--muted:#c6b9c8;--line:#514654;--lav:#d8b8f8;--paper:#191822}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 'DM Sans',system-ui,sans-serif}main{max-width:1050px;margin:auto;padding:24px clamp(16px,4vw,52px) 32px}nav{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--muted);font-size:.84rem}a{color:var(--lav);text-underline-offset:4px}nav a{color:var(--ink);text-decoration:none}nav a:hover,footer a:hover{text-decoration:underline}header{margin:28px 0 18px;display:flex;align-items:baseline;justify-content:space-between;gap:15px;flex-wrap:wrap}h1{font:normal clamp(2.4rem,6vw,4.45rem)/1.04 'Instrument Serif',Georgia,serif;letter-spacing:-.047em;margin:0}header small,output{font-variant-numeric:tabular-nums;color:var(--muted)}figure{margin:0}.stage{margin:0;position:relative;display:grid;place-items:center;background:#302b3d;border:1px solid var(--line);aspect-ratio:16/9;overflow:hidden}.stage.sprite{background-color:#252331;background-image:conic-gradient(#2c2938 25%,transparent 0 50%,#2c2938 0 75%,transparent 0);background-size:24px 24px}.stage img,.stage canvas{width:100%;height:100%;object-fit:contain;image-rendering:pixelated;grid-area:1/1}.stage [hidden],section [hidden]{display:none}.stage:fullscreen{background-color:#15131c;border:0}.controls{border:1px solid var(--line);border-top:0;background:#211e29;padding:10px 13px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}button{color:var(--ink);background:transparent;border:0;font:inherit;cursor:pointer;min-height:38px;padding:6px 11px;border-radius:3px}.controls button:hover,.views button:hover{background:#393140}:focus-visible{outline:2px solid var(--lav);outline-offset:3px}.controls button:first-child{min-width:6.2em;text-align:left}.controls .icon{font-size:1.1em;padding-inline:10px}input[type=range]{accent-color:var(--lav);flex:1;min-width:65px;cursor:pointer}output{font-size:.82rem;min-width:6em;text-align:center}.views{display:flex;align-items:center;gap:6px;margin:15px 0}.views button{border:1px solid var(--line);font-size:.86rem;min-height:34px}.views [aria-pressed=true]{color:var(--ink);border-color:#b099ba;background:#382e40}figcaption{font:normal 1.1rem/1.45 'Instrument Serif',Georgia,serif;color:#dfd2da;margin:11px 0 16px}footer{display:flex;gap:12px 20px;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding-top:15px;flex-wrap:wrap}footer p{margin:0;font-size:.85rem;color:var(--muted)}.download{display:inline-block;color:#1b1520;background:#e4cedf;padding:8px 15px;text-decoration:none;border-radius:3px;font-weight:600}#notice{color:#e5beba}@media(max-width:520px){main{padding:16px 12px 26px}header{margin:22px 0 14px;gap:7px}header small{font-size:.77rem}.controls{gap:1px;padding:7px}.controls button:first-child{min-width:4.8em}.controls .icon{padding-inline:7px}output{min-width:4.5em;font-size:.72rem}.controls button{font-size:.82rem}.views{margin:10px 0}footer{align-items:start;flex-direction:column}}
+</style>
+</head>
+<body>
+<main>
+<nav aria-label="Workshop"><a href="https://pixel-workshop-nine.vercel.app">← Pixel Workshop</a><span>Wind study</span></nav>
+<header><h1>Lantern Wisteria</h1><small>18 frames · 6 fps · 3 seconds</small></header>
+<figure>
+<div class="stage" id="stage"><img src="still.png" alt="A crooked flowering wisteria holds a brass lantern over a coastal bluff at sunset."><canvas width="320" height="180" hidden aria-label="Looping wisteria wind animation"></canvas></div>
+<div class="controls" aria-label="Animation playback">
+<button id="play" type="button">Play</button>
+<button type="button" class="icon" id="prev" aria-label="Previous frame" title="Previous frame">‹</button>
+<button type="button" class="icon" id="next" aria-label="Next frame" title="Next frame">›</button>
+<input type="range" min="1" max="18" value="1" id="timeline" aria-label="Animation frame">
+<output for="timeline" id="number">1 / 18</output>
+<button type="button" class="icon" id="expand" aria-label="Fullscreen" title="Fullscreen">⛶</button>
+</div>
+<div class="views" aria-label="Viewing mode"><button type="button" id="coast" aria-pressed="true">Coast</button><button type="button" id="tree" aria-pressed="false">Isolated sprite</button></div>
+<figcaption>The breeze arrives from the left. Watch the far-right lantern as the wisteria settles.</figcaption>
+<p hidden id="notice" role="status"></p>
+</figure>
+<footer><p>Open either <strong>.pixel.json</strong> file with <strong>Open project</strong> in Pixel Workshop.</p><a class="download" href="lantern-wisteria.zip" download>Download asset pack ↓</a></footer>
+</main>
+<script>
+(() => {
+  const el = id => document.getElementById(id);
+  const stage = el('stage'), canvas = stage.querySelector('canvas'), still = stage.querySelector('img');
+  const ctx = canvas.getContext('2d');
+  const sheets = {coast: new Image(), tree: new Image()};
+  const timeline = el('timeline'), playButton = el('play');
+  let view = 'coast', frame = 0, playing = false, origin = 0, request = 0;
+  function draw() {
+    const image = sheets[view];
+    if (!image.naturalWidth) return;
+    const width = view === 'coast' ? 320 : 128, height = view === 'coast' ? 180 : 128;
+    const x = view === 'tree' ? 96 : 0, y = view === 'tree' ? 26 : 0;
+    ctx.clearRect(0, 0, 320, 180);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(image, (frame % 6) * width, Math.floor(frame / 6) * height, width, height, x, y, width, height);
+    canvas.hidden = false;
+    still.hidden = true;
+    timeline.value = frame + 1;
+    timeline.setAttribute('aria-valuetext', 'Frame ' + (frame + 1) + ' of 18');
+    el('number').value = (frame + 1) + ' / 18';
+  }
+  function tick(now) {
+    if (!playing) return;
+    const nextFrame = Math.floor((now - origin) * .006) % 18;
+    if (nextFrame !== frame) {frame = nextFrame; draw();}
+    request = requestAnimationFrame(tick);
+  }
+  function setPlaying(state) {
+    cancelAnimationFrame(request);
+    playing = state;
+    playButton.textContent = playing ? 'Ⅱ  Pause' : '▷  Play';
+    if (playing) {origin = performance.now() - frame * 1000 / 6; request = requestAnimationFrame(tick);}
+  }
+  function seek(next) {setPlaying(false); frame = (next + 18) % 18; draw();}
+  function setView(next) {
+    view = next; stage.classList.toggle('sprite', next === 'tree');
+    for (const key of Object.keys(sheets)) el(key).setAttribute('aria-pressed', String(key === next));
+    draw();
+  }
+  for (const [key, url] of Object.entries({coast:'coast-sheet.png',tree:'lantern-wisteria-sheet.png'})) {
+    sheets[key].onload = () => {if (view === key) draw();};
+    sheets[key].onerror = () => {const note = el('notice');note.hidden = false;note.textContent = 'The sprite sheet could not load. If you opened the download, extract the entire folder first.';};
+    sheets[key].src = url;
+    el(key).onclick = () => setView(key);
+  }
+  playButton.onclick = () => setPlaying(!playing);
+  el('prev').onclick = () => seek(frame - 1);
+  el('next').onclick = () => seek(frame + 1);
+  timeline.oninput = () => seek(Number(timeline.value) - 1);
+  if (!document.fullscreenEnabled) el('expand').hidden = true;
+  el('expand').onclick = () => {if (document.fullscreenElement) document.exitFullscreen(); else stage.requestFullscreen();};
+  document.addEventListener('visibilitychange', () => {if (document.hidden) setPlaying(false);});
+  setPlaying(!matchMedia('(prefers-reduced-motion: reduce)').matches);
+})();
+</script>
+</body>
+</html>

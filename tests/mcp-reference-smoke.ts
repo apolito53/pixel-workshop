@@ -60,8 +60,8 @@ try{
  assert.deepEqual(PNG.sync.read(Buffer.from((afterUndo.content as any[]).find(c=>c.type==='image').data,'base64')).data,art.data);
  const immediate=await call('import_reference',{name:'One-call editable source',png_base64,copy_to_layer:true});
  const immediateDoc=JSON.parse((immediate.content as any[])[0].text);assert.equal(immediateDoc.copy.exactMatch,true);
- const large=new PNG({width:1024,height:768});large.data.fill(255);
+ const large=new PNG({width:2048,height:512});large.data.fill(255);
  const fitted=await call('import_reference',{png_base64:PNG.sync.write(large).toString('base64'),copy_to_layer:true});
- const fittedDoc=JSON.parse((fitted.content as any[])[0].text);assert.deepEqual([fittedDoc.width,fittedDoc.height],[512,384]);assert.equal(fittedDoc.referencePreparation.resampled,true);assert.equal(fittedDoc.copy.exactMatch,true);
- console.log(JSON.stringify({transport:httpServer?'HTTP':'stdio',nativeReference:'256x384',preparedReference:'64x96',fittedReference:'512x384',exactCopyPixels:256*384,exportMatch:true,undo:true,tools:tools.tools.length}));
+ const fittedDoc=JSON.parse((fitted.content as any[])[0].text);assert.deepEqual([fittedDoc.width,fittedDoc.height],[1024,256]);assert.equal(fittedDoc.referencePreparation.resampled,true);assert.equal(fittedDoc.copy.exactMatch,true);
+ console.log(JSON.stringify({transport:httpServer?'HTTP':'stdio',nativeReference:'256x384',preparedReference:'64x96',fittedReference:'1024x256',exactCopyPixels:256*384,exportMatch:true,undo:true,tools:tools.tools.length}));
 }finally{await client.close();if(httpServer)await new Promise<void>(r=>httpServer.close(()=>r()));await rm(dir,{recursive:true,force:true});}

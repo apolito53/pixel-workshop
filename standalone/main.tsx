@@ -1,4 +1,4 @@
 import {createRoot} from 'react-dom/client';
-import Editor from '../app/editor';
+import WorkspaceGate from '../app/workspace-gate';
 import '../app/globals.css';
-createRoot(document.getElementById('root')!).render(<Editor/>);
+createRoot(document.getElementById('root')!).render(<WorkspaceGate/>);

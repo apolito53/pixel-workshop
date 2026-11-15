@@ -81,3 +81,13 @@ test('hosted JSON-RPC exposes tools, reports invalid operations, and returns rea
 
  }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+test('a whole 1024-square native paste fits an atomic edit but repeated work stays bounded',()=>{
+  const d=createDocument('Backdrop',1024,1024);
+  const pixels=Array(d.width*d.height).fill(0xffaa66ff);
+  const paste={op:'paste',x:0,y:0,width:d.width,height:d.height,pixels};
+  const painted=applyCommands(d,[paste]);
+  assert.equal(painted.layers[0].pixels.at(-1),0xffaa66ff);
+  assert.throws(()=>applyCommands(d,[paste,paste]),/batch is too large/);
+  assert.equal(d.layers[0].pixels[0],0);
+});

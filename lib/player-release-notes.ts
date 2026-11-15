@@ -5,6 +5,8 @@ export const playerReleaseNotes = {
     {
       title: 'November 2026',
       changes: [
+        'Create canvases up to 1024 pixels per side and use up to 16 layers and 96 animation frames. The editor shows how much room your current canvas has.',
+        'Create or reopen your workspace from the portable editor’s start screen.',
         'Turn an image into pixel art with Pixel-ify, and refresh the preview as you adjust its settings.',
         'Bring in a tracing reference, align its grid, and create a matching canvas.',
         'Find this What’s new list on the workspace screen and in the editor.',

@@ -1,3 +1,4 @@
+import {MAX_ANIMATION_FRAMES,MAX_LAYERS} from './pixels.ts';
 import type {InspectorTab} from './inspector-tabs.ts';
 
 /** Pure, versioned guide copy. Each target must map to a visible in-editor data-guide anchor. */
@@ -69,7 +70,7 @@ export const GUIDE_STEPS:readonly GuideStep[]=[
   tryIt:'Use the Stamp Workbench to save a named tree or rock. Saved stamps follow this workspace across projects in the same browser.',
   target:'stamp-workbench',panel:'draw'},
  {id:'layers',chapter:'drawing',title:'Separate your artwork into layers',
-  body:'Select a layer before drawing, hide it with the eye, or delete it to free a slot. Visibility and names apply to every animation frame. Each project supports up to eight layers.',
+  body:`Select a layer before drawing, hide it with the eye, or delete it to free a slot. Visibility and names apply to every animation frame. Each project supports up to ${MAX_LAYERS} layers within its canvas capacity.`,
   tryIt:'Add a layer for highlights or shadows. Hiding a layer does not delete its pixels.',
   target:'layers',panel:'layers'},
  {id:'tracing',chapter:'drawing',title:'Line up a tracing reference',
@@ -82,7 +83,7 @@ export const GUIDE_STEPS:readonly GuideStep[]=[
   target:'zoom',panel:'none'},
 
  {id:'timeline',chapter:'animation',title:'A sprite can have many frames',
-  body:'Duplicate the selected frame to make another editable cel. Play previews the frames, FPS controls speed, and Delete removes the selected non-base frame. Maximum: 32 frames.',
+  body:`Duplicate the selected frame to make another editable cel. Play previews the frames, FPS controls speed, and Delete removes the selected non-base frame. The timeline shows how many frames fit at the current layer count, up to ${MAX_ANIMATION_FRAMES}.`,
   tryIt:'Duplicate a frame and change one pixel on the new frame. The base frame remains untouched.',
   target:'timeline-actions',panel:'none'},
  {id:'onion',chapter:'animation',title:'Onion skin shows nearby frames',

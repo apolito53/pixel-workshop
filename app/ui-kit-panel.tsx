@@ -1,6 +1,6 @@
 'use client';
 import {useEffect,useMemo,useRef,useState,type CSSProperties,type PointerEvent,type SetStateAction} from 'react';
-import {composite,frameCount,frameView,type PaintCommand,type PixelDocument} from '../lib/pixels.ts';
+import {composite,documentCapacity,frameCount,frameView,type PaintCommand,type PixelDocument} from '../lib/pixels.ts';
 import {nineSliceContentBounds,stretchNineSlice,validatePixelText,validateSlice,type PixelTextRecipe,type UiMetadata,type UiSlice} from '../lib/ui-metadata.ts';
 import {renderPixelText,textDimensions} from '../lib/pixel-font.ts';
 import {hasUiDraft,type UiDraft} from '../lib/ui-drafts.ts';
@@ -121,6 +121,7 @@ export default function UiKitPanel({doc,frame,layer,ink,busy,onCommit,onSaveDraf
  const [colorReview,setColorReview]=useState<KitColorReview|null>(null),[reviewing,setReviewing]=useState(false);
  const kitPalette=paletteState?.kitId===doc.ui?.kitId?paletteState:null;
  const selected=doc.layers.find(item=>item.id===layer),storedText=selected?.text;
+ const textNeedsRoom=!storedText&&doc.layers.length>=documentCapacity(doc).maxLayers;
  const textKey=layer+'@'+(storedText?.frame??frame),textBase=JSON.stringify(storedText??null);
  const initialText=():PixelTextRecipe=>storedText??{text:doc.width>=49?'STARDROP':doc.width>=13?'OK':doc.width>=6?'I':'',x:Math.min(1,doc.width-1),y:Math.min(1,doc.height-1),scale:1,spacing:1,color:ink,frame};
  const text=draft.text?.[textKey]?.value??initialText();
@@ -174,7 +175,7 @@ export default function UiKitPanel({doc,frame,layer,ink,busy,onCommit,onSaveDraf
   try{
    const recipe=validatePixelText({...text,frame:storedText?.frame??frame},doc.width,doc.height,frameCount(doc));
    const id=storedText?layer:'text-'+crypto.randomUUID().slice(0,12);
-   if(!storedText&&doc.layers.length>=8)throw new Error('Free a layer before adding editable text.');
+   if(textNeedsRoom)throw new Error('Free a layer or reduce the number of frames before adding editable text.');
    const ops:PaintCommand[]=storedText?[]:[{op:'add_layer',id,name:'Pixel text'}];
    ops.push({op:'text_set',layer:id,text:recipe});
    const expected=draft.text?.[textKey];
@@ -245,10 +246,10 @@ export default function UiKitPanel({doc,frame,layer,ink,busy,onCommit,onSaveDraf
    <button className="text-button" type="button" onClick={()=>setText(t=>({...t,color:ink}))}>Use current drawing color</button>
    <TextPreview doc={doc} layer={layer} recipe={text} editing={!!storedText}/>
    {!fits&&<p className="ui-note ui-warning">Text extends outside the canvas or has invalid settings.</p>}
-   {!storedText&&doc.layers.length>=8&&<p className="ui-note ui-warning">Free a layer before adding text.</p>}
+   {textNeedsRoom&&<p className="ui-note ui-warning">Free a layer or reduce the number of frames before adding text.</p>}
    {textChanged&&<p className="ui-warning">This layer changed since the text draft began. Discard the draft to keep the newer artwork.</p>}
    {draft.text?.[textKey]&&<button type="button" className="ui-discard" disabled={savingDraft} onClick={()=>clearText(textKey,draft.text?.[textKey])}>Discard text draft</button>}
-   <button className="secondary full" type="button" disabled={busy||savingDraft||textChanged||!text.text||!fits||(!storedText&&doc.layers.length>=8)} onClick={()=>void saveText()}>{storedText?'Update selected text':'Add text layer'}</button>
+   <button className="secondary full" type="button" disabled={busy||savingDraft||textChanged||!text.text||!fits||textNeedsRoom} onClick={()=>void saveText()}>{storedText?'Update selected text':'Add text layer'}</button>
   </details>
   <details className="inspector-section ui-section" open={sections.includes('kit')} onToggle={e=>onSectionToggle('kit',e.currentTarget.open)}><summary data-guide="ui-kit-colors">Kit &amp; shared colors</summary>
    <p className="ui-note">Give related projects the same kit ID. A color replacement then applies across all their layers and frames.</p>

@@ -1,4 +1,4 @@
-import {MAX_CANVAS_SIDE,MAX_SOURCE_SIDE,MAX_SOURCE_PIXELS,MAX_REFERENCE_PNG_BYTES} from './canvas-limits.ts';
+import {fitCanvasDimensions,MAX_CANVAS_SIDE,MAX_SOURCE_SIDE,MAX_SOURCE_PIXELS,MAX_REFERENCE_PNG_BYTES} from './canvas-limits.ts';
 
 export type ReferenceAlignment={width:number;height:number;offsetX:number;offsetY:number;cellWidth:number;cellHeight:number};
 export type ReferenceImage={name:string;width:number;height:number;pixels:number[];source?:ReferenceAlignment & {widthPixels:number;heightPixels:number}};
@@ -8,8 +8,7 @@ export type ReferenceSource={width:number;height:number;pixels:number[]};
 export function fitReferenceAlignment(width:number,height:number):ReferenceAlignment{
  if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width>MAX_SOURCE_SIDE||height>MAX_SOURCE_SIDE||width*height>MAX_SOURCE_PIXELS)
   throw new Error('Reference source is too large or invalid (maximum 4096 per side and 4 million pixels).');
- const scale=Math.max(1,width/MAX_CANVAS_SIDE,height/MAX_CANVAS_SIDE);
- const outputWidth=Math.max(1,Math.round(width/scale)),outputHeight=Math.max(1,Math.round(height/scale));
+ const {width:outputWidth,height:outputHeight}=fitCanvasDimensions(width,height,Math.min(width,MAX_CANVAS_SIDE));
  // Account for integer rounding independently on each axis, including 1px strips.
  return {width:outputWidth,height:outputHeight,offsetX:0,offsetY:0,cellWidth:width/outputWidth,cellHeight:height/outputHeight};
 }
@@ -22,7 +21,7 @@ export function validateAlignment(input:unknown,sourceWidth:number,sourceHeight:
   !Number.isFinite(a.cellHeight)||a.cellHeight<.125||a.cellHeight>MAX_SOURCE_SIDE||
   !Number.isFinite(a.offsetX)||Math.abs(a.offsetX)>sourceWidth||
   !Number.isFinite(a.offsetY)||Math.abs(a.offsetY)>sourceHeight)
-  throw new Error('Choose a 1–512 pixel output, positive grid spacing (at least 0.125 source pixels), and an offset within the source image.');
+  throw new Error(`Choose a 1–${MAX_CANVAS_SIDE} pixel output, positive grid spacing (at least 0.125 source pixels), and an offset within the source image.`);
  return {width:a.width,height:a.height,offsetX:a.offsetX,offsetY:a.offsetY,cellWidth:a.cellWidth,cellHeight:a.cellHeight};
 }
 export function validateReference(input:unknown,width:number,height:number):ReferenceImage{

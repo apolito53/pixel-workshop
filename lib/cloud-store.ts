@@ -1,3 +1,4 @@
+import {packEntry,unpackEntry,unpackProject,projectSummary} from './project-codec.ts';
 import { env } from 'cloudflare:workers';
 import { ProjectService, safeId, type Entry, type ProjectStore } from './project-service.ts';
 import {requireWorkspaceId,type WorkspaceRecord,type WorkspaceRecordStore} from './workspace-session.ts';
@@ -8,15 +9,23 @@ function cloudStore(prefix:string):ProjectStore {
     async list(){
       const listed=await bucket().list({prefix,limit:100});
       const items=await Promise.all(listed.objects.map(o=>bucket().get(o.key)));
-      return (await Promise.all(items.filter(Boolean).map(async o=>(await o!.json<Entry>()).doc)))
+      return (await Promise.all(items.filter(Boolean).map(async o=>unpackProject((await o!.json<Entry>()).doc))))
         .sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
+    },
+    async listSummaries(){
+      const listed=await bucket().list({prefix,limit:100}),summaries=[];
+      for(const object of listed.objects){
+        const item=await bucket().get(object.key);
+        if(item)summaries.push(projectSummary((await item.json<Entry>()).doc));
+      }
+      return summaries.sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
     },
     async get(id){
       const item=await bucket().get(`${prefix}${safeId(id)}.json`);
-      return item?{entry:await item.json<Entry>(),etag:item.etag}:null;
+      return item?{entry:unpackEntry(await item.json<Entry>()),etag:item.etag}:null;
     },
     async put(id,entry,etag){
-      const result=await bucket().put(`${prefix}${safeId(id)}.json`,JSON.stringify(entry),{
+      const result=await bucket().put(`${prefix}${safeId(id)}.json`,JSON.stringify(packEntry(entry)),{
         httpMetadata:{contentType:'application/json'},
         onlyIf:etag?{etagMatches:etag}:{etagDoesNotMatch:'*'},
       });

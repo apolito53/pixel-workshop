@@ -24,12 +24,26 @@ export function clipFrameSequence(clip: AnimationClip): number[] {
   return clip.mode==='pingpong'&&frames.length>2?[...frames,...frames.slice(1,-1).reverse()]:frames;
 }
 export type PixelDocument = { format: 'pixel-workshop/1'; id: string; name: string; width: number; height: number; revision: number; palette: string[]; layers: Layer[]; updatedAt: string; animation?: { fps: number; frames: AnimationFrame[]; clips?: AnimationClip[] }; ui?:UiMetadata; reference?:ReferenceImage };
-export const MAX_ANIMATION_FRAMES = 32;
-export const MAX_ANIMATION_CELLS = 900_000;
+export const MAX_LAYERS = 16;
+export const MAX_ANIMATION_FRAMES = 96;
+export const MAX_ANIMATION_CELLS = 4_194_304;
 export function frameCount(d: PixelDocument) { return 1 + (d.animation?.frames.length ?? 0); }
 export function documentCells(d:PixelDocument,layers=d.layers.length,frames=frameCount(d)){
  return (layers*frames+(d.reference?1:0))*d.width*d.height;
 }
+/** Each reference occupies one canvas-sized buffer, independent of the frame count. */
+export function canvasCapacity(width:number,height:number,layers:number,frames:number,hasReference=false){
+  const buffers = Math.floor(MAX_ANIMATION_CELLS / (width * height)) - Number(hasReference);
+  return {
+    maxFrames: Math.min(MAX_ANIMATION_FRAMES, Math.floor(buffers / layers)),
+    maxLayers: Math.min(MAX_LAYERS, Math.floor(buffers / frames)),
+  };
+}
+export function documentCapacity(d: PixelDocument) {
+  return canvasCapacity(d.width, d.height, d.layers.length, frameCount(d), Boolean(d.reference));
+}
+// An atomic palette remap must be possible even when the entire document is filled.
+export const MAX_BATCH_PIXEL_WORK = MAX_ANIMATION_CELLS;
 export function frameView(d: PixelDocument, frame = 0): PixelDocument {
   requireInt(frame, 0, frameCount(d) - 1, 'frame');
   if (frame === 0) return d;
@@ -63,9 +77,12 @@ export function validateDocument(input: unknown): PixelDocument {
   const d = input as PixelDocument;
   if (!d || d.format !== 'pixel-workshop/1') throw new Error('This is not a Pixel Workshop project.');
   requireInt(d.width,1,MAX_CANVAS_SIDE,'Width'); requireInt(d.height,1,MAX_CANVAS_SIDE,'Height');
-  if(d.reference!==undefined)validateReference(d.reference,d.width,d.height);
   if (typeof d.name !== 'string' || d.name.length > 80) throw new Error('Invalid project name.');
-  if (!Array.isArray(d.layers) || !d.layers.length || d.layers.length>8) throw new Error('Projects need 1–8 layers.');
+  if (!Array.isArray(d.layers) || !d.layers.length || d.layers.length>MAX_LAYERS) throw new Error(`Projects need 1–${MAX_LAYERS} layers.`);
+  if(d.animation!==undefined&&(!d.animation||!Array.isArray(d.animation.frames)||d.animation.frames.length>=MAX_ANIMATION_FRAMES))
+    throw new Error('Invalid animation settings.');
+  if(documentCells(d)>MAX_ANIMATION_CELLS)throw new Error('Animation or reference exceeds the pixel budget.');
+  if(d.reference!==undefined)validateReference(d.reference,d.width,d.height);
   const ids = new Set<string>();
   for (const l of d.layers) {
     if (!l || typeof l.id !== 'string' || !/^[a-z0-9_-]{1,64}$/i.test(l.id) || ids.has(l.id)) throw new Error('Invalid or duplicate layer ID.');
@@ -76,8 +93,7 @@ export function validateDocument(input: unknown): PixelDocument {
   if (!Array.isArray(d.palette) || d.palette.length>128) throw new Error('Palette can contain at most 128 colors.');
   d.palette.forEach(color);
   if (d.animation !== undefined) {
-    if (!d.animation || !Number.isInteger(d.animation.fps) || d.animation.fps < 1 || d.animation.fps > 30 ||
-      !Array.isArray(d.animation.frames) || d.animation.frames.length >= MAX_ANIMATION_FRAMES)
+    if (!d.animation || !Number.isInteger(d.animation.fps) || d.animation.fps < 1 || d.animation.fps > 30)
       throw new Error('Invalid animation settings.');
     const frameIds = new Set<string>();
     const layerIds = d.layers.map(l => l.id);
@@ -110,7 +126,6 @@ export function validateDocument(input: unknown): PixelDocument {
       }
     }
   }
-  if(documentCells(d)>MAX_ANIMATION_CELLS)throw new Error('Animation or reference exceeds the pixel budget.');
   if(d.ui!==undefined)validateUi(d.ui,d.width,d.height,frameCount(d));
   for(const layer of d.layers)if(layer.text!==undefined)validatePixelText(layer.text,d.width,d.height,frameCount(d));
   return structuredClone(d);
@@ -131,10 +146,46 @@ export function composite(d: PixelDocument): Uint8Array {
   return rgba;
 }
 export function historyLimit(d:PixelDocument){return Math.max(1,Math.min(12,Math.floor(400000/documentCells(d))));}
-export function applyCommands(source: PixelDocument, commands: PaintCommand[], work={spent:0}): PixelDocument {
+const drawingOps=new Set(['pixel','line','fill','rect','ellipse','clear','paste','stamp','transform']);
+
+// Editor and service snapshots are immutable. Give drawing commands their own
+// layer metadata and copy only the pixel buffers they can write in this batch.
+function copyDrawingTargets(source:PixelDocument,commands:PaintCommand[]):PixelDocument {
+  const layers=source.layers.map(layer=>({...layer}));
+  const originalLayers=new Map(source.layers.map(layer=>[layer.id,layer]));
+  const newLayers=new Map(layers.map(layer=>[layer.id,layer]));
+  const animation=source.animation?{...source.animation,frames:source.animation.frames.slice()}:undefined;
+  for(const command of commands){
+    const id=command.layer||source.layers[0].id;
+    const original=originalLayers.get(id),layer=newLayers.get(id);
+    if(!original||!layer)throw new Error('Layer not found.');
+    const frame=command.frame===undefined?0:requireInt(command.frame,0,frameCount(source)-1,'frame');
+    if(frame===0){
+      if(layer.pixels===original.pixels)layer.pixels=original.pixels.slice();
+    }else{
+      const originalFrame=source.animation!.frames[frame-1];
+      if(animation!.frames[frame-1]===originalFrame)
+        animation!.frames[frame-1]={...originalFrame,pixels:{...originalFrame.pixels}};
+      const pixels=animation!.frames[frame-1].pixels;
+      if(pixels[id]===originalFrame.pixels[id])pixels[id]=originalFrame.pixels[id].slice();
+    }
+  }
+  return {...source,layers,...(animation?{animation}:{})};
+}
+
+/** Returns another immutable snapshot; untouched cels can be shared with source. */
+export function applySnapshotCommands(source:PixelDocument,commands:PaintCommand[],work={spent:0}):PixelDocument {
+  return runCommands(source,commands,work,true);
+}
+/** The standalone engine API returns a fully independent document. */
+export function applyCommands(source:PixelDocument,commands:PaintCommand[],work={spent:0}):PixelDocument {
+  return runCommands(source,commands,work,false);
+}
+function runCommands(source:PixelDocument,commands:PaintCommand[],work:{spent:number},immutableSnapshot:boolean):PixelDocument {
   if (!Array.isArray(commands)||commands.length<1||commands.length>5000) throw new Error('Send 1–5000 drawing commands in one batch.');
-  const d=structuredClone(source);
-  const spend=(n:number)=>{work.spent+=n;if(work.spent>2000000)throw new Error('Drawing batch is too large; split it into smaller batches.');};
+  const d=immutableSnapshot&&commands.every(command=>command&&drawingOps.has(command.op))
+    ?copyDrawingTargets(source,commands):structuredClone(source);
+  const spend=(n:number)=>{work.spent+=n;if(work.spent>MAX_BATCH_PIXEL_WORK)throw new Error('Drawing batch is too large; split it into smaller batches.');};
   for(const c of commands) {
     if (!c || typeof c.op!=='string') throw new Error('Every command needs an op.');
     if(c.op==='rename'){if(typeof c.name!=='string'||!c.name.trim())throw new Error('Enter a project name.');d.name=c.name.slice(0,80);continue;}
@@ -194,7 +245,7 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
       continue;
     }
     if(c.op==='frame_add'){
-      if(frameCount(d)>=MAX_ANIMATION_FRAMES)throw new Error('Animation supports up to 32 frames.');
+      if(frameCount(d)>=MAX_ANIMATION_FRAMES)throw new Error(`Animation supports up to ${MAX_ANIMATION_FRAMES} frames.`);
       if(documentCells(d,d.layers.length,frameCount(d)+1)>MAX_ANIMATION_CELLS)
         throw new Error('Animation exceeds the pixel budget.');
       const from=requireInt(c.source_frame ?? 0,0,frameCount(d)-1,'source_frame');
@@ -220,11 +271,12 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
       continue;
     }
     if(c.op==='add_layer'){
-      if(d.layers.length>=8)throw new Error('A project can have up to 8 layers.');
+      if(d.layers.length>=MAX_LAYERS)throw new Error(`A project can have up to ${MAX_LAYERS} layers.`);
       if(documentCells(d,d.layers.length+1)>MAX_ANIMATION_CELLS)
         throw new Error('Animation exceeds the pixel budget.');
       const id=String(c.id||'layer-'+d.layers.length);
       if(!/^[a-z0-9_-]{1,64}$/i.test(id)||d.layers.some(l=>l.id===id))throw new Error('Choose a unique layer ID.');
+      spend(d.width*d.height*frameCount(d));
       d.layers.push({id,name:String(c.name||'New layer').slice(0,60),visible:true,pixels:Array(d.width*d.height).fill(0)});
       for(const frame of d.animation?.frames ?? [])frame.pixels[id]=Array(d.width*d.height).fill(0);
       continue;
@@ -244,7 +296,7 @@ export function applyCommands(source: PixelDocument, commands: PaintCommand[], w
     if(c.op==='visibility'){if(typeof c.visible!=='boolean')throw new Error('visible must be true or false.');metadataLayer.visible=c.visible;continue;}
     if(c.op==='rename_layer'){metadataLayer.name=String(c.name||'Layer').slice(0,60);continue;}
     if(c.op==='duplicate_layer'){
-      if(d.layers.length>=8)throw new Error('Cannot preserve a layer: all eight slots are used.');
+      if(d.layers.length>=MAX_LAYERS)throw new Error(`Cannot preserve a layer: all ${MAX_LAYERS} slots are used.`);
       if(documentCells(d,d.layers.length+1)>MAX_ANIMATION_CELLS)
         throw new Error('Cannot preserve a layer: animation pixel budget reached.');
       const id=String(c.id||'backup-'+d.layers.length);

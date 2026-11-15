@@ -1,4 +1,4 @@
-import { color, frameCount, MAX_ANIMATION_CELLS, PIXEL_EFFECT_KINDS, validateEffectRecipe, type StoredEffectRecipe, type PaintCommand, type PixelDocument } from './pixels.ts';
+import { color, frameCount, documentCapacity, canvasCapacity, MAX_LAYERS, MAX_BATCH_PIXEL_WORK, PIXEL_EFFECT_KINDS, validateEffectRecipe, type StoredEffectRecipe, type PaintCommand, type PixelDocument } from './pixels.ts';
 
 /** Ordered catalog shared by the editor, procedural renderer and MCP schema. */
 export const EFFECT_KINDS = PIXEL_EFFECT_KINDS;
@@ -26,7 +26,7 @@ export const EFFECT_PRESETS: Record<EffectKind, { label: string; group: EffectGr
 
 /** Keep the renderer and UI consistent about when another effect can fit. */
 export function hasFreeEffectLayerSlot(d: PixelDocument | null | undefined): boolean {
-  return Boolean(d && d.layers.length < 8);
+  return Boolean(d && d.layers.length < documentCapacity(d).maxLayers);
 }
 
 function randomFromSeed(seed: number) {
@@ -306,19 +306,26 @@ export function effectPixels(width:number,height:number,frame:number,count:numbe
  return out;
 }
 
+export function effectCapacity(d:PixelDocument) {
+  const current = frameCount(d), area = d.width * d.height;
+  const layers = d.layers.length + 1;
+  if (layers > MAX_LAYERS)
+    return {frames:0, reason:`The effect needs a free layer. All ${MAX_LAYERS} slots are occupied.`};
+  const maxFrames = canvasCapacity(d.width, d.height, layers, current, Boolean(d.reference)).maxFrames;
+  // A new layer allocates one buffer per existing frame. New frames copy every layer.
+  // Each paste costs three pixel visits. A static project's default loop has up to eight frames.
+  const budgetFrames = Math.floor((MAX_BATCH_PIXEL_WORK / area + current * (layers - 1)) / (layers + 3));
+  const frames = current === 1 ? Math.min(8, maxFrames, budgetFrames) : current;
+  if (frames < 2 || frames > maxFrames || frames > budgetFrames)
+    return {frames:0, reason:'A new animated effect needs more room. Use fewer frames or layers, or a smaller canvas.'};
+  return {frames, reason:''};
+}
+
 // Return ordinary paint commands so browser edits, undo, and MCP use one engine.
 export function generateEffectCommands(d: PixelDocument, recipe: EffectRecipe): PaintCommand[] {
-  const full=normalizeEffectRecipe(recipe);
-  if (!hasFreeEffectLayerSlot(d)) throw new Error('The effect needs a free layer (maximum eight).');
-  const area = d.width * d.height, currentFrames = frameCount(d);
-  const availableCells=MAX_ANIMATION_CELLS-(d.reference?area:0);
-  const capacity = Math.min(8, Math.floor(availableCells / (area * (d.layers.length + 1))),
-    Math.floor(1_800_000 / (area * (d.layers.length + 3))));
-  const totalFrames = currentFrames === 1 ? capacity : currentFrames;
-  if (totalFrames < 2 || totalFrames > 32 ||
-    totalFrames * (d.layers.length+1) * area > availableCells ||
-    area * (totalFrames * 3 + (totalFrames-currentFrames) * (d.layers.length+1)) > 1_950_000)
-    throw new Error('This animation is too large for a new effect. Use fewer frames or layers.');
+  const full=normalizeEffectRecipe(recipe), currentFrames=frameCount(d);
+  const {frames:totalFrames, reason}=effectCapacity(d);
+  if(reason) throw new Error(reason);
   const layer = 'fx-' + crypto.randomUUID().slice(0,8);
   const commands: PaintCommand[] = [{op:'add_layer',id:layer,name:EFFECT_PRESETS[recipe.kind].label+' FX'}];
   for (let i = currentFrames; i < totalFrames; i++)
@@ -338,7 +345,7 @@ export function regenerateEffectCommands(d:PixelDocument,layer:string,recipe:Eff
  const target=d.layers.find(l=>l.id===layer);
  if(!target?.effect)throw new Error('Choose a generated effect layer to regenerate.');
  const full=normalizeEffectRecipe(recipe),count=frameCount(d);
- if(d.width*d.height*count*3>1_950_000)throw new Error('This effect is too large to regenerate in one batch.');
+ if(d.width*d.height*count*3>MAX_BATCH_PIXEL_WORK)throw new Error('This effect is too large to regenerate in one batch.');
  const ops:PaintCommand[]=[{op:'rename_layer',layer,name:EFFECT_PRESETS[full.kind].label+' FX'}];
  for(let i=0;i<count;i++)ops.push({op:'paste',layer,frame:i,x:0,y:0,width:d.width,height:d.height,
   pixels:effectPixels(d.width,d.height,i,count,full)});

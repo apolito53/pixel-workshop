@@ -74,12 +74,12 @@ test('overlay opacity, native crop and integer grid magnification keep every cel
 test('larger canvases share the existing cell budget including the reference and all frames',()=>{
  const doc=createDocument('Large',256,384);doc.reference=prepareReference({width:256,height:384,pixels:Array(256*384).fill(0)},'Tall');
  assert.equal(validateDocument(doc).height,384);
- const large=createDocument('Limit',512,512);large.reference=prepareReference({width:512,height:512,pixels:Array(512*512).fill(0)},'Full');
- const two=applyCommands(large,[{op:'add_layer',id:'second'}]);assert.ok(documentCells(two)<=MAX_ANIMATION_CELLS);
- assert.throws(()=>applyCommands(two,[{op:'add_layer',id:'third'}]),/budget/);
- assert.throws(()=>applyCommands(two,[{op:'frame_add'}]),/budget/);
- assert.throws(()=>validateDocument({...two,layers:[...two.layers,{...two.layers[0],id:'third'}]}),/budget/);
- assert.equal(maxPreviewZoom(512,512),4);assert.throws(()=>createDocument('Oversized',513,2));
+ const large=createDocument('Limit',1024,1024);large.reference=prepareReference({width:1024,height:1024,pixels:Array(1024*1024).fill(0)},'Full');
+ const full=applyCommands(large,[{op:'add_layer',id:'second'},{op:'add_layer',id:'third'}]);assert.equal(documentCells(full),MAX_ANIMATION_CELLS);
+ assert.throws(()=>applyCommands(full,[{op:'add_layer',id:'fourth'}]),/budget/);
+ assert.throws(()=>applyCommands(full,[{op:'frame_add'}]),/budget/);
+ assert.throws(()=>validateDocument({...full,layers:[...full.layers,{...full.layers[0],id:'fourth'}]}),/budget/);
+ assert.equal(maxPreviewZoom(1024,1024),2);assert.throws(()=>createDocument('Oversized',1025,2));
 });
 test('MCP imports, inspects close-ups, rejects mismatches and stale revisions, and undo restores references',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'pixel-tracing-'));

@@ -1,4 +1,4 @@
-import { applyCommands, historyLimit, type PaintCommand, type PixelDocument } from './pixels.ts';
+import { applySnapshotCommands, historyLimit, MAX_BATCH_PIXEL_WORK, type PaintCommand, type PixelDocument } from './pixels.ts';
 
 export type EditorSnapshot={doc:PixelDocument;canUndo:boolean;canRedo:boolean};
 export type EditorEdit={action:'paint'|'undo'|'redo';commands?:PaintCommand[]};
@@ -15,7 +15,7 @@ function project(base:History,edits:EditorEdit[]):History {
   for(const edit of edits){
     const old=state.snapshot.doc;
     if(edit.action==='paint'){
-      state.snapshot.doc=applyCommands(old,edit.commands!);
+      state.snapshot.doc=applySnapshotCommands(old,edit.commands!);
       if(!state.unresolved)state.undo.push(old);
       state.redo=[];state.unknownRedo=false;
     }else{
@@ -41,11 +41,16 @@ function project(base:History,edits:EditorEdit[]):History {
 // Conservative work bounds let small strokes share a request without exceeding
 // the drawing engine's per-request command/work limits.
 function workBound(edit:EditorEdit,doc:PixelDocument){
+  // The cost of an edit that changes document structure depends on its position
+  // in the batch. Save it alone, preserving its atomicity and its undo boundary.
+  if(edit.action!=='paint'||edit.commands?.some(c=>[
+    'add_layer','duplicate_layer','delete_layer','frame_add','frame_delete','reference_set','palette_remap'
+  ].includes(c.op))) return MAX_BATCH_PIXEL_WORK;
   return (edit.commands??[]).reduce((sum,c)=>{
     const area=Number(c.width)*Number(c.height);
     if(c.op==='rect'||c.op==='ellipse')return sum+area*2;
-    if(c.op==='transform'||c.op==='paste')return sum+area*3;
-    if(c.op==='fill'||c.op==='clear'||c.op==='add_layer')return sum+doc.width*doc.height;
+    if(c.op==='transform'||c.op==='paste'||c.op==='stamp')return sum+area*3;
+    if(c.op==='fill'||c.op==='clear'||c.op==='text_set')return sum+doc.width*doc.height;
     if(c.op==='line')return sum+Math.max(Math.abs(Number(c.x2)-Number(c.x)),Math.abs(Number(c.y2)-Number(c.y)))+1;
     return sum+1;
   },0);
@@ -95,7 +100,7 @@ export class EditQueue {
     let work=0,commands=0;const edits:EditorEdit[]=[];
     for(const edit of this.edits){
       const cost=workBound(edit,this.base.snapshot.doc),count=edit.commands?.length??0;
-      if(edits.length&&(edits.length>=8||work+cost>2000000||commands+count>5000))break;
+      if(edits.length&&(edits.length>=8||work+cost>MAX_BATCH_PIXEL_WORK||commands+count>5000))break;
       edits.push(edit);work+=cost;commands+=count;
     }
     // getRandomValues also works on local HTTP previews, where randomUUID is

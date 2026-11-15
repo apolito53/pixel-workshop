@@ -1,5 +1,5 @@
 import type { ProjectService } from './project-service.ts';
-import { applyCommands,createDocument,frameCount, frameView, type PaintCommand } from './pixels.ts';
+import { applyCommands,createDocument,frameCount, frameView, MAX_ANIMATION_FRAMES, type PaintCommand } from './pixels.ts';
 import {MAX_CANVAS_SIDE} from './canvas-limits.ts';
 import {buildCanvasPreview,type CanvasPreviewOptions} from './canvas-preview.ts';
 import {referenceFromPng} from './reference-png.ts';
@@ -12,14 +12,14 @@ import { encodeSvg, encodeRgbaSvg } from './svg.ts';
 
 const id={type:'string',description:'Project ID returned by create_canvas or list_canvases.'};
 const rev={type:'integer',minimum:0,description:'Current document revision. Reload with get_canvas after a conflict.'};
-const frame={type:'integer',minimum:0,maximum:31};
+const frame={type:'integer',minimum:0,maximum:MAX_ANIMATION_FRAMES-1};
 const schema=(properties:Record<string,unknown>,required:string[]=[])=>({type:'object',properties,required,additionalProperties:false});
 export const toolDefinitions=[
   {name:'list_canvases',description:'List canvases, sizes, animation frame counts, layers, and revisions.',
     inputSchema:schema({}),annotations:{readOnlyHint:true}},
-  {name:'create_canvas',description:'Create a transparent pixel canvas 1–512 pixels per side, within the document pixel budget.',
+  {name:'create_canvas',description:`Create a transparent pixel canvas 1–${MAX_CANVAS_SIDE} pixels per side, within the document pixel budget.`,
     inputSchema:schema({name:{type:'string'},width:{type:'integer',minimum:1,maximum:MAX_CANVAS_SIDE},height:{type:'integer',minimum:1,maximum:MAX_CANVAS_SIDE}},['name','width','height'])},
-  {name:'import_reference',description:'Upload a PNG into a matching canvas. Omit id/revision for a new project; supply both to attach to an existing canvas of exactly matching prepared dimensions. sizing defaults to fit: keep native pixels up to 512 per side, otherwise resize uniformly once with nearest-neighbor sampling. sizing:native rejects oversized sources. Optional alignment overrides default fitting; use cellWidth/cellHeight:1 and offsets to extract an exact source region. Do not combine explicit sizing and alignment. copy_to_layer:true also makes editable artwork immediately (base layer for a new project, a new layer for an existing one). Response reports source/prepared dimensions, resampling and copy verification without pixel arrays. Reference itself is excluded from exports.',
+  {name:'import_reference',description:`Upload a PNG into a matching canvas. Omit id/revision for a new project; supply both to attach to an existing canvas of exactly matching prepared dimensions. sizing defaults to fit: keep native pixels up to ${MAX_CANVAS_SIDE} per side, otherwise resize uniformly once with nearest-neighbor sampling. sizing:native rejects oversized sources. Optional alignment overrides default fitting; use cellWidth/cellHeight:1 and offsets to extract an exact source region. Do not combine explicit sizing and alignment. copy_to_layer:true also makes editable artwork immediately (base layer for a new project, a new layer for an existing one). Response reports source/prepared dimensions, resampling and copy verification without pixel arrays. Reference itself is excluded from exports.`,
     inputSchema:schema({id,revision:rev,name:{type:'string',maxLength:80},png_base64:{type:'string',maxLength:10666668},sizing:{type:'string',enum:['fit','native']},copy_to_layer:{type:'boolean'},alignment:schema({
       width:{type:'integer',minimum:1,maximum:MAX_CANVAS_SIDE},height:{type:'integer',minimum:1,maximum:MAX_CANVAS_SIDE},
       offsetX:{type:'number'},offsetY:{type:'number'},cellWidth:{type:'number',minimum:.125,maximum:4096},cellHeight:{type:'number',minimum:.125,maximum:4096}
@@ -30,7 +30,7 @@ export const toolDefinitions=[
     inputSchema:schema({id,layer:{type:'string'},frame},['id']),annotations:{readOnlyHint:true}},
   {name:'get_canvas',description:'Inspect a frame (default 0). Preview defaults to overlay when a reference exists. view selects artwork, reference alone, or aligned overlay; opacities affect only overlay viewing. scale is integer nearest-neighbor; region is an exact native-coordinate crop for close inspection. include_pixels returns editable artwork and prepared reference pixels. Exports always contain artwork only.',
     inputSchema:schema({id,frame,include_pixels:{type:'boolean'},view:{type:'string',enum:['artwork','overlay','reference']},referenceOpacity:{type:'number',minimum:0,maximum:1},artworkOpacity:{type:'number',minimum:0,maximum:1},grid:{type:'boolean'},scale:{type:'integer',minimum:1,maximum:16},region:schema({x:{type:'integer',minimum:0},y:{type:'integer',minimum:0},width:{type:'integer',minimum:1},height:{type:'integer',minimum:1}},['x','y','width','height'])},['id']),annotations:{readOnlyHint:true}},
-  {name:'paint',description:'Atomically apply pixel commands. pixel/fill: x,y; line: x,y,x2,y2; rect/ellipse: x,y,width,height,filled; transform: mode move|copy|flip_horizontal|flip_vertical with x,y,width,height,x2,y2; paste: x,y,width,height,pixels (row-major packed RGBA); stamp: same packed fields, but transparent source pixels preserve destination. Pixel commands accept frame:0..31 (default 0) and layer. Animation ops: frame_add {source_frame?,blank?}, frame_delete {frame:1..31}, set_fps {fps:1..30}, clip_set {name,from,to,fps,mode:loop|once|pingpong}, clip_delete {name}. FX layer metadata: effect_recipe {layer,recipe:{kind,seed,ink,speed,opacity,drift}} or effect_detach {layer}. Layer operations are shared across all frames: add_layer {id,name}, duplicate_layer {layer,id,name} (frozen hidden backup), visibility {layer,visible}, rename_layer {layer,name}, delete_layer {layer}, clear {layer,frame?}, rename {name}, palette {colors}. UI ops: ui_set {ui} sets or clears native slices and named state/icon frames; text_set {layer,text} draws an editable Tiny Caps text layer; text_detach {layer} retains pixels; palette_remap {fromColor,toColor} recolors all frames and layers while preserving opacity. All edits are one undoable batch and require the current revision.',
+  {name:'paint',description:`Atomically apply pixel commands. pixel/fill: x,y; line: x,y,x2,y2; rect/ellipse: x,y,width,height,filled; transform: mode move|copy|flip_horizontal|flip_vertical with x,y,width,height,x2,y2; paste: x,y,width,height,pixels (row-major packed RGBA); stamp: same packed fields, but transparent source pixels preserve destination. Pixel commands accept frame:0..${MAX_ANIMATION_FRAMES-1} (default 0) and layer. Animation ops: frame_add {source_frame?,blank?}, frame_delete {frame:1..${MAX_ANIMATION_FRAMES-1}}, set_fps {fps:1..30}, clip_set {name,from,to,fps,mode:loop|once|pingpong}, clip_delete {name}. FX layer metadata: effect_recipe {layer,recipe:{kind,seed,ink,speed,opacity,drift}} or effect_detach {layer}. Layer operations are shared across all frames: add_layer {id,name}, duplicate_layer {layer,id,name} (frozen hidden backup), visibility {layer,visible}, rename_layer {layer,name}, delete_layer {layer}, clear {layer,frame?}, rename {name}, palette {colors}. UI ops: ui_set {ui} sets or clears native slices and named state/icon frames; text_set {layer,text} draws an editable Tiny Caps text layer; text_detach {layer} retains pixels; palette_remap {fromColor,toColor} recolors all frames and layers while preserving opacity. All edits are one undoable batch and require the current revision.`,
     inputSchema:schema({id,revision:rev,commands:{type:'array',minItems:1,maxItems:5000,items:{type:'object',
       properties:{op:{type:'string'},frame,source_frame:frame,fps:{type:'integer',minimum:1,maximum:30},blank:{type:'boolean'},
         layer:{type:'string'},color:{type:'string'},x:{type:'integer'},y:{type:'integer'},x2:{type:'integer'},y2:{type:'integer'},
@@ -50,7 +50,7 @@ export const toolDefinitions=[
   {name:'export_svg',description:'Export one animation frame (default 0) as real vector pixel rectangles with transparency. Returns SVG text as an embedded resource. Scale sets display size; the native viewBox stays unchanged.',
     inputSchema:schema({id,frame,scale:{type:'integer',minimum:1,maximum:16}},['id']),annotations:{readOnlyHint:true}},
   {name:'export_sprite_sheet',description:'Export a composited PNG (default) or SVG sprite sheet and matching JSON atlas for all frames. SVG is a static sheet of vector pixels.',
-    inputSchema:schema({id,columns:{type:'integer',minimum:1,maximum:32},format:{type:'string',enum:['png','svg']}},['id']),annotations:{readOnlyHint:true}},
+    inputSchema:schema({id,columns:{type:'integer',minimum:1,maximum:MAX_ANIMATION_FRAMES},format:{type:'string',enum:['png','svg']}},['id']),annotations:{readOnlyHint:true}},
   {name:'generate_effect',description:'Generate a seeded, editable procedural VFX layer and save a recipe so it can be regenerated.',
     inputSchema:schema({id,revision:rev,kind:{type:'string',enum:[...EFFECT_KINDS]},
       seed:{type:'integer',minimum:0,maximum:2147483647},ink:{type:'string'},
@@ -65,8 +65,8 @@ export const toolDefinitions=[
 export async function callTool(service:ProjectService,name:string,args:Record<string,unknown>={}) {
   try {
     if(name==='list_canvases')return {content:[{type:'text' as const,
-      text:JSON.stringify((await service.store.list()).map(d=>({id:d.id,name:d.name,width:d.width,height:d.height,
-        revision:d.revision,layers:d.layers.map(({id,name,visible})=>({id,name,visible})),frames:frameCount(d)})))}]};
+      text:JSON.stringify((await service.listSummaries()).map(d=>({id:d.id,name:d.name,width:d.width,height:d.height,
+        revision:d.revision,layers:d.layers,frames:d.frames})))}]};
     let doc;
     let copy:{layer:string;frame:number}|undefined;
     if(name==='import_reference'){

@@ -8,6 +8,7 @@ import {ProjectService} from '../lib/project-service.ts';
 import {fileStore} from '../server/file-store.ts';
 import {callTool} from '../lib/mcp-tools.ts';
 import {createDocument,frameView,type PixelDocument} from '../lib/pixels.ts';
+import {fitCanvasDimensions} from '../lib/canvas-limits.ts';
 import {fitReferenceAlignment,prepareReference,referenceRgba} from '../lib/reference.ts';
 
 const source={width:3,height:2,pixels:[0x12345603,0xff0000ff,0x00ff0080,0x102030ff,0x04050600,0xabcdef88]};
@@ -71,23 +72,23 @@ test('copy detaches recipes that could overwrite the copied image',()=>fixture(a
 }));
 
 test('fitting is shared with the browser, native sizing rejects loss, and crops preserve source pixels',()=>fixture(async(service,call)=>{
- const large={width:1024,height:768,pixels:Array.from({length:1024*768},(_,i)=>((i*256)>>>0)|255)};
+ const large={width:2048,height:256,pixels:Array.from({length:2048*256},(_,i)=>((i*256)>>>0)|255)};
  const png_base64=pngFor(large),alignment=fitReferenceAlignment(large.width,large.height);
- assert.deepEqual([alignment.width,alignment.height],[512,384]);
- assert.deepEqual(fitReferenceAlignment(4096,1),{width:512,height:1,offsetX:0,offsetY:0,cellWidth:8,cellHeight:1});
+ assert.deepEqual([alignment.width,alignment.height],[1024,128]);
+ assert.deepEqual(fitReferenceAlignment(4096,1),{width:1024,height:1,offsetX:0,offsetY:0,cellWidth:4,cellHeight:1});
  const strip={width:4096,height:1,pixels:Array(4096).fill(0x123456ff)};
  assert.ok(prepareReference(strip,'Strip',fitReferenceAlignment(4096,1)).pixels.every(p=>p===0x123456ff));
  const tall={width:1,height:4096,pixels:strip.pixels};
  assert.ok(prepareReference(tall,'Tall',fitReferenceAlignment(1,4096)).pixels.every(p=>p===0x123456ff));
  const made=await call('import_reference',{png_base64,copy_to_layer:true});
- assert.deepEqual([made.width,made.height],[512,384]);assert.equal(made.referencePreparation.resampled,true);assert.equal(made.referencePreparation.sourceWidth,1024);assert.equal(made.copy.exactMatch,true);
+ assert.deepEqual([made.width,made.height],[1024,128]);assert.equal(made.referencePreparation.resampled,true);assert.equal(made.referencePreparation.sourceWidth,2048);assert.equal(made.copy.exactMatch,true);
  assert.deepEqual((await service.get(made.id)).entry.doc.layers[0].pixels,prepareReference(large,'Expected',alignment).pixels);
  const count=(await service.store.list()).length;
  for(const args of [{sizing:'native'},{sizing:'invalid'},{sizing:'native',alignment}])assert.equal((await callTool(service,'import_reference',{png_base64,...args})).isError,true);
  assert.equal((await service.store.list()).length,count,'invalid imports leave no projects');
  const crop=await call('import_reference',{png_base64,copy_to_layer:true,alignment:{width:2,height:2,offsetX:513,offsetY:44,cellWidth:1,cellHeight:1}});
  assert.equal(crop.referencePreparation.resampled,false);assert.equal(crop.referencePreparation.croppedOrPadded,true);
- assert.deepEqual((await service.get(crop.id)).entry.doc.layers[0].pixels,[large.pixels[44*1024+513],large.pixels[44*1024+514],large.pixels[45*1024+513],large.pixels[45*1024+514]]);
+ assert.deepEqual((await service.get(crop.id)).entry.doc.layers[0].pixels,[large.pixels[44*2048+513],large.pixels[44*2048+514],large.pixels[45*2048+513],large.pixels[45*2048+514]]);
 }));
 
 test('attaching and copying a reference to an existing canvas is one atomic, undoable edit',()=>fixture(async(service,call)=>{
@@ -103,9 +104,19 @@ test('attaching and copying a reference to an existing canvas is one atomic, und
 test('missing references and layer budgets fail without modifying saved artwork',()=>fixture(async(service,call)=>{
  const empty=await service.create('Empty',3,2);
  for(const name of ['copy_reference','compare_reference'])assert.equal((await callTool(service,name,{id:empty.id,revision:0})).isError,true);
- let full:PixelDocument={...createDocument('Budget',512,512),reference:prepareReference({width:512,height:512,pixels:Array(512*512).fill(0xff112280)},'Large')};
- full.layers.push({...full.layers[0],id:'second'});full=await service.create('Budget',512,512,full);
+ let full:PixelDocument={...createDocument('Budget',1024,1024),reference:prepareReference({width:1024,height:1024,pixels:Array(1024*1024).fill(0xff112280)},'Large')};
+ full.layers.push({...full.layers[0],id:'second'},{...full.layers[0],id:'third'});full=await service.create('Budget',1024,1024,full);
  assert.equal((await callTool(service,'copy_reference',{id:full.id,revision:0})).isError,true);
  assert.deepEqual((await service.get(full.id)).entry.doc,full);
  assert.equal((await call('copy_reference',{id:full.id,revision:0,layer:'base'})).copy.exactMatch,true,'explicit replacement remains possible at the budget');
 }));
+
+test('Pixel-ify fits the chosen width and native height while preserving proportions',()=>{
+ for(const [w,h,target,outW,outH] of [
+  [100,150,128,128,192], [130,100,92,92,71], [300,1200,700,256,1024],
+  [1200,300,1024,1024,256], [4096,1,1024,1024,1], [1,4096,1024,1,1024],
+  [32,16,1,1,1], [2048,2048,1024,1024,1024],
+ ]){
+  assert.deepEqual(fitCanvasDimensions(w,h,target),{width:outW,height:outH});
+ }
+});

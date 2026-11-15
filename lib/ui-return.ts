@@ -1,3 +1,4 @@
+import {MAX_ANIMATION_FRAMES} from './pixels.ts';
 export const UI_RETURN_KEY='pixel-workshop-ui-return-v1';
 export const UI_SECTIONS=['panel','states','text','kit'] as const;
 export type UiSection=typeof UI_SECTIONS[number];
@@ -10,7 +11,7 @@ export function parseUiReturn(raw:string|null):UiReturn|null{
   const value=JSON.parse(raw) as Partial<UiReturn>;
   if(!value||value.format!=='pixel-workshop-ui-return/1'||typeof value.workspaceId!=='string'||
    !/^[a-z0-9_-]{1,80}$/i.test(value.projectId??'')||!/^[a-z0-9_-]{1,64}$/i.test(value.layer??'')||
-   typeof value.frame!=='number'||!Number.isInteger(value.frame)||value.frame<0||value.frame>31||!Array.isArray(value.sections)||
+   typeof value.frame!=='number'||!Number.isInteger(value.frame)||value.frame<0||value.frame>=MAX_ANIMATION_FRAMES||!Array.isArray(value.sections)||
    value.sections.length>UI_SECTIONS.length||value.sections.some(s=>!UI_SECTIONS.includes(s)))return null;
   return {format:value.format,workspaceId:value.workspaceId,projectId:value.projectId!,frame:value.frame!,layer:value.layer!,sections:[...new Set(value.sections)]};
  }catch{return null;}

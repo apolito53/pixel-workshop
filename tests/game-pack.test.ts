@@ -68,3 +68,23 @@ test('asset path collisions are disambiguated even when titles are identical',()
  assert.ok(files['assets/same-2/same-2.pixel.json']);
  assert.throws(()=>buildGamePack([]),/between 1 and 30/);
 });
+
+test('larger game and tileset bundles retain the compact, editable project',async()=>{
+ const {readGamePack}=await import('../lib/read-game-pack.ts');
+ const {buildTilesetPack}=await import('../lib/tileset.ts');
+ const {PACKED_PROJECT_FORMAT,unpackProject}=await import('../lib/project-codec.ts');
+ const doc=applyCommands(createDocument('Panorama',1024,320),[
+  {op:'pixel',x:1023,y:319,color:'#321abc80'}
+ ]);
+ const pack=buildGamePack([doc]);
+ assert.deepEqual(readGamePack(pack.bytes)[0],doc);
+ const tiles=buildTilesetPack(doc,64,64);
+ for(const bytes of [pack.bytes,tiles.bytes]){
+  const files=readStoredFiles(bytes);
+  const entry=Object.entries(files).find(([path])=>path.endsWith('.pixel.json'));
+  assert.ok(entry);
+  const source=JSON.parse(new TextDecoder().decode(entry[1]));
+  assert.equal(source.format,PACKED_PROJECT_FORMAT);
+  assert.deepEqual(unpackProject(source),doc);
+ }
+});

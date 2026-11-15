@@ -1,13 +1,17 @@
-import { applyCommands, createDocument, validateDocument, historyLimit, type PixelDocument, type PaintCommand } from './pixels.ts';
+import {unpackProject,projectSummary,type ProjectSummary} from './project-codec.ts';
+import { applySnapshotCommands, createDocument, validateDocument, historyLimit, type PixelDocument, type PaintCommand } from './pixels.ts';
 import type { EditorEdit, EditorSnapshot } from './edit-queue.ts';
 export type Entry={doc:PixelDocument;undo:PixelDocument[];redo:PixelDocument[];lastRequest?:{id:string;revision:number}};
-export interface ProjectStore { list():Promise<PixelDocument[]>; get(id:string):Promise<{entry:Entry;etag:string}|null>; put(id:string,entry:Entry,etag?:string):Promise<void> }
+export interface ProjectStore { list():Promise<PixelDocument[]>; listSummaries?():Promise<ProjectSummary[]>; get(id:string):Promise<{entry:Entry;etag:string}|null>; put(id:string,entry:Entry,etag?:string):Promise<void> }
 export function safeId(id:string){if(!/^[a-z0-9_-]{1,80}$/i.test(id))throw new Error('Invalid project ID.');return id;}
 export class ProjectService {
   store:ProjectStore;
   constructor(store:ProjectStore){this.store=store;}
+  async listSummaries(){
+    return this.store.listSummaries?this.store.listSummaries():(await this.store.list()).map(projectSummary);
+  }
   async create(name:string,width:number,height:number,imported?:unknown){
-    const doc=imported?validateDocument(imported):createDocument(name,width,height);doc.id=crypto.randomUUID();doc.revision=0;doc.updatedAt=new Date().toISOString();
+    const doc=imported?validateDocument(unpackProject(imported)):createDocument(name,width,height);doc.id=crypto.randomUUID();doc.revision=0;doc.updatedAt=new Date().toISOString();
     await this.store.put(doc.id,{doc,undo:[],redo:[]});return doc;
   }
   async get(id:string){const result=await this.store.get(safeId(id));if(!result)throw new Error('Project not found.');return result;}
@@ -29,7 +33,7 @@ export class ProjectService {
     const work={spent:0};
     for(const {action,commands} of edits){
      const old=entry.doc;
-     if(action==='paint'){entry.doc=applyCommands(old,commands!,work);entry.undo=[...entry.undo,old].slice(-12);entry.redo=[];}
+     if(action==='paint'){entry.doc=applySnapshotCommands(old,commands!,work);entry.undo=[...entry.undo,old].slice(-12);entry.redo=[];}
      else {
       const from=action==='undo'?entry.undo:entry.redo,to=action==='undo'?entry.redo:entry.undo;
       if(!from.length)throw new Error(`Nothing to ${action}.`);

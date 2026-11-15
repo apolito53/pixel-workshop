@@ -2,7 +2,7 @@
 import {useEffect,useId,useMemo,useRef,useState,type PointerEvent} from 'react';
 import {createPortal} from 'react-dom';
 import {X,ImagePlus,Eye,Trash2} from 'lucide-react';
-import {MAX_CANVAS_SIDE,MAX_REFERENCE_PNG_BYTES} from '../lib/canvas-limits.ts';
+import {fitCanvasDimensions,MAX_CANVAS_SIDE,MAX_REFERENCE_PNG_BYTES,MAX_SOURCE_SIDE,MAX_SOURCE_PIXELS} from '../lib/canvas-limits.ts';
 import {prepareReference,referenceRgba,fitReferenceAlignment,type ReferenceAlignment,type ReferenceImage,type ReferenceSource} from '../lib/reference.ts';
 import type {CanvasView} from '../lib/canvas-preview.ts';
 import {createDocument,type PixelDocument} from '../lib/pixels.ts';
@@ -104,7 +104,7 @@ function AlignmentDialog({source,doc,busy,onClose,onApply}:{source:ReferenceSour
    <button className="secondary" onClick={()=>fit()}>Fit full image into output</button>
    {doc&&<button className="secondary" onClick={()=>fit(doc.width,doc.height)}>Fit to current canvas · {doc.width} × {doc.height}</button>}
    <button className="text-button" disabled={source.width>MAX_CANVAS_SIDE||source.height>MAX_CANVAS_SIDE} onClick={()=>setAlignment({width:source.width,height:source.height,offsetX:0,offsetY:0,cellWidth:1,cellHeight:1})}>Reset to native file pixels</button>
-   <p className="reference-help">Grid spacing and offsets use source-file pixels. Each cell samples its center once; areas outside the source become transparent. Output supports up to 512 × 512 pixels.</p>
+   <p className="reference-help">Grid spacing and offsets use source-file pixels. Each cell samples its center once; areas outside the source become transparent. Output supports up to {MAX_CANVAS_SIDE} × {MAX_CANVAS_SIDE} pixels.</p>
    <p className="reference-help">After applying, one prepared pixel equals one drawing cell at (0, 0). Reupload the original PNG to change the alignment later.</p>
    {(result.error||error)&&<p className="error-text" role="alert">{result.error||error}</p>}
    <button className="primary full" disabled={!result.reference||busy||saving} onClick={()=>void apply(true)}>Create matching tracing canvas</button>
@@ -116,35 +116,37 @@ function AlignmentDialog({source,doc,busy,onClose,onApply}:{source:ReferenceSour
 
 
 function PixelifyPanel({onCreate,busy}:{onCreate:(doc:PixelDocument)=>Promise<void>;busy:boolean}){
- const [fileName,setFileName]=useState(''),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[aspect,setAspect]=useState(1),[colors,setColors]=useState(24),[dither,setDither]=useState(true),[preview,setPreview]=useState<PixelDocument|null>(null),[sourceFile,setSourceFile]=useState<File|null>(null),[error,setError]=useState(''),[working,setWorking]=useState(false);
+ const [fileName,setFileName]=useState(''),[targetWidth,setTargetWidth]=useState(64),[sourceSize,setSourceSize]=useState<{width:number;height:number}|null>(null),[colors,setColors]=useState(24),[dither,setDither]=useState(true),[preview,setPreview]=useState<PixelDocument|null>(null),[sourceFile,setSourceFile]=useState<File|null>(null),[error,setError]=useState(''),[working,setWorking]=useState(false);
  const input=useRef<HTMLInputElement>(null);
+ const fitted=sourceSize?fitCanvasDimensions(sourceSize.width,sourceSize.height,targetWidth):null;
  const convert=async(file:File)=>{
   setError('');setWorking(true);setPreview(null);
   try{
    if(file.size>12*1024*1024)throw new Error('Choose an image smaller than 12 MB.');
    const bitmap=await createImageBitmap(file);
    try{
-    if(bitmap.width>4096||bitmap.height>4096||bitmap.width*bitmap.height>4_000_000)throw new Error('Source images are limited to 4096 px per side and 4 million pixels.');
-    const ratio=bitmap.height/bitmap.width,outHeight=Math.max(8,Math.min(256,Math.round(width*ratio)));setAspect(ratio);setHeight(outHeight);
-    const c=document.createElement('canvas');c.width=width;c.height=outHeight;
+    if(bitmap.width>MAX_SOURCE_SIDE||bitmap.height>MAX_SOURCE_SIDE||bitmap.width*bitmap.height>MAX_SOURCE_PIXELS)throw new Error('Source images are limited to 4096 px per side and 4 million pixels.');
+    const {width,height}=fitCanvasDimensions(bitmap.width,bitmap.height,targetWidth);
+    setSourceSize({width:bitmap.width,height:bitmap.height});
+    const c=document.createElement('canvas');c.width=width;c.height=height;
     const ctx=c.getContext('2d',{willReadFrequently:true});if(!ctx)throw new Error('Could not prepare image pixels.');
     ctx.clearRect(0,0,width,height);ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(bitmap,0,0,width,height);
-    const data=ctx.getImageData(0,0,width,outHeight).data, work=new Float32Array(width*outHeight*4);
-    for(let i=0;i<width*outHeight;i++){work[i*4]=data[i*4];work[i*4+1]=data[i*4+1];work[i*4+2]=data[i*4+2];work[i*4+3]=data[i*4+3];}
+    const data=ctx.getImageData(0,0,width,height).data, work=new Float32Array(width*height*4);
+    for(let i=0;i<width*height;i++){work[i*4]=data[i*4];work[i*4+1]=data[i*4+1];work[i*4+2]=data[i*4+2];work[i*4+3]=data[i*4+3];}
     const levels=Math.max(2,Math.min(8,Math.round(Math.cbrt(colors))));
     const step=255/(levels-1),palette=new Set<string>(),pixels:number[]=[];
-    for(let y=0;y<outHeight;y++)for(let x=0;x<width;x++){
+    for(let y=0;y<height;y++)for(let x=0;x<width;x++){
      const i=y*width+x,o=i*4,a=Math.round(work[o+3]);if(a<12){pixels.push(0);continue;}
      const quant=(v:number)=>Math.max(0,Math.min(255,Math.round(v/step)*step));
      const r=quant(work[o]),g=quant(work[o+1]),b=quant(work[o+2]),hex='#'+[r,g,b].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('');
      palette.add(hex);pixels.push((((Math.round(r)&255)<<24)|((Math.round(g)&255)<<16)|((Math.round(b)&255)<<8)|a)>>>0);
      if(dither){
       const er=work[o]-r,eg=work[o+1]-g,eb=work[o+2]-b;
-      const spread=(xx:number,yy:number,f:number)=>{if(xx<0||xx>=width||yy>=outHeight)return;const p=(yy*width+xx)*4;if(work[p+3]<12)return;work[p]+=er*f;work[p+1]+=eg*f;work[p+2]+=eb*f;};
+      const spread=(xx:number,yy:number,f:number)=>{if(xx<0||xx>=width||yy>=height)return;const p=(yy*width+xx)*4;if(work[p+3]<12)return;work[p]+=er*f;work[p+1]+=eg*f;work[p+2]+=eb*f;};
       spread(x+1,y,7/16);spread(x-1,y+1,3/16);spread(x,y+1,5/16);spread(x+1,y+1,1/16);
      }
     }
-    const doc=createDocument(file.name.replace(/\.[^.]+$/,'').slice(0,72)||'Pixelified image',width,outHeight,'pixelified-image');
+    const doc=createDocument(file.name.replace(/\.[^.]+$/,'').slice(0,72)||'Pixelified image',width,height,'pixelified-image');
     doc.layers[0].pixels=pixels;doc.palette=[...palette].slice(0,128);setPreview(doc);setFileName(file.name);
    }finally{bitmap.close();}
   }catch(e){setError((e as Error).message);}finally{setWorking(false);}
@@ -156,15 +158,15 @@ function PixelifyPanel({onCreate,busy}:{onCreate:(doc:PixelDocument)=>Promise<vo
   <input ref={input} className="visually-hidden" type="file" accept="image/*" aria-label="Choose image to pixel-ify" onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void choose(f);}}/>
   <button className="secondary reference-load" disabled={busy||working} onClick={()=>input.current?.click()}><ImagePlus size={14}/>{working?'Converting…':fileName?'Choose another image':'Upload image'}</button>
   <div className="reference-number-fields">
-   <label className="reference-field">Pixel width · {width}<input type="range" min="8" max="256" step="1" value={width} onChange={e=>{const v=Number(e.target.value);setWidth(v);setHeight(Math.max(8,Math.min(256,Math.round(v*aspect))));}}/></label>
-   <label className="reference-field">Pixel height · {height}<span className="muted">Auto-fitted to source aspect ratio ({aspect.toFixed(2)}:1)</span></label>
+   <label className="reference-field">Target width · {targetWidth}<input type="range" min="1" max={MAX_CANVAS_SIDE} step="1" value={targetWidth} onChange={e=>setTargetWidth(Number(e.target.value))}/></label>
+   {fitted&&<span className="reference-field">Output size<span className="muted">{fitted.width} × {fitted.height} px</span></span>}
    <label className="reference-field">Color count · {colors}<input type="range" min="8" max="64" step="1" value={colors} onChange={e=>setColors(Number(e.target.value))}/></label>
   </div>
   {sourceFile&&<button className="secondary" disabled={busy||working} onClick={()=>void convert(sourceFile)}>Update preview with these settings</button>}
   <label className="reference-check"><input type="checkbox" checked={dither} onChange={e=>setDither(e.target.checked)}/>Use dithering for smoother gradients</label>
   {error&&<p className="error-text" role="alert">{error}</p>}
   {preview&&<><p className="reference-name">{preview.width} × {preview.height} · {preview.palette.length} palette colors<br/><span className="muted">Preview is the exact editable pixel data.</span></p>
-   <div style={{background:'var(--panel)',padding:8,display:'grid',placeItems:'center',maxHeight:240,overflow:'auto'}}><canvas ref={el=>{if(!el)return;el.width=preview.width;el.height=preview.height;const c=el.getContext('2d');if(!c)return;const img=c.createImageData(preview.width,preview.height);preview.layers[0].pixels.forEach((p,i)=>{img.data[i*4]=p>>>24;img.data[i*4+1]=(p>>>16)&255;img.data[i*4+2]=(p>>>8)&255;img.data[i*4+3]=p&255;});c.putImageData(img,0,0);el.style.width=Math.min(220,preview.width*4)+'px';el.style.height='auto';el.style.imageRendering='pixelated';}}/></div>
+   <div style={{background:'var(--panel)',padding:8,display:'grid',placeItems:'center',maxHeight:240,overflow:'auto'}}><canvas ref={el=>{if(!el)return;el.width=preview.width;el.height=preview.height;const c=el.getContext('2d');if(!c)return;const img=c.createImageData(preview.width,preview.height);preview.layers[0].pixels.forEach((p,i)=>{img.data[i*4]=p>>>24;img.data[i*4+1]=(p>>>16)&255;img.data[i*4+2]=(p>>>8)&255;img.data[i*4+3]=p&255;});c.putImageData(img,0,0);el.style.width=Math.min(220,preview.width*4,220*preview.width/preview.height)+'px';el.style.height='auto';el.style.imageRendering='pixelated';}}/></div>
    <button className="primary full" disabled={busy||working} onClick={()=>void onCreate(preview)}>Open as editable canvas</button>
   </>}
  </section>;

@@ -4,12 +4,26 @@ import type {UiMetadata} from './ui-metadata.ts';
 export type AtlasFrame = { index: number; x: number; y: number; width: number; height: number; durationMs: number };
 export type AtlasClip = AnimationClip & { frames: number[] };
 export type SpriteAtlas = { format: 'pixel-workshop-atlas/1'; image: string; width: number; height: number; frameWidth: number; frameHeight: number; fps: number; frames: AtlasFrame[]; clips?: AtlasClip[];ui?:UiMetadata };
-export function buildSpriteSheet(d: PixelDocument, columns = Math.min(8, frameCount(d)), format:'png'|'svg'='png') {
+const MAX_SHEET_PIXELS = 4_194_304;
+
+function defaultColumns(d: PixelDocument, count: number) {
+  const preferred = Math.min(8, count);
+  const frameArea = d.width * d.height;
+  // Padding in the final row also consumes export pixels. A single column
+  // always fits when the unpadded animation fits.
+  for (let columns = preferred; columns > 1; columns--) {
+    if (columns * Math.ceil(count / columns) * frameArea <= MAX_SHEET_PIXELS) return columns;
+  }
+  return 1;
+}
+
+export function buildSpriteSheet(d: PixelDocument, columns?: number, format:'png'|'svg'='png') {
   if(format!=='png'&&format!=='svg')throw new Error('Sprite sheet format must be png or svg.');
   const count = frameCount(d);
+  columns ??= defaultColumns(d, count);
   requireInt(columns, 1, count, 'columns');
   const width = d.width * columns, height = d.height * Math.ceil(count / columns);
-  if (width * height > 4_194_304) throw new Error('Sprite sheet exceeds the export pixel limit.');
+  if (width * height > MAX_SHEET_PIXELS) throw new Error('Sprite sheet exceeds the export pixel limit.');
   const bytes = new Uint8Array(width * height * 4);
   const frames: AtlasFrame[] = [];
   for (let i = 0; i < count; i++) {

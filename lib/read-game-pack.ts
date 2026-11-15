@@ -1,3 +1,4 @@
+import {MAX_PROJECT_FILE_BYTES,unpackProject} from './project-codec.ts';
 import {readStoreZip} from './zip-store.ts';
 import {validateDocument,type PixelDocument} from './pixels.ts';
 /** Read editable source documents only; exported SVG/PNG are never executed. */
@@ -11,7 +12,7 @@ export function readGamePack(bytes:Uint8Array):PixelDocument[]{
  return manifest.assets.map(item=>{
   if(!item||typeof item.source!=='string')throw new Error('An asset has no editable project.');
   const path=item.source.toLowerCase(),data=files.get(path);
-  if(!data||data.length>12_000_000||paths.has(path))throw new Error('A project is missing, duplicated or too large.');
-  paths.add(path);return validateDocument(JSON.parse(decode.decode(data)));
+  if(!data||data.length>MAX_PROJECT_FILE_BYTES||paths.has(path))throw new Error('A project is missing, duplicated or too large.');
+  paths.add(path);return validateDocument(unpackProject(JSON.parse(decode.decode(data))));
  });
 }
