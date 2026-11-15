@@ -70,7 +70,7 @@ export const GUIDE_STEPS:readonly GuideStep[]=[
   tryIt:'Use the Stamp Workbench to save a named tree or rock. Saved stamps follow this workspace across projects in the same browser.',
   target:'stamp-workbench',panel:'draw'},
  {id:'layers',chapter:'drawing',title:'Separate your artwork into layers',
-  body:`Select a layer before drawing, hide it with the eye, or delete it to free a slot. Visibility and names apply to every animation frame. Each project supports up to ${MAX_LAYERS} layers within its canvas capacity.`,
+  body:`Select a layer to draw on it. Drag a row or use the arrows to change the stacking order. Edit its name and folder in layer properties. Duplicate frames hold their drawings until edited. Each project supports up to ${MAX_LAYERS} layers.`,
   tryIt:'Add a layer for highlights or shadows. Hiding a layer does not delete its pixels.',
   target:'layers',panel:'layers'},
  {id:'tracing',chapter:'drawing',title:'Line up a tracing reference',

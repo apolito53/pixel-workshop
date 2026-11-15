@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {PNG} from 'pngjs';
-import {applyCommands,createDocument,color,composite,frameCount,frameView,readRegion,validateDocument,canvasCapacity,documentCells,MAX_LAYERS,MAX_ANIMATION_FRAMES,MAX_ANIMATION_CELLS,type AnimationClip} from '../lib/pixels.ts';
+import {applyCommands,createDocument,color,composite,frameCount,frameView,readRegion,validateDocument,canvasCapacity,documentCapacity,documentCells,MAX_LAYERS,MAX_ANIMATION_FRAMES,type AnimationClip} from '../lib/pixels.ts';
 import {EFFECT_KINDS,EFFECT_PRESETS,EFFECT_GROUPS,effectPixels,generateEffectCommands,regenerateEffectCommands,hasFreeEffectLayerSlot} from '../lib/effects.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
 import {encodeRgbaPng} from '../lib/png.ts';
@@ -234,7 +234,7 @@ test('invalid procedural recipes cannot be imported or attached',()=>{
  assert.throws(()=>validateDocument(copy),/Invalid procedural/);
 });
 
-test('capacity accounts for references and projects frame and layer ceilings at art and scene sizes',()=>{
+test('independent frame estimates and held cel capacity distinguish artwork from timeline slots',()=>{
   assert.deepEqual(canvasCapacity(128,128,3,18),{maxFrames:85,maxLayers:14});
   assert.deepEqual(canvasCapacity(320,180,3,18),{maxFrames:24,maxLayers:4});
   assert.deepEqual(canvasCapacity(1024,1024,1,1,true),{maxFrames:3,maxLayers:3});
@@ -243,24 +243,24 @@ test('capacity accounts for references and projects frame and layer ceilings at 
     {op:'add_layer',id:'blossoms'},{op:'add_layer',id:'lamp'},
     ...Array.from({length:17},()=>({op:'frame_add'})),
   ]);
-  assert.equal(documentCells(doc),884736);
-  assert.ok(documentCells(doc,3,85)<=MAX_ANIMATION_CELLS);
-  assert.ok(documentCells(doc,3,86)>MAX_ANIMATION_CELLS);
+  assert.equal(documentCells(doc),128*128);
+  assert.deepEqual(documentCapacity(doc),{maxFrames:96,maxLayers:64,remainingCelBuffers:255,blankAvailable:true});
+  assert.deepEqual(frameView(doc,17).layers.map(layer=>layer.pixels===doc.layers[0].pixels),[true,true,true]);
 });
-test('96 frames and 16 layers support late-cel edits, FX, named clips, imports and exports',()=>{
+test('96 frames and 64 layers support late-cel edits, FX, named clips, imports and exports',()=>{
   const base=createDocument('Long loop',6,8);
   const long=applyCommands(base,Array.from({length:95},()=>({op:'frame_add'})));
   const fx=generateEffectCommands(long,{seed:53,kind:'sparkles',ink:'#ffeecc'});
-  const final=applyCommands(long,[...fx,...Array.from({length:14},(_,i)=>({op:'add_layer',id:'extra-'+i})),
+  const final=applyCommands(long,[...fx,...Array.from({length:62},(_,i)=>({op:'add_layer',id:'extra-'+i})),
     {op:'clip_set',name:'ending',from:94,to:95,fps:10,mode:'loop'},
-    {op:'text_set',layer:'extra-13',text:{text:'A',x:0,y:0,color:'#ffeecc',scale:1,spacing:0,frame:95}}]);
-  assert.equal(MAX_ANIMATION_FRAMES,96);assert.equal(MAX_LAYERS,16);
-  assert.equal(frameCount(final),96);assert.equal(final.layers.length,16);
+    {op:'text_set',layer:'extra-61',text:{text:'A',x:0,y:0,color:'#ffeecc',scale:1,spacing:0,frame:95}}]);
+  assert.equal(MAX_ANIMATION_FRAMES,96);assert.equal(MAX_LAYERS,64);
+  assert.equal(frameCount(final),96);assert.equal(final.layers.length,64);
   assert.equal(final.layers.at(-1)?.text?.frame,95);
   assert.deepEqual(buildSpriteSheet(final).atlas.clips?.[0].frames,[94,95]);
   assert.deepEqual(validateDocument(final),final);
   assert.throws(()=>applyCommands(final,[{op:'frame_add'}]),/96 frames/);
-  assert.throws(()=>applyCommands(final,[{op:'add_layer',id:'overflow'}]),/16 layers/);
-  assert.throws(()=>validateDocument({...final,layers:[...final.layers,final.layers[0]]}),/16 layers/);
+  assert.throws(()=>applyCommands(final,[{op:'add_layer',id:'overflow'}]),/64 layers/);
+  assert.throws(()=>validateDocument({...final,layers:[...final.layers,final.layers[0]]}),/64 layers/);
   assert.throws(()=>validateDocument({...final,animation:{...final.animation,frames:[...final.animation!.frames,final.animation!.frames[0]]}}),/animation settings/);
 });

@@ -1,0 +1,6 @@
+.wind-preview { position: relative; margin: 12px auto; background: repeating-conic-gradient(#272931 0 25%, #202229 0 50%) 0 0 / 12px 12px; }
+.wind-preview canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; cursor: crosshair; }
+.wind-pivot { position: absolute; width: 9px; height: 9px; transform: translate(-50%,-50%); border: 2px solid #f8d784; box-shadow: 0 0 0 1px #282029; border-radius: 50%; pointer-events: none; }
+.wind-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin: 8px 0; }
+.wind-fields label { display: grid; gap: 3px; font-size: 12px; }
+.wind-fields input { min-width: 0; }

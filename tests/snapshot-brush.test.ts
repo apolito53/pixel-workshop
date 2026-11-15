@@ -29,7 +29,7 @@ test('a brush batch copies only the addressed cels and matches every dense drawi
   assert.equal(out.layers[1].pixels,source.layers[1].pixels);
   assert.equal(out.animation!.frames[0].pixels.base,source.animation!.frames[0].pixels.base);
   assert.notEqual(out.animation!.frames[0].pixels.ink,source.animation!.frames[0].pixels.ink);
-  assert.notEqual(out.animation!.frames[1].pixels.ink,source.animation!.frames[1].pixels.ink);
+  assert.equal(out.animation!.frames[1].pixels.ink,out.layers[1].pixels,'cleared artwork rejoins the shared blank');
   assert.notEqual(dense.layers[1].pixels,source.layers[1].pixels);
 });
 
@@ -45,6 +45,6 @@ test('failed multi-frame paints keep every preceding snapshot and text recipe in
   assert.equal(next.animation!.frames[0].pixels.ink[18],0xff0000ff);
   assert.equal(second.animation!.frames[0].pixels.ink[18],0x00ffffff);
   const structural=applySnapshotCommands(source,[red,{op:'rename',name:'New name'}]);
-  assert.notEqual(structural.layers[0].pixels,source.layers[0].pixels);
+  assert.equal(structural.layers[0].pixels,source.layers[0].pixels,'a metadata edit preserves the held background');
   assert.deepEqual(source,before);
 });

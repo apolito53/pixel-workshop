@@ -44,7 +44,7 @@ function workBound(edit:EditorEdit,doc:PixelDocument){
   // The cost of an edit that changes document structure depends on its position
   // in the batch. Save it alone, preserving its atomicity and its undo boundary.
   if(edit.action!=='paint'||edit.commands?.some(c=>[
-    'add_layer','duplicate_layer','delete_layer','frame_add','frame_delete','reference_set','palette_remap'
+    'add_layer','duplicate_layer','delete_layer','frame_add','frame_delete','reference_set','palette_remap','wind_bake'
   ].includes(c.op))) return MAX_BATCH_PIXEL_WORK;
   return (edit.commands??[]).reduce((sum,c)=>{
     const area=Number(c.width)*Number(c.height);

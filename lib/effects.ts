@@ -1,4 +1,4 @@
-import { color, frameCount, documentCapacity, canvasCapacity, MAX_LAYERS, MAX_BATCH_PIXEL_WORK, PIXEL_EFFECT_KINDS, validateEffectRecipe, type StoredEffectRecipe, type PaintCommand, type PixelDocument } from './pixels.ts';
+import { color, frameCount, documentCapacity, MAX_LAYERS, MAX_BATCH_PIXEL_WORK, PIXEL_EFFECT_KINDS, validateEffectRecipe, type StoredEffectRecipe, type PaintCommand, type PixelDocument } from './pixels.ts';
 
 /** Ordered catalog shared by the editor, procedural renderer and MCP schema. */
 export const EFFECT_KINDS = PIXEL_EFFECT_KINDS;
@@ -311,13 +311,12 @@ export function effectCapacity(d:PixelDocument) {
   const layers = d.layers.length + 1;
   if (layers > MAX_LAYERS)
     return {frames:0, reason:`The effect needs a free layer. All ${MAX_LAYERS} slots are occupied.`};
-  const maxFrames = canvasCapacity(d.width, d.height, layers, current, Boolean(d.reference)).maxFrames;
-  // A new layer allocates one buffer per existing frame. New frames copy every layer.
-  // Each paste costs three pixel visits. A static project's default loop has up to eight frames.
-  const budgetFrames = Math.floor((MAX_BATCH_PIXEL_WORK / area + current * (layers - 1)) / (layers + 3));
-  const frames = current === 1 ? Math.min(8, maxFrames, budgetFrames) : current;
-  if (frames < 2 || frames > maxFrames || frames > budgetFrames)
-    return {frames:0, reason:'A new animated effect needs more room. Use fewer frames or layers, or a smaller canvas.'};
+  // Existing layers hold their poses as the timeline grows. Reserve one new pose per FX frame.
+  const room = documentCapacity(d).remainingCelBuffers;
+  const maxFrames = Math.min(room, Math.floor(MAX_BATCH_PIXEL_WORK / area));
+  const frames = current === 1 ? Math.min(8, maxFrames) : current;
+  if (frames < 2 || frames > maxFrames)
+    return {frames:0, reason:'A new animated effect needs room for a separate drawing on each frame. Use fewer frames or a smaller canvas.'};
   return {frames, reason:''};
 }
 
@@ -345,7 +344,7 @@ export function regenerateEffectCommands(d:PixelDocument,layer:string,recipe:Eff
  const target=d.layers.find(l=>l.id===layer);
  if(!target?.effect)throw new Error('Choose a generated effect layer to regenerate.');
  const full=normalizeEffectRecipe(recipe),count=frameCount(d);
- if(d.width*d.height*count*3>MAX_BATCH_PIXEL_WORK)throw new Error('This effect is too large to regenerate in one batch.');
+ if(d.width*d.height*count>MAX_BATCH_PIXEL_WORK)throw new Error('This effect is too large to regenerate in one batch.');
  const ops:PaintCommand[]=[{op:'rename_layer',layer,name:EFFECT_PRESETS[full.kind].label+' FX'}];
  for(let i=0;i<count;i++)ops.push({op:'paste',layer,frame:i,x:0,y:0,width:d.width,height:d.height,
   pixels:effectPixels(d.width,d.height,i,count,full)});

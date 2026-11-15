@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {composite,frameCount,frameView,type PixelDocument} from '../../../lib/pixels.ts';
 import {createStardropArt,STARDROP_ASSETS,type StardropArt,type StardropArtName} from '../../../lib/stardrop-art.ts';
 import {STARDROP_UI_ASSETS,UI_ICONS,UI_STATES,UI_SLICES,type UiIconName} from '../../../lib/stardrop-ui-art.ts';
+import {packProject} from '../../../lib/project-codec.ts';
 import {applyStardropUiKit,uiFrame} from '../../../lib/stardrop-kit.ts';
 import {parseUiReturn,UI_RETURN_KEY} from '../../../lib/ui-return.ts';
 import {buildSpriteSheet} from '../../../lib/sprite-sheet.ts';
@@ -40,13 +41,19 @@ function rng(g:Game){
   let s=g.seed|0;s^=s<<13;s^=s>>>17;s^=s<<5;g.seed=s;return(s>>>0)/4294967296;
 }
 function rasterize(doc:PixelDocument):HTMLCanvasElement[]{
+  const poses:{cels:number[][];canvas:HTMLCanvasElement}[]=[];
   return Array.from({length:frameCount(doc)},(_,f)=>{
+    const view=frameView(doc,f);
+    const cels=view.layers.filter(layer=>layer.visible).map(layer=>layer.pixels);
+    const held=poses.find(pose=>cels.every((pixels,i)=>pixels===pose.cels[i]));
+    if(held)return held.canvas;
     const canvas=document.createElement('canvas');
     canvas.width=doc.width;canvas.height=doc.height;
     const ctx=canvas.getContext('2d');
     if(!ctx)throw new Error('Canvas rendering is unavailable.');
-    const rgba=composite(frameView(doc,f));
+    const rgba=composite(view);
     ctx.putImageData(new ImageData(new Uint8ClampedArray(rgba),doc.width,doc.height),0,0);
+    poses.push({cels,canvas});
     return canvas;
   });
 }
@@ -255,10 +262,15 @@ export default function MoonkeeperGame(){
         if(key.startsWith('ui')&&sprites[key].length>1){
           const doc=a[key],frames=sprites[key],columns=key==='uiIcons'?8:Math.min(2,frames.length);
           const board=document.createElement('canvas');
-          board.width=(doc.width+4)*columns;board.height=(doc.height+4)*Math.ceil(frames.length/columns);
+          const fit=Math.min(1,128/Math.max(doc.width,doc.height));
+          const w=Math.max(1,Math.round(doc.width*fit)),h=Math.max(1,Math.round(doc.height*fit));
+          board.width=(w+4)*columns;board.height=(h+4)*Math.ceil(frames.length/columns);
           const context=board.getContext('2d');
-          if(context){frames.forEach((frame,i)=>context.drawImage(frame,(i%columns)*(doc.width+4),Math.floor(i/columns)*(doc.height+4)));
-            previews[key]=board.toDataURL('image/png');}
+          if(context){
+            context.imageSmoothingEnabled=false;
+            frames.forEach((frame,i)=>context.drawImage(frame,(i%columns)*(w+4),Math.floor(i/columns)*(h+4),w,h));
+            previews[key]=board.toDataURL('image/png');
+          }
         }
       }
       cacheRef.current=sprites;
@@ -366,23 +378,24 @@ export default function MoonkeeperGame(){
   const onHold=(key:string,down:boolean)=>{if(down)keysRef.current.add(key);else keysRef.current.delete(key);};
   const project=(key:StardropArtName)=>{
     if(!art)return;
-    saveBlob(nameFor(key)+'.pixel.json',new Blob([JSON.stringify(art[key])],{type:'application/json'}));
+    saveBlob(nameFor(key)+'.pixel.json',new Blob([JSON.stringify(packProject(art[key]))],{type:'application/json'}));
   };
   const sheet=(key:StardropArtName,format:'png'|'svg'='png')=>{
     if(!art||!cacheRef.current)return;
-    if(format==='svg'){
-      try{
-        const output=buildSpriteSheet(art[key],undefined,'svg');
+    try{
+      const output=buildSpriteSheet(art[key],undefined,format);
+      if(format==='svg'){
         saveBlob(nameFor(key)+'-sheet.svg',new Blob([encodeRgbaSvg(output.bytes,output.width,output.height)],{type:'image/svg+xml;charset=utf-8'}));
-        setPackError('');
-      }catch(e){setPackError(e instanceof Error?e.message:'Unable to export SVG.');}
-      return;
-    }
-    const frames=cacheRef.current[key],doc=art[key],cols=Math.min(8,frames.length),rows=Math.ceil(frames.length/cols);
-    const canvas=document.createElement('canvas');canvas.width=doc.width*cols;canvas.height=doc.height*rows;
-    const ctx=canvas.getContext('2d');if(!ctx)return;ctx.imageSmoothingEnabled=false;
-    frames.forEach((frame,i)=>ctx.drawImage(frame,(i%cols)*doc.width,Math.floor(i/cols)*doc.height));
-    canvas.toBlob(blob=>{if(blob)saveBlob(nameFor(key)+'-sheet.png',blob);},'image/png');
+      }else{
+        const canvas=document.createElement('canvas');
+        canvas.width=output.width;canvas.height=output.height;
+        const ctx=canvas.getContext('2d');
+        if(!ctx)throw new Error('Canvas rendering is unavailable.');
+        ctx.putImageData(new ImageData(new Uint8ClampedArray(output.bytes),output.width,output.height),0,0);
+        canvas.toBlob(blob=>{if(blob)saveBlob(nameFor(key)+'-sheet.png',blob);},'image/png');
+      }
+      setPackError('');
+    }catch(e){setPackError(e instanceof Error?e.message:'Unable to export sprite sheet.');}
   };
   const downloadArtPack=async()=>{
     if(!art||downloadingPack)return;
@@ -398,7 +411,7 @@ export default function MoonkeeperGame(){
     if(!art)return;
     try{
       const kitId='kit-'+crypto.randomUUID();
-      const documents=STARDROP_UI_ASSETS.map(({key})=>art[key]);
+      const documents=STARDROP_UI_ASSETS.map(({key})=>packProject(art[key]));
       sessionStorage.setItem('pixel-workshop-pending-ui-kit-v1',JSON.stringify({format:'pixel-workshop-ui-kit-import/1',kitId,documents}));
       sessionStorage.removeItem(UI_RETURN_KEY);
       window.location.assign('/');
@@ -410,7 +423,7 @@ export default function MoonkeeperGame(){
       const {readGamePack}=await import('../../../lib/read-game-pack.ts');
       const documents=readGamePack(new Uint8Array(await file.arrayBuffer()));
       const merged=applyStardropUiKit(createStardropArt(),documents);
-      sessionStorage.setItem('pixel-workshop-ui-preview-v1',JSON.stringify({format:'pixel-workshop-ui-preview/1',documents}));
+      sessionStorage.setItem('pixel-workshop-ui-preview-v1',JSON.stringify({format:'pixel-workshop-ui-preview/1',documents:documents.map(packProject)}));
       sessionStorage.removeItem(UI_RETURN_KEY);setCanReturnToEditor(false);
       window.history.replaceState(null,'','/play/moonkeeper?uiPreview=1');
       if(gameRef.current.phase==='running')gameRef.current.phase='paused';keysRef.current.clear();

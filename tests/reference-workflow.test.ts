@@ -105,7 +105,8 @@ test('missing references and layer budgets fail without modifying saved artwork'
  const empty=await service.create('Empty',3,2);
  for(const name of ['copy_reference','compare_reference'])assert.equal((await callTool(service,name,{id:empty.id,revision:0})).isError,true);
  let full:PixelDocument={...createDocument('Budget',1024,1024),reference:prepareReference({width:1024,height:1024,pixels:Array(1024*1024).fill(0xff112280)},'Large')};
- full.layers.push({...full.layers[0],id:'second'},{...full.layers[0],id:'third'});full=await service.create('Budget',1024,1024,full);
+ full.layers[0].pixels[0]=17;
+ full.layers.push({...full.layers[0],id:'second',pixels:Array(1024*1024).fill(27)},{...full.layers[0],id:'third',pixels:Array(1024*1024).fill(37)});full=await service.create('Budget',1024,1024,full);
  assert.equal((await callTool(service,'copy_reference',{id:full.id,revision:0})).isError,true);
  assert.deepEqual((await service.get(full.id)).entry.doc,full);
  assert.equal((await call('copy_reference',{id:full.id,revision:0,layer:'base'})).copy.exactMatch,true,'explicit replacement remains possible at the budget');

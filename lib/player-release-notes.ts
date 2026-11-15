@@ -5,7 +5,9 @@ export const playerReleaseNotes = {
     {
       title: 'November 2026',
       changes: [
-        'Create canvases up to 1024 pixels per side and use up to 16 layers and 96 animation frames. The editor shows how much room your current canvas has.',
+        'Keep up to 64 layers and 96 frames on canvases up to 1024 pixels per side. Held drawings share space until you edit them.',
+        'Reorder layers, rename them and organize them in collapsible folders.',
+        'Use Wind animation in Effects to pin a drawing, preview its sway and bake the loop into editable frames.',
         'Create or reopen your workspace from the portable editor’s start screen.',
         'Turn an image into pixel art with Pixel-ify, and refresh the preview as you adjust its settings.',
         'Bring in a tracing reference, align its grid, and create a matching canvas.',

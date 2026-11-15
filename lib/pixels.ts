@@ -1,11 +1,13 @@
 import {validatePixelText,validateUi,type PixelTextRecipe,type UiMetadata} from './ui-metadata.ts';
 import {renderPixelText} from './pixel-font.ts';
+import {CelInterner} from './cel-storage.ts';
+import {planWindBake} from './wind.ts';
 import {MAX_CANVAS_SIDE} from './canvas-limits.ts';
 import {validateReference,type ReferenceImage} from './reference.ts';
 export const PIXEL_EFFECT_KINDS = ['embers','sparkles','bubbles','leaves','fire','smoke','explosion','shockwave','lightning','rain','snow','arcane'] as const;
 export type PixelEffectKind=typeof PIXEL_EFFECT_KINDS[number];
 export type StoredEffectRecipe={kind:PixelEffectKind;seed:number;ink:string;speed:number;opacity:number;drift:number};
-export type Layer = { id: string; name: string; visible: boolean; pixels: number[]; effect?: StoredEffectRecipe; text?:PixelTextRecipe };
+export type Layer = { id: string; name: string; visible: boolean; pixels: number[]; group?: string; effect?: StoredEffectRecipe; text?:PixelTextRecipe };
 export function validateEffectRecipe(value:unknown):StoredEffectRecipe{
  const recipe=value as StoredEffectRecipe;
  if(!recipe||typeof recipe!=='object'||!PIXEL_EFFECT_KINDS.includes(recipe.kind)||
@@ -24,14 +26,21 @@ export function clipFrameSequence(clip: AnimationClip): number[] {
   return clip.mode==='pingpong'&&frames.length>2?[...frames,...frames.slice(1,-1).reverse()]:frames;
 }
 export type PixelDocument = { format: 'pixel-workshop/1'; id: string; name: string; width: number; height: number; revision: number; palette: string[]; layers: Layer[]; updatedAt: string; animation?: { fps: number; frames: AnimationFrame[]; clips?: AnimationClip[] }; ui?:UiMetadata; reference?:ReferenceImage };
-export const MAX_LAYERS = 16;
+export const MAX_LAYERS = 64;
 export const MAX_ANIMATION_FRAMES = 96;
 export const MAX_ANIMATION_CELLS = 4_194_304;
 export function frameCount(d: PixelDocument) { return 1 + (d.animation?.frames.length ?? 0); }
-export function documentCells(d:PixelDocument,layers=d.layers.length,frames=frameCount(d)){
- return (layers*frames+(d.reference?1:0))*d.width*d.height;
+export function celUses(d:PixelDocument) {
+  const uses=new Map<number[],number>();
+  const count=(pixels:number[])=>uses.set(pixels,(uses.get(pixels)??0)+1);
+  for(const layer of d.layers)count(layer.pixels);
+  for(const frame of d.animation?.frames??[])for(const pixels of Object.values(frame.pixels))count(pixels);
+  return uses;
 }
-/** Each reference occupies one canvas-sized buffer, independent of the frame count. */
+export function documentCells(d:PixelDocument) {
+  return (celUses(d).size+Number(Boolean(d.reference)))*d.width*d.height;
+}
+/** Conservative capacity when every layer in every frame needs independent pixels. */
 export function canvasCapacity(width:number,height:number,layers:number,frames:number,hasReference=false){
   const buffers = Math.floor(MAX_ANIMATION_CELLS / (width * height)) - Number(hasReference);
   return {
@@ -40,7 +49,14 @@ export function canvasCapacity(width:number,height:number,layers:number,frames:n
   };
 }
 export function documentCapacity(d: PixelDocument) {
-  return canvasCapacity(d.width, d.height, d.layers.length, frameCount(d), Boolean(d.reference));
+  const uses=celUses(d);
+  const remainingCelBuffers=Math.floor(MAX_ANIMATION_CELLS/(d.width*d.height))-uses.size-Number(Boolean(d.reference));
+  const blankAvailable=findBlankCel(uses)!==undefined;
+  return {maxFrames:MAX_ANIMATION_FRAMES,maxLayers:remainingCelBuffers>0||blankAvailable?MAX_LAYERS:d.layers.length,
+    remainingCelBuffers,blankAvailable};
+}
+function findBlankCel(uses:Map<number[],number>) {
+  for(const pixels of uses.keys())if(pixels.every(p=>p===0))return pixels;
 }
 // An atomic palette remap must be possible even when the entire document is filled.
 export const MAX_BATCH_PIXEL_WORK = MAX_ANIMATION_CELLS;
@@ -81,13 +97,27 @@ export function validateDocument(input: unknown): PixelDocument {
   if (!Array.isArray(d.layers) || !d.layers.length || d.layers.length>MAX_LAYERS) throw new Error(`Projects need 1–${MAX_LAYERS} layers.`);
   if(d.animation!==undefined&&(!d.animation||!Array.isArray(d.animation.frames)||d.animation.frames.length>=MAX_ANIMATION_FRAMES))
     throw new Error('Invalid animation settings.');
-  if(documentCells(d)>MAX_ANIMATION_CELLS)throw new Error('Animation or reference exceeds the pixel budget.');
+
   if(d.reference!==undefined)validateReference(d.reference,d.width,d.height);
+  // Validate shared buffers once; older dense JSON may repeat the same drawing by value.
+  const pool=new CelInterner(), checked=new WeakMap<number[],number[]>();
+  const checkPixels=(pixels:number[],message:string)=>{
+    if(!Array.isArray(pixels)||pixels.length!==d.width*d.height)throw new Error(message);
+    const known=checked.get(pixels);
+    if(known)return known;
+    for(const p of pixels)if(!Number.isInteger(p)||p<0||p>0xffffffff)throw new Error(message);
+    const shared=pool.intern(pixels);
+    if((pool.size+Number(Boolean(d.reference)))*d.width*d.height>MAX_ANIMATION_CELLS)
+      throw new Error('Animation or reference exceeds the pixel budget.');
+    checked.set(pixels,shared);
+    return shared;
+  };
   const ids = new Set<string>();
   for (const l of d.layers) {
     if (!l || typeof l.id !== 'string' || !/^[a-z0-9_-]{1,64}$/i.test(l.id) || ids.has(l.id)) throw new Error('Invalid or duplicate layer ID.');
     ids.add(l.id);
-    if (typeof l.name !== 'string' || l.name.length>60 || typeof l.visible !== 'boolean' || !Array.isArray(l.pixels) || l.pixels.length !== d.width*d.height || l.pixels.some(p=>!Number.isInteger(p)||p<0||p>0xffffffff)) throw new Error('Invalid layer pixels or metadata.');
+    if (typeof l.name !== 'string' || l.name.length>60 || typeof l.visible !== 'boolean' || (l.group!==undefined && (typeof l.group!=='string'||!l.group.trim()||l.group.length>60))) throw new Error('Invalid layer pixels or metadata.');
+    checkPixels(l.pixels,'Invalid layer pixels or metadata.');
     if(l.effect!==undefined)validateEffectRecipe(l.effect);
   }
   if (!Array.isArray(d.palette) || d.palette.length>128) throw new Error('Palette can contain at most 128 colors.');
@@ -104,10 +134,9 @@ export function validateDocument(input: unknown): PixelDocument {
         throw new Error('Invalid animation frame.');
       frameIds.add(frame.id);
       for (const id of layerIds) {
+        if(!Object.hasOwn(frame.pixels,id))throw new Error('Invalid animation frame.');
         const pixels = frame.pixels[id];
-        if (!Array.isArray(pixels) || pixels.length !== d.width * d.height ||
-          pixels.some(p => !Number.isInteger(p) || p < 0 || p > 0xffffffff))
-          throw new Error('Invalid animation cel pixels.');
+        checkPixels(pixels,'Invalid animation cel pixels.');
       }
     }
     if (d.animation.clips !== undefined) {
@@ -128,49 +157,94 @@ export function validateDocument(input: unknown): PixelDocument {
   }
   if(d.ui!==undefined)validateUi(d.ui,d.width,d.height,frameCount(d));
   for(const layer of d.layers)if(layer.text!==undefined)validatePixelText(layer.text,d.width,d.height,frameCount(d));
-  return structuredClone(d);
+  return structuredClone({...d,layers:d.layers.map(layer=>({...layer,pixels:checked.get(layer.pixels)!})),
+    ...(d.animation?{animation:{...d.animation,frames:d.animation.frames.map(frame=>({...frame,
+      pixels:Object.fromEntries(Object.entries(frame.pixels).map(([id,pixels])=>[id,checked.get(pixels)!]))}))}}:{})});
 }
 export function composite(d: PixelDocument): Uint8Array {
   const rgba = new Uint8Array(d.width*d.height*4);
+  const transparent=new Set<number[]>();
   for (const layer of d.layers) {
-    if (!layer.visible) continue;
+    if (!layer.visible || transparent.has(layer.pixels)) continue;
+    let hasInk=false;
     for(let i=0;i<layer.pixels.length;i++) {
       const p=layer.pixels[i]>>>0, a=(p&255)/255; if (!a) continue;
+      hasInk=true;
       const j=i*4, oldA=rgba[j+3]/255, outA=a+oldA*(1-a);
       rgba[j]=Math.round(((p>>>24)*a+rgba[j]*oldA*(1-a))/outA);
       rgba[j+1]=Math.round((((p>>>16)&255)*a+rgba[j+1]*oldA*(1-a))/outA);
       rgba[j+2]=Math.round((((p>>>8)&255)*a+rgba[j+2]*oldA*(1-a))/outA);
       rgba[j+3]=Math.round(outA*255);
     }
+    if(!hasInk)transparent.add(layer.pixels);
   }
   return rgba;
 }
 export function historyLimit(d:PixelDocument){return Math.max(1,Math.min(12,Math.floor(400000/documentCells(d))));}
-const drawingOps=new Set(['pixel','line','fill','rect','ellipse','clear','paste','stamp','transform']);
+// An edit owns its metadata and only the pixel arrays it actually writes. Cels
+// can be held across any frame or layer, including the first frame and backups.
+class CelEdit {
+  doc:PixelDocument;
+  uses:Map<number[],number>;
+  private writable=new WeakSet<number[]>();
+  private blank:number[]|undefined;
+  private searchedBlank=false;
+  private mayHaveDuplicate=false;
 
-// Editor and service snapshots are immutable. Give drawing commands their own
-// layer metadata and copy only the pixel buffers they can write in this batch.
-function copyDrawingTargets(source:PixelDocument,commands:PaintCommand[]):PixelDocument {
-  const layers=source.layers.map(layer=>({...layer}));
-  const originalLayers=new Map(source.layers.map(layer=>[layer.id,layer]));
-  const newLayers=new Map(layers.map(layer=>[layer.id,layer]));
-  const animation=source.animation?{...source.animation,frames:source.animation.frames.slice()}:undefined;
-  for(const command of commands){
-    const id=command.layer||source.layers[0].id;
-    const original=originalLayers.get(id),layer=newLayers.get(id);
-    if(!original||!layer)throw new Error('Layer not found.');
-    const frame=command.frame===undefined?0:requireInt(command.frame,0,frameCount(source)-1,'frame');
-    if(frame===0){
-      if(layer.pixels===original.pixels)layer.pixels=original.pixels.slice();
-    }else{
-      const originalFrame=source.animation!.frames[frame-1];
-      if(animation!.frames[frame-1]===originalFrame)
-        animation!.frames[frame-1]={...originalFrame,pixels:{...originalFrame.pixels}};
-      const pixels=animation!.frames[frame-1].pixels;
-      if(pixels[id]===originalFrame.pixels[id])pixels[id]=originalFrame.pixels[id].slice();
+  constructor(doc:PixelDocument) {
+    this.doc=doc;
+    this.uses=celUses(doc);
+  }
+  add(pixels:number[]) {this.uses.set(pixels,(this.uses.get(pixels)??0)+1);}
+  addToFrame(frame:AnimationFrame,id:string,pixels:number[]) {
+    // The supported layer ID alphabet includes Object.prototype property names.
+    Object.defineProperty(frame.pixels,id,{value:pixels,writable:true,configurable:true,enumerable:true});
+    this.add(pixels);
+  }
+  remove(pixels:number[]) {
+    const count=this.uses.get(pixels)!;
+    if(count>1)this.uses.set(pixels,count-1);
+    else this.uses.delete(pixels);
+  }
+  get(layer:Layer,frame:number) {return frame?this.doc.animation!.frames[frame-1].pixels[layer.id]:layer.pixels;}
+  set(layer:Layer,frame:number,pixels:number[]) {
+    const old=this.get(layer,frame);
+    if(old===pixels)return;
+    if(!this.uses.has(pixels))this.mayHaveDuplicate=true;
+    this.remove(old);
+    this.add(pixels);
+    if(frame)this.doc.animation!.frames[frame-1].pixels[layer.id]=pixels;
+    else layer.pixels=pixels;
+  }
+  empty() {
+    if(!this.searchedBlank){this.blank=findBlankCel(this.uses);this.searchedBlank=true;}
+    this.blank??=new Array<number>(this.doc.width*this.doc.height).fill(0);
+    return this.blank;
+  }
+  write(layer:Layer,frame:number) {
+    const old=this.get(layer,frame);
+    if(this.writable.has(old)&&this.uses.get(old)===1 && old!==this.blank)return old;
+    const next=old.slice();
+    this.set(layer,frame,next);
+    this.writable.add(next);
+    return next;
+  }
+  // A drawing which exactly matches another cel can still be committed at capacity.
+  // Only a full project pays for comparing independent drawings on the brush path.
+  checkBudget(final=false) {
+    const doc=this.doc, limit=Math.floor(MAX_ANIMATION_CELLS/(doc.width*doc.height))-Number(Boolean(doc.reference));
+    if(this.uses.size<limit||(this.uses.size===limit&&(!final||!this.mayHaveDuplicate)))return;
+    const pool=new CelInterner();
+    for(const pixels of this.uses.keys()){
+      pool.intern(pixels);
+      if(pool.size>limit)throw new Error('Animation or reference exceeds the pixel budget. Reuse a cel or remove an independent drawing.');
+    }
+    if(pool.size===this.uses.size)return;
+    for(const layer of doc.layers){
+      this.set(layer,0,pool.intern(layer.pixels));
+      for(let frame=1;frame<frameCount(doc);frame++)this.set(layer,frame,pool.intern(this.get(layer,frame)));
     }
   }
-  return {...source,layers,...(animation?{animation}:{})};
 }
 
 /** Returns another immutable snapshot; untouched cels can be shared with source. */
@@ -183,17 +257,23 @@ export function applyCommands(source:PixelDocument,commands:PaintCommand[],work=
 }
 function runCommands(source:PixelDocument,commands:PaintCommand[],work:{spent:number},immutableSnapshot:boolean):PixelDocument {
   if (!Array.isArray(commands)||commands.length<1||commands.length>5000) throw new Error('Send 1–5000 drawing commands in one batch.');
-  const d=immutableSnapshot&&commands.every(command=>command&&drawingOps.has(command.op))
-    ?copyDrawingTargets(source,commands):structuredClone(source);
+  if(commands.length===1&&commands[0]?.op==='wind_bake')commands=planWindBake(source,commands[0]);
+  const d:PixelDocument={...source,layers:source.layers.map(layer=>({...layer})),
+    ...(source.ui?{ui:{...source.ui}}:{}),
+    ...(source.animation?{animation:{...source.animation,
+      ...(source.animation.clips?{clips:source.animation.clips.slice()}:{}),
+      frames:source.animation.frames.map(frame=>({...frame,pixels:{...frame.pixels}}))}}:{})};
+  let cels=new CelEdit(d);
   const spend=(n:number)=>{work.spent+=n;if(work.spent>MAX_BATCH_PIXEL_WORK)throw new Error('Drawing batch is too large; split it into smaller batches.');};
   for(const c of commands) {
+    cels.checkBudget();
     if (!c || typeof c.op!=='string') throw new Error('Every command needs an op.');
     if(c.op==='rename'){if(typeof c.name!=='string'||!c.name.trim())throw new Error('Enter a project name.');d.name=c.name.slice(0,80);continue;}
     if(c.op==='palette'){if(!Array.isArray(c.colors)||c.colors.length>128)throw new Error('Choose up to 128 palette colors.');c.colors.forEach(color);d.palette=c.colors as string[];continue;}
+    if(c.op==='wind_bake')throw new Error('Apply a wind bake as a separate paint edit.');
     if(c.op==='reference_set'){
       if(c.reference===null)delete d.reference;
       else d.reference=validateReference(c.reference,d.width,d.height);
-      if(documentCells(d)>MAX_ANIMATION_CELLS)throw new Error('Reference exceeds the pixel budget.');
       spend(d.reference?.pixels.length??0);continue;
     }
     if(c.op==='ui_set'){
@@ -205,15 +285,26 @@ function runCommands(source:PixelDocument,commands:PaintCommand[],work:{spent:nu
       const from=typeof c.fromColor==='string'&&/^#[0-9a-f]{6}$/i.test(c.fromColor)?parseInt(c.fromColor.slice(1),16):NaN;
       const to=typeof c.toColor==='string'&&/^#[0-9a-f]{6}$/i.test(c.toColor)?parseInt(c.toColor.slice(1),16):NaN;
       if(!Number.isFinite(from)||!Number.isFinite(to))throw new Error('Choose source and replacement colors in #rrggbb form.');
-      const remap=(pixels:number[])=>{spend(pixels.length);for(let i=0;i<pixels.length;i++){
-        const pixel=pixels[i]>>>0;if((pixel&255)!==0&&(pixel>>>8)===from)pixels[i]=((to<<8)|(pixel&255))>>>0;
-      }};
+      const mapped=new Map<number[],number[]>(), pool=new CelInterner();
+      for(const pixels of cels.uses.keys()){
+        spend(pixels.length);
+        let output=pixels;
+        for(let i=0;i<pixels.length;i++){
+          const pixel=pixels[i]>>>0;
+          if((pixel&255)!==0&&(pixel>>>8)===from){
+            if(output===pixels)output=pixels.slice();
+            output[i]=((to<<8)|(pixel&255))>>>0;
+          }
+        }
+        mapped.set(pixels,pool.intern(output));
+      }
       for(const l of d.layers){
-        remap(l.pixels);
+        l.pixels=mapped.get(l.pixels)!;
         if(l.text&&parseInt(l.text.color.slice(1,7),16)===from)l.text={...l.text,color:'#'+to.toString(16).padStart(6,'0')+(l.text.color.length===9?l.text.color.slice(7):'')};
         if(l.effect&&parseInt(l.effect.ink.slice(1,7),16)===from)l.effect={...l.effect,ink:'#'+to.toString(16).padStart(6,'0')+(l.effect.ink.length===9?l.effect.ink.slice(7):'')};
       }
-      for(const cel of d.animation?.frames??[])for(const pixels of Object.values(cel.pixels))remap(pixels);
+      for(const cel of d.animation?.frames??[])for(const [id,pixels] of Object.entries(cel.pixels))cel.pixels[id]=mapped.get(pixels)!;
+      cels=new CelEdit(d);
       d.palette=d.palette.map(v=>parseInt(v.slice(1,7),16)===from?'#'+to.toString(16).padStart(6,'0')+(v.length===9?v.slice(7):''):v);
       continue;
     }
@@ -246,23 +337,25 @@ function runCommands(source:PixelDocument,commands:PaintCommand[],work:{spent:nu
     }
     if(c.op==='frame_add'){
       if(frameCount(d)>=MAX_ANIMATION_FRAMES)throw new Error(`Animation supports up to ${MAX_ANIMATION_FRAMES} frames.`);
-      if(documentCells(d,d.layers.length,frameCount(d)+1)>MAX_ANIMATION_CELLS)
-        throw new Error('Animation exceeds the pixel budget.');
       const from=requireInt(c.source_frame ?? 0,0,frameCount(d)-1,'source_frame');
       const sourceLayers=frameView(d,from).layers;
       const blank=c.blank === true;
-      spend(d.width*d.height*d.layers.length);
       d.animation ??= {fps:8,frames:[]};
       const newFrameId=c.id===undefined?`frame-${source.revision+1}-${frameCount(d)}`:String(c.id);
       if(!/^[a-z0-9_-]{1,64}$/i.test(newFrameId)||d.animation.frames.some(f=>f.id===newFrameId))
         throw new Error('Animation frame IDs must be unique.');
-      d.animation.frames.push({id:newFrameId,
-        pixels:Object.fromEntries(sourceLayers.map(l=>[l.id,blank?Array(d.width*d.height).fill(0):[...l.pixels]]))});
+      const pixels=Object.fromEntries(sourceLayers.map(l=>{
+        const values=blank?cels.empty():l.pixels;
+        cels.add(values);
+        return [l.id,values];
+      }));
+      d.animation.frames.push({id:newFrameId,pixels});
       continue;
     }
     if(c.op==='frame_delete'){
       const index=requireInt(c.frame,1,frameCount(d)-1,'frame');
-      d.animation!.frames.splice(index-1,1);
+      const [removed]=d.animation!.frames.splice(index-1,1);
+      for(const pixels of Object.values(removed.pixels))cels.remove(pixels);
       if(d.animation!.clips) d.animation!.clips=d.animation!.clips
         .filter(clip=>clip.from!==index||clip.to!==index)
         .map(clip=>({...clip,from:clip.from>index?clip.from-1:clip.from,to:clip.to>=index?clip.to-1:clip.to}));
@@ -272,22 +365,20 @@ function runCommands(source:PixelDocument,commands:PaintCommand[],work:{spent:nu
     }
     if(c.op==='add_layer'){
       if(d.layers.length>=MAX_LAYERS)throw new Error(`A project can have up to ${MAX_LAYERS} layers.`);
-      if(documentCells(d,d.layers.length+1)>MAX_ANIMATION_CELLS)
-        throw new Error('Animation exceeds the pixel budget.');
       const id=String(c.id||'layer-'+d.layers.length);
       if(!/^[a-z0-9_-]{1,64}$/i.test(id)||d.layers.some(l=>l.id===id))throw new Error('Choose a unique layer ID.');
-      spend(d.width*d.height*frameCount(d));
-      d.layers.push({id,name:String(c.name||'New layer').slice(0,60),visible:true,pixels:Array(d.width*d.height).fill(0)});
-      for(const frame of d.animation?.frames ?? [])frame.pixels[id]=Array(d.width*d.height).fill(0);
+      const pixels=cels.empty();
+      d.layers.push({id,name:String(c.name||'New layer').slice(0,60),visible:true,pixels});
+      cels.add(pixels);
+      for(const frame of d.animation?.frames ?? [])cels.addToFrame(frame,id,pixels);
       continue;
     }
     const targetLayer=c.layer||d.layers[0].id;
     const metadataLayer=d.layers.find(l=>l.id===targetLayer);if(!metadataLayer)throw new Error('Layer not found.');
     if(c.op==='text_set'){
       const recipe=validatePixelText(c.text,d.width,d.height,frameCount(d));
-      const destination=frameView(d,recipe.frame).layers.find(l=>l.id===targetLayer)!;
       const result=renderPixelText(recipe,d.width,d.height);spend(result.length);
-      for(let i=0;i<result.length;i++)destination.pixels[i]=result[i];
+      cels.set(metadataLayer,recipe.frame,result);
       metadataLayer.text=recipe;delete metadataLayer.effect;continue;
     }
     if(c.op==='text_detach'){delete metadataLayer.text;continue;}
@@ -295,60 +386,100 @@ function runCommands(source:PixelDocument,commands:PaintCommand[],work:{spent:nu
     if(c.op==='effect_detach'){delete metadataLayer.effect;continue;}
     if(c.op==='visibility'){if(typeof c.visible!=='boolean')throw new Error('visible must be true or false.');metadataLayer.visible=c.visible;continue;}
     if(c.op==='rename_layer'){metadataLayer.name=String(c.name||'Layer').slice(0,60);continue;}
+    if(c.op==='move_layer'){
+      const index=requireInt(c.index,0,d.layers.length-1,'layer index');
+      d.layers.splice(d.layers.indexOf(metadataLayer),1);
+      d.layers.splice(index,0,metadataLayer);
+      continue;
+    }
+    if(c.op==='set_layer_group'){
+      if(typeof c.group!=='string'||c.group.trim().length>60)throw new Error('Layer group names allow up to 60 characters.');
+      const group=c.group.trim();
+      if(group)metadataLayer.group=group;
+      else delete metadataLayer.group;
+      continue;
+    }
+    if(c.op==='hold_cel'){
+      const frame=requireInt(c.frame,0,frameCount(d)-1,'frame');
+      const from=requireInt(c.source_frame,0,frameCount(d)-1,'source_frame');
+      cels.set(metadataLayer,frame,cels.get(metadataLayer,from));
+      if(metadataLayer.text?.frame===frame && from!==frame)delete metadataLayer.text;
+      continue;
+    }
     if(c.op==='duplicate_layer'){
       if(d.layers.length>=MAX_LAYERS)throw new Error(`Cannot preserve a layer: all ${MAX_LAYERS} slots are used.`);
-      if(documentCells(d,d.layers.length+1)>MAX_ANIMATION_CELLS)
-        throw new Error('Cannot preserve a layer: animation pixel budget reached.');
       const id=String(c.id||'backup-'+d.layers.length);
       if(!/^[a-z0-9_-]{1,64}$/i.test(id)||d.layers.some(l=>l.id===id))
         throw new Error('Choose a unique backup layer ID.');
-      spend(d.width*d.height*frameCount(d));
       const backup:Layer={...metadataLayer,id,name:String(c.name||metadataLayer.name+' Backup').slice(0,60),
-       visible:false,pixels:[...metadataLayer.pixels]};
+       visible:false,pixels:metadataLayer.pixels};
       delete backup.effect; // A backup is a frozen snapshot, not another live effect recipe.
       delete backup.text;
       d.layers.splice(d.layers.indexOf(metadataLayer)+1,0,backup);
-      for(const cel of d.animation?.frames??[])cel.pixels[id]=[...cel.pixels[metadataLayer.id]];
+      cels.add(backup.pixels);
+      for(const frame of d.animation?.frames??[])cels.addToFrame(frame,id,frame.pixels[metadataLayer.id]);
       continue;
     }
     if(c.op==='delete_layer'){
       if(d.layers.length===1)throw new Error('Keep at least one layer.');
       d.layers=d.layers.filter(x=>x.id!==metadataLayer.id);
-      for(const frame of d.animation?.frames ?? [])delete frame.pixels[metadataLayer.id];
+      cels.remove(metadataLayer.pixels);
+      for(const frame of d.animation?.frames ?? []){cels.remove(frame.pixels[metadataLayer.id]);delete frame.pixels[metadataLayer.id];}
       continue;
     }
     const selectedFrame=c.frame===undefined?0:requireInt(c.frame,0,frameCount(d)-1,'frame');
-    const l=frameView(d,selectedFrame).layers.find(l=>l.id===targetLayer)!;
     // Freehand edits turn a text layer into regular editable pixels, rather
     // than letting a later text edit silently overwrite a user's brushwork.
     if(metadataLayer.text?.frame===selectedFrame)delete metadataLayer.text;
-    if(c.op==='clear'){l.pixels.fill(0);spend(l.pixels.length);continue;}
+    if(c.op==='clear'){cels.set(metadataLayer,selectedFrame,cels.empty());continue;}
+    if(c.op==='paste'&&c.x===0&&c.y===0&&c.width===d.width&&c.height===d.height){
+      const pixels=c.pixels,area=d.width*d.height;
+      spend(area);
+      if(!Array.isArray(pixels)||pixels.length!==area)throw new Error('Paste needs width × height packed RGBA pixels.');
+      let blank=true;
+      const previous=cels.get(metadataLayer,selectedFrame);
+      let changed=false;
+      for(let i=0;i<area;i++){
+        const p=pixels[i];
+        if(!Number.isInteger(p)||p<0||p>0xffffffff)throw new Error('Invalid paste pixels.');
+        if(p!==0)blank=false;
+        if(p!==previous[i])changed=true;
+      }
+      if(changed)cels.set(metadataLayer,selectedFrame,blank?cels.empty():pixels.slice());
+      continue;
+    }
+    let pixels=cels.get(metadataLayer,selectedFrame), owned=false;
+    const writePixel=(i:number,packed:number)=>{
+      if(pixels[i]===packed)return;
+      if(!owned){pixels=cels.write(metadataLayer,selectedFrame);owned=true;}
+      pixels[i]=packed;
+    };
     if(c.op==='transform'||c.op==='paste'||c.op==='stamp'){
       const x=requireInt(c.x,0,d.width-1,'x'),y=requireInt(c.y,0,d.height-1,'y');
       const w=requireInt(c.width,1,d.width-x,'width'),h=requireInt(c.height,1,d.height-y,'height');
       spend(w*h*3);
-      let pixels:number[],tx=x,ty=y;
+      let patch:number[],tx=x,ty=y;
       if(c.op==='paste'||c.op==='stamp'){
         if(c.op==='stamp'&&w*h>4096)throw new Error('Stamp exceeds the 4096-pixel brush budget.');
         if(!Array.isArray(c.pixels)||c.pixels.length!==w*h||c.pixels.some(p=>!Number.isInteger(p)||p<0||p>0xffffffff))throw new Error('Stamp or paste needs width × height packed RGBA pixels.');
-        pixels=c.pixels as number[];
+        patch=c.pixels as number[];
       }else{
         if(!['move','copy','flip_horizontal','flip_vertical'].includes(String(c.mode)))throw new Error('Unknown transform mode.');
-        pixels=readRegion(d,l.id,{x,y,width:w,height:h},selectedFrame);
+        patch=readRegion(d,metadataLayer.id,{x,y,width:w,height:h},selectedFrame);
         if(c.mode==='move'||c.mode==='copy'){
           tx=requireInt(c.x2,0,d.width-w,'x2');ty=requireInt(c.y2,0,d.height-h,'y2');
         }
-        if(c.mode==='move')for(let yy=0;yy<h;yy++)for(let xx=0;xx<w;xx++)l.pixels[(y+yy)*d.width+x+xx]=0;
+        if(c.mode==='move')for(let yy=0;yy<h;yy++)for(let xx=0;xx<w;xx++)writePixel((y+yy)*d.width+x+xx,0);
       }
       for(let yy=0;yy<h;yy++)for(let xx=0;xx<w;xx++){
         const sx=c.op==='transform'&&c.mode==='flip_horizontal'?w-1-xx:xx,sy=c.op==='transform'&&c.mode==='flip_vertical'?h-1-yy:yy;
-        const packed=pixels[sy*w+sx];
-        if(c.op!=='stamp'||(packed&255)>0)l.pixels[(ty+yy)*d.width+tx+xx]=packed;
+        const packed=patch[sy*w+sx];
+        if(c.op!=='stamp'||(packed&255)>0)writePixel((ty+yy)*d.width+tx+xx,packed);
       }
       continue;
     }
     const ink=color(c.color), x=requireInt(c.x,0,d.width-1,'x'), y=requireInt(c.y,0,d.height-1,'y');
-    const put=(px:number,py:number)=>{spend(1);if(px>=0&&py>=0&&px<d.width&&py<d.height)l.pixels[py*d.width+px]=ink;};
+    const put=(px:number,py:number)=>{spend(1);if(px>=0&&py>=0&&px<d.width&&py<d.height)writePixel(py*d.width+px,ink);};
     if(c.op==='pixel'){put(x,y);continue;}
     if(c.op==='line'){
       const x2=requireInt(c.x2,0,d.width-1,'x2'), y2=requireInt(c.y2,0,d.height-1,'y2');
@@ -364,11 +495,13 @@ function runCommands(source:PixelDocument,commands:PaintCommand[],work:{spent:nu
       }continue;
     }
     if(c.op==='fill'){
-      const target=l.pixels[y*d.width+x]; if(target===ink)continue;
-      const stack=[y*d.width+x];l.pixels[stack[0]]=ink;
-      while(stack.length){const n=stack.pop()!;spend(1);const px=n%d.width,py=Math.floor(n/d.width);for(const k of [px>0?n-1:-1,px<d.width-1?n+1:-1,py>0?n-d.width:-1,py<d.height-1?n+d.width:-1])if(k>=0&&l.pixels[k]===target){l.pixels[k]=ink;stack.push(k);}}continue;
+      const target=pixels[y*d.width+x]; if(target===ink)continue;
+      const stack=[y*d.width+x];pixels=cels.write(metadataLayer,selectedFrame);pixels[stack[0]]=ink;
+      while(stack.length){const n=stack.pop()!;spend(1);const px=n%d.width,py=Math.floor(n/d.width);for(const k of [px>0?n-1:-1,px<d.width-1?n+1:-1,py>0?n-d.width:-1,py<d.height-1?n+d.width:-1])if(k>=0&&pixels[k]===target){pixels[k]=ink;stack.push(k);}}continue;
     }
     throw new Error(`Unknown drawing operation: ${c.op}`);
   }
-  d.revision=source.revision+1;d.updatedAt=new Date().toISOString();return d;
+  cels.checkBudget(true);
+  d.revision=source.revision+1;d.updatedAt=new Date().toISOString();
+  return immutableSnapshot?d:structuredClone(d);
 }

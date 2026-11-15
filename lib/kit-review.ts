@@ -1,4 +1,4 @@
-import {composite,frameCount,frameView,type PixelDocument} from './pixels.ts';
+import {celUses,composite,frameCount,frameView,type PixelDocument} from './pixels.ts';
 
 export type KitMember={id:string;name:string;assetKey:string|null;frames:number};
 export type KitOverview={count:number;colors:string[];members:KitMember[]};
@@ -13,8 +13,9 @@ export function overviewKit(docs:PixelDocument[]):KitOverview{
  const usage=new Map<string,number>();
  for(const doc of docs){
   const used=new Set<string>();
-  for(const layers of [doc.layers.map(layer=>layer.pixels),...(doc.animation?.frames??[]).map(cel=>Object.values(cel.pixels))])
-   for(const pixels of layers)for(const pixel of pixels)if((pixel&255)!==0)used.add('#'+(pixel>>>8).toString(16).padStart(6,'0'));
+  for(const pixels of celUses(doc).keys()){
+   for(const pixel of pixels)if((pixel&255)!==0)used.add('#'+(pixel>>>8).toString(16).padStart(6,'0'));
+  }
   for(const ink of doc.palette)if(/^#[0-9a-f]{6}/i.test(ink))used.add(ink.slice(0,7).toLowerCase());
   for(const color of used)usage.set(color,(usage.get(color)??0)+1);
  }
@@ -29,11 +30,18 @@ export function reviewKitColor(docs:PixelDocument[],kitId:string,from:string,to:
  const isSource=(ink:string|undefined)=>!!ink&&/^#[0-9a-f]{6}/i.test(ink)&&parseInt(ink.slice(1,7),16)===source;
  for(const doc of docs){
   let pixels=0;
-  for(const layers of [doc.layers.map(layer=>layer.pixels),...(doc.animation?.frames??[]).map(cel=>Object.values(cel.pixels))])
-   for(const values of layers)for(const value of values)if(matches(value))pixels++;
+  for(const [values,uses] of celUses(doc)){
+   for(const value of values)if(matches(value))pixels+=uses;
+  }
   const metadata=doc.palette.some(isSource)||doc.layers.some(layer=>isSource(layer.text?.color)||isSource(layer.effect?.ink));
   if(!pixels&&!metadata)continue;
-  const view=frameView(doc,0),before=composite(view),after=composite({...view,layers:view.layers.map(layer=>({...layer,pixels:layer.pixels.map(replace)}))});
+  const view=frameView(doc,0),before=composite(view);
+  const previews=new Map<number[],number[]>();
+  const after=composite({...view,layers:view.layers.map(layer=>{
+   let mapped=previews.get(layer.pixels);
+   if(!mapped){mapped=layer.pixels.map(replace);previews.set(layer.pixels,mapped);}
+   return {...layer,pixels:mapped};
+  })});
   impacts.push({id:doc.id,name:doc.name,revision:doc.revision,pixels,metadata,width:doc.width,height:doc.height,before,after});
  }
  return {kitId,from:from.toLowerCase(),to:to.toLowerCase(),signature:kitSignature(docs),impacts};

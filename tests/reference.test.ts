@@ -75,10 +75,12 @@ test('larger canvases share the existing cell budget including the reference and
  const doc=createDocument('Large',256,384);doc.reference=prepareReference({width:256,height:384,pixels:Array(256*384).fill(0)},'Tall');
  assert.equal(validateDocument(doc).height,384);
  const large=createDocument('Limit',1024,1024);large.reference=prepareReference({width:1024,height:1024,pixels:Array(1024*1024).fill(0)},'Full');
- const full=applyCommands(large,[{op:'add_layer',id:'second'},{op:'add_layer',id:'third'}]);assert.equal(documentCells(full),MAX_ANIMATION_CELLS);
- assert.throws(()=>applyCommands(full,[{op:'add_layer',id:'fourth'}]),/budget/);
- assert.throws(()=>applyCommands(full,[{op:'frame_add'}]),/budget/);
- assert.throws(()=>validateDocument({...full,layers:[...full.layers,{...full.layers[0],id:'fourth'}]}),/budget/);
+ const full=applyCommands(large,[{op:'add_layer',id:'second'},{op:'add_layer',id:'third'},
+  {op:'pixel',layer:'second',x:0,y:0,color:'#211111'},{op:'pixel',layer:'third',x:0,y:0,color:'#311111'}]);assert.equal(documentCells(full),MAX_ANIMATION_CELLS);
+ const held=applyCommands(full,[{op:'add_layer',id:'fourth'},{op:'frame_add'}]);
+ assert.equal(documentCells(held),MAX_ANIMATION_CELLS);
+ assert.throws(()=>applyCommands(held,[{op:'pixel',layer:'fourth',frame:1,x:0,y:0,color:'#ffffff'}]),/budget/);
+ assert.throws(()=>validateDocument({...full,layers:[...full.layers,{...full.layers[0],id:'fourth',pixels:Array(1024*1024).fill(44)}]}),/budget/);
  assert.equal(maxPreviewZoom(1024,1024),2);assert.throws(()=>createDocument('Oversized',1025,2));
 });
 test('MCP imports, inspects close-ups, rejects mismatches and stale revisions, and undo restores references',async()=>{

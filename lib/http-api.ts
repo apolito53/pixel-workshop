@@ -1,15 +1,20 @@
-import {PACKED_PROJECT_MEDIA,MAX_PROJECT_REQUEST_BYTES,packProject} from './project-codec.ts';
+import {PACKED_PROJECT_MEDIA,LEGACY_PACKED_MEDIA,MAX_PROJECT_REQUEST_BYTES,denseProjectCells,packLegacyProject,packProject} from './project-codec.ts';
 import type {EditorSnapshot} from './edit-queue.ts';
 import type { ProjectService } from './project-service.ts';
 import { lanternDemo } from './demo.ts';
 import { cottageDemo } from './cottage.ts';
 import { encodePng } from './png.ts';
 import { encodeSvg } from './svg.ts';
-import { frameView } from './pixels.ts';
+import { frameView, MAX_ANIMATION_CELLS } from './pixels.ts';
 export async function pixelApi(request:Request,service:ProjectService) {
   const url=new URL(request.url),parts=url.pathname.replace(/^\/api\/pixel\/?/,'').split('/').filter(Boolean);
   const snapshotResponse=(snapshot:EditorSnapshot)=>{
-    const doc=request.headers.get('accept')?.includes(PACKED_PROJECT_MEDIA)?packProject(snapshot.doc):snapshot.doc;
+    const accept=request.headers.get('accept')??'';
+    let doc;
+    if(accept.includes(PACKED_PROJECT_MEDIA)||denseProjectCells(snapshot.doc)>MAX_ANIMATION_CELLS)
+      doc=packProject(snapshot.doc);
+    else if(accept.includes(LEGACY_PACKED_MEDIA))doc=packLegacyProject(snapshot.doc);
+    else doc=snapshot.doc;
     return Response.json({...snapshot,doc},{headers:{'cache-control':'no-store',vary:'Accept'}});
   };
   try {

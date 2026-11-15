@@ -27,12 +27,12 @@ test('stdio MCP edits the last frame and layer, regenerates FX, and exports at e
   assert.deepEqual([wide.width,wide.height],[1024,7]);assert.deepEqual([...wide.data.subarray(-4)],[66,173,89,255]);
   const {summary:{id}}=await call('create_canvas',{name:'Layered wind',width:4,height:4});
   const commands:Record<string,unknown>[]=[{op:'pixel',x:2,y:1,color:'#ff7518'}];
-  for(let n=1;n<15;n++)commands.push({op:'add_layer',id:`layer-${n}`,name:`Layer ${n+1}`});
+  for(let n=1;n<63;n++)commands.push({op:'add_layer',id:`layer-${n}`,name:`Layer ${n+1}`});
   for(let n=1;n<96;n++)commands.push({op:'frame_add',blank:true});
-  commands.push({op:'pixel',layer:'layer-14',frame:95,x:3,y:3,color:'#ab23ef'},{op:'clip_set',name:'Last breeze',from:94,to:95,fps:12,mode:'loop'});
+  commands.push({op:'pixel',layer:'layer-62',frame:95,x:3,y:3,color:'#ab23ef'},{op:'clip_set',name:'Last breeze',from:94,to:95,fps:12,mode:'loop'});
   const {summary:painted}=await call('paint',{id,revision:0,commands});assert.equal(painted.frameCount,96);
   const {summary:fx}=await call('generate_effect',{id,revision:painted.revision,kind:'leaves',seed:42,ink:'#efef11'});
-  assert.equal(fx.layers.length,16);
+  assert.equal(fx.layers.length,64);
   const layer=fx.layers.at(-1).id;
   const {summary:regen}=await call('regenerate_effect',{id,revision:fx.revision,layer,seed:81});
   await call('paint',{id,revision:regen.revision,commands:[{op:'visibility',layer,visible:false}]});
