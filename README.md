@@ -4,6 +4,8 @@
 
 [**Play Stardrop: A Moonkeeper Tale**](https://pixel-workshop-nine.vercel.app/play/moonkeeper) · A small arcade game using ten native, editable Pixel Workshop assets (sprites, cels, environment art, and seeded effects). In-game art workbench exports every asset as `.pixel.json` or a sprite sheet. [Production notes and feature wishlist](docs/stardrop-production-notes.md).
 
+[**Lantern Wisteria III**](https://pixel-workshop-nine.vercel.app/studies/lantern-wisteria-iii/index.html) · A gust travels from the western crown to the seaward tips. Scrub the 42-frame loop, slow it to half speed, or open the layered tree and coastal scene in Pixel Workshop.
+
 [**Lantern Wisteria II**](https://pixel-workshop-nine.vercel.app/studies/lantern-wisteria-ii/index.html) · A 256 × 224 tree with 20 editable layers and a 24-frame sea breeze. Inspect individual leaf tufts and flower sprays or download both native projects and game sheets.
 
 [**Lantern Wisteria**](https://pixel-workshop-nine.vercel.app/studies/lantern-wisteria/index.html) · Watch the coastal wind study, step through the isolated sprite, or download the editable tree, full scene and game atlas.
