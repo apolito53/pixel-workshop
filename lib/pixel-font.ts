@@ -1,3 +1,4 @@
+import {blankCel,cropCel,type CroppedCel} from './cel-storage.ts';
 import type {PixelTextRecipe} from './ui-metadata.ts';
 /** A small original 5×7 capitals font drawn on the cell grid. */
 const glyphs:Record<string,string[]>={
@@ -32,6 +33,13 @@ const glyphs:Record<string,string[]>={
 };
 export function textDimensions(recipe:PixelTextRecipe){
  const lines=recipe.text.split('\n');return {width:Math.max(...lines.map(line=>line.length?line.length*5*recipe.scale+(line.length-1)*recipe.spacing:0)),height:lines.length*7*recipe.scale+(lines.length-1)*recipe.scale};
+}
+/** Rasterize only the portion of the text box that intersects the canvas. */
+export function renderTextCel(recipe:PixelTextRecipe,width:number,height:number):CroppedCel {
+ const size=textDimensions(recipe),w=Math.min(width-recipe.x,size.width),h=Math.min(height-recipe.y,size.height);
+ if(w<=0||h<=0)return blankCel();
+ const data=renderPixelText({...recipe,x:0,y:0},w,h);
+ return cropCel({x:recipe.x,y:recipe.y,width:w,height:h,data},width,height);
 }
 export function renderPixelText(recipe:PixelTextRecipe,width:number,height:number):number[]{
  const pixels=Array<number>(width*height).fill(0),ink=parseInt(recipe.color.slice(1)+(recipe.color.length===7?'ff':''),16)>>>0;

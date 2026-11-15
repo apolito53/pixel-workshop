@@ -1,4 +1,5 @@
 import { clipFrameSequence, composite, frameCount, frameView, requireInt, type AnimationClip, type PixelDocument } from './pixels.ts';
+import type {Cel} from './cel-storage.ts';
 import type {UiMetadata} from './ui-metadata.ts';
 
 export type AtlasFrame = { index: number; x: number; y: number; width: number; height: number; durationMs: number };
@@ -26,7 +27,7 @@ export function buildSpriteSheet(d: PixelDocument, columns?: number, format:'png
   const sources:number[] = [];
   const positions:number[] = [];
   const slotByPose = new Map<string, number>();
-  const celIds = new Map<number[], number>();
+  const celIds = new Map<Cel, number>();
   const visible = d.layers.filter(layer => layer.visible);
   for (let i = 0; i < count; i++) {
     // Keep the familiar frame-by-frame layout whenever it fits. Oversize timelines

@@ -1,4 +1,5 @@
-import { color, frameCount, documentCapacity, MAX_LAYERS, MAX_BATCH_PIXEL_WORK, PIXEL_EFFECT_KINDS, validateEffectRecipe, type StoredEffectRecipe, type PaintCommand, type PixelDocument } from './pixels.ts';
+import {blankCel, CelBrush, CelInterner, cropCel, denseCel, type CroppedCel} from './cel-storage.ts';
+import { celUses, color, frameCount, MAX_ANIMATION_CELLS, MAX_LAYERS, MAX_BATCH_PIXEL_WORK, PIXEL_EFFECT_KINDS, validateEffectRecipe, type StoredEffectRecipe, type PaintCommand, type PixelDocument } from './pixels.ts';
 
 /** Ordered catalog shared by the editor, procedural renderer and MCP schema. */
 export const EFFECT_KINDS = PIXEL_EFFECT_KINDS;
@@ -26,7 +27,7 @@ export const EFFECT_PRESETS: Record<EffectKind, { label: string; group: EffectGr
 
 /** Keep the renderer and UI consistent about when another effect can fit. */
 export function hasFreeEffectLayerSlot(d: PixelDocument | null | undefined): boolean {
-  return Boolean(d && d.layers.length < documentCapacity(d).maxLayers);
+  return Boolean(d && d.layers.length < MAX_LAYERS);
 }
 
 function randomFromSeed(seed: number) {
@@ -51,11 +52,12 @@ function tint(base: number, target: number, strength: number) {
 
 // All effect pixels live on conventional editable layers; each frame is recreated
 // deterministically from the same seed and time index, without a cloud renderer.
-function rawEffectPixels(width: number, height: number, frame: number, count: number, recipe: EffectRecipe): number[] {
+function rawEffectCel(width:number,height:number,frame:number,count:number,recipe:EffectRecipe,charge:(area:number)=>void):CroppedCel {
   const { kind, seed } = recipe;
   if (!EFFECT_KINDS.includes(kind)) throw new Error('Unknown effect type.');
   const rgb = color(recipe.ink);
-  const output = Array<number>(width * height).fill(0);
+  const brush = new CelBrush(blankCel(),width,height);
+  const finish = () => brush.finish(charge) ?? blankCel();
   const rand = randomFromSeed(seed);
   const bright = tint(rgb, 0xffffffff, .43);
   const dim = tint(rgb, 0x000000ff, .25);
@@ -70,8 +72,7 @@ function rawEffectPixels(width: number, height: number, frame: number, count: nu
     for (let oy = -radius; oy <= radius; oy++) for (let ox = -radius; ox <= radius; ox++) {
       const xx = px + ox, yy = py + oy;
       if (xx < 0 || yy < 0 || xx >= width || yy >= height) continue;
-      const index = yy * width + xx;
-      if (a >= (output[index] & 255)) output[index] = rgba(ink, a);
+      if (a >= (brush.read(xx,yy) & 255)) brush.write(xx,yy,rgba(ink,a));
     }
   };
   const stroke = (x0: number, y0: number, x1: number, y1: number, alpha: number, shade = 0) => {
@@ -86,11 +87,13 @@ function rawEffectPixels(width: number, height: number, frame: number, count: nu
     const maxRadius = Math.hypot(width, height) * .46;
     const r = maxRadius * (.1 + t * .95);
     const thickness = Math.max(.7, size / 70);
-    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const top=Math.max(0,Math.floor(cy-r-thickness)), bottom=Math.min(height-1,Math.ceil(cy+r+thickness));
+    const left=Math.max(0,Math.floor(cx-r-thickness)), right=Math.min(width-1,Math.ceil(cx+r+thickness));
+    for (let y=top; y<=bottom; y++) for (let x=left; x<=right; x++) {
       const dist = Math.hypot((x + .5 - width / 2), (y + .5 - height / 2));
       if (Math.abs(dist - r) < thickness) put(x, y, 220 * (1 - t));
     }
-    return output;
+    return finish();
   }
 
   if (kind === 'fire') {
@@ -111,7 +114,7 @@ function rawEffectPixels(width: number, height: number, frame: number, count: nu
         put(rootX + Math.sin(frame + phase) * 2, y, 115 + 70 * Math.sin(frame + phase) ** 2);
       }
     }
-    return output;
+    return finish();
   }
 
   if (kind === 'smoke') {
@@ -131,7 +134,7 @@ function rawEffectPixels(width: number, height: number, frame: number, count: nu
         }
       }
     }
-    return output;
+    return finish();
   }
 
   if (kind === 'explosion') {
@@ -154,12 +157,12 @@ function rawEffectPixels(width: number, height: number, frame: number, count: nu
       if (life > .12) put(x - Math.cos(angle) * Math.min(3, dist * .3),
         y - Math.sin(angle) * Math.min(3, dist * .3), alpha * .35);
     }
-    return output;
+    return finish();
   }
 
   if (kind === 'lightning') {
     const pulse = frame % 4;
-    if (pulse === 3) return output; // a brief dark frame between strikes
+    if (pulse === 3) return finish(); // a brief dark frame between strikes
     const bolt = randomFromSeed(seed ^ Math.imul(Math.floor(frame / 4) + 1, 0x9e3779b1));
     const intensity = pulse === 0 ? 255 : pulse === 1 ? 185 : 75;
     const segments = Math.max(3, Math.min(24, Math.ceil(height / 3)));
@@ -175,7 +178,7 @@ function rawEffectPixels(width: number, height: number, frame: number, count: nu
       }
       x = nextX; y = nextY;
     }
-    return output;
+    return finish();
   }
 
   if (kind === 'rain') {
@@ -191,7 +194,7 @@ function rawEffectPixels(width: number, height: number, frame: number, count: nu
           j === 0 ? 210 : 150 * (1 - j / (length + 1)), 0, j === 0 ? 1 : 0);
       }
     }
-    return output;
+    return finish();
   }
 
   if (kind === 'snow') {
@@ -205,7 +208,7 @@ function rawEffectPixels(width: number, height: number, frame: number, count: nu
       const alpha = 155 + 90 * rand();
       put(x, y, alpha, rand() > .89 && size >= 24 ? 1 : 0, 1);
     }
-    return output;
+    return finish();
   }
 
   if (kind === 'bubbles') {
@@ -221,7 +224,7 @@ function rawEffectPixels(width: number, height: number, frame: number, count: nu
       }
       put(x - radius * .38, y - radius * .45, 245, 0, 1);
     }
-    return output;
+    return finish();
   }
 
   if (kind === 'leaves') {
@@ -238,7 +241,7 @@ function rawEffectPixels(width: number, height: number, frame: number, count: nu
       put(x - slant, y + 1, 125);
       if (size >= 32) put(x + slant, y - 1, 105);
     }
-    return output;
+    return finish();
   }
 
   if (kind === 'arcane') {
@@ -257,7 +260,7 @@ function rawEffectPixels(width: number, height: number, frame: number, count: nu
         put(x, y - 1, 90); put(x, y + 1, 90);
       }
     }
-    return output;
+    return finish();
   }
 
   // Preserve the original familiar ember and sparkle motion.
@@ -284,56 +287,76 @@ function rawEffectPixels(width: number, height: number, frame: number, count: nu
       }
     }
   }
-  return output;
+  return finish();
 }
 
 /** Re-render a recipe using its saved speed, opacity and horizontal drift.
  * Default values produce the original exact pixels for backward compatibility.
  */
-export function effectPixels(width:number,height:number,frame:number,count:number,recipe:EffectRecipe):number[]{
- const full=normalizeEffectRecipe(recipe);
- const base=rawEffectPixels(width,height,frame*full.speed,count,full);
- const shift=Math.round(full.drift*frame);
- if(full.opacity===1 && shift===0)return base;
- const out=Array<number>(width*height).fill(0);
- for(let i=0;i<base.length;i++){
-  const packed=base[i];if(!packed)continue;
-  const x=i%width+shift,y=Math.floor(i/width);
-  if(x<0||x>=width)continue;
-  const alpha=Math.round((packed&255)*full.opacity);
-  if(alpha>0)out[y*width+x]=((packed&0xffffff00)|alpha)>>>0;
- }
- return out;
+export function effectCel(width:number,height:number,frame:number,count:number,recipe:StoredEffectRecipe,charge:(area:number)=>void=()=>{}):CroppedCel {
+  const base=rawEffectCel(width,height,frame*recipe.speed,count,recipe,charge);
+  const shift=Math.round(recipe.drift*frame);
+  if(!base.width || (!shift&&recipe.opacity===1))return base;
+  const left=Math.max(0,base.x+shift),right=Math.min(width,base.x+shift+base.width);
+  if(right<=left)return blankCel();
+  const outWidth=right-left, data=new Array<number>(outWidth*base.height);
+  for(let y=0;y<base.height;y++)for(let x=0;x<outWidth;x++){
+    const packed=base.data[y*base.width+x+left-base.x-shift];
+    const alpha=Math.round((packed&255)*recipe.opacity);
+    data[y*outWidth+x]=alpha ? ((packed&0xffffff00)|alpha)>>>0 : 0;
+  }
+  return cropCel({x:left,y:base.y,width:outWidth,height:base.height,data},width,height);
+}
+
+export function effectPixels(width:number,height:number,frame:number,count:number,recipe:EffectRecipe):number[] {
+  return denseCel(effectCel(width,height,frame,count,normalizeEffectRecipe(recipe)),width,height);
 }
 
 export function effectCapacity(d:PixelDocument) {
-  const current = frameCount(d), area = d.width * d.height;
-  const layers = d.layers.length + 1;
-  if (layers > MAX_LAYERS)
-    return {frames:0, reason:`The effect needs a free layer. All ${MAX_LAYERS} slots are occupied.`};
-  // Existing layers hold their poses as the timeline grows. Reserve one new pose per FX frame.
-  const room = documentCapacity(d).remainingCelBuffers;
-  const maxFrames = Math.min(room, Math.floor(MAX_BATCH_PIXEL_WORK / area));
-  const frames = current === 1 ? Math.min(8, maxFrames) : current;
-  if (frames < 2 || frames > maxFrames)
-    return {frames:0, reason:'A new animated effect needs room for a separate drawing on each frame. Use fewer frames or a smaller canvas.'};
-  return {frames, reason:''};
+  if(!hasFreeEffectLayerSlot(d))return {frames:0,reason:`The effect needs a free layer. All ${MAX_LAYERS} slots are occupied.`};
+  return {frames:frameCount(d)===1?8:frameCount(d),reason:''};
+}
+
+class EffectCapacityError extends Error {}
+
+function effectDrawingCommands(d:PixelDocument,layer:string,count:number,recipe:StoredEffectRecipe,held?:CelInterner<CroppedCel>):PaintCommand[]{
+  const commands:PaintCommand[]=[];
+  let work=0;
+  const charge=(area:number)=>{
+    work+=area;
+    if(work>MAX_BATCH_PIXEL_WORK)throw new EffectCapacityError('These effect drawings are too large to generate in one edit. Reduce the frame count or canvas size.');
+  };
+  for(let frame=0;frame<count;frame++){
+    const pose=effectCel(d.width,d.height,frame,count,recipe,charge);
+    if(held){
+      held.intern(pose);
+      if(held.cells+(d.reference?.pixels.length??0)>MAX_ANIMATION_CELLS)
+        throw new EffectCapacityError('These effect drawings exceed the available project pixels. Reduce the frame count or trim existing artwork.');
+    }
+    commands.push({op:'replace_cel',layer,frame,x:pose.x,y:pose.y,width:pose.width,height:pose.height,pixels:pose.data});
+  }
+  return commands;
 }
 
 // Return ordinary paint commands so browser edits, undo, and MCP use one engine.
 export function generateEffectCommands(d: PixelDocument, recipe: EffectRecipe): PaintCommand[] {
   const full=normalizeEffectRecipe(recipe), currentFrames=frameCount(d);
-  const {frames:totalFrames, reason}=effectCapacity(d);
-  if(reason) throw new Error(reason);
-  const layer = 'fx-' + crypto.randomUUID().slice(0,8);
-  const commands: PaintCommand[] = [{op:'add_layer',id:layer,name:EFFECT_PRESETS[recipe.kind].label+' FX'}];
-  for (let i = currentFrames; i < totalFrames; i++)
-    commands.push({op:'frame_add',source_frame:0});
-  for (let i = 0; i < totalFrames; i++)
-    commands.push({op:'paste',frame:i,layer,x:0,y:0,width:d.width,height:d.height,
-      pixels:effectPixels(d.width,d.height,i,totalFrames,full)});
-  commands.push({op:'effect_recipe',layer,recipe:full});
-  return commands;
+  const {frames,reason}=effectCapacity(d);
+  if(reason)throw new Error(reason);
+  const layer='fx-'+crypto.randomUUID().slice(0,8);
+  const existing=[...celUses(d).keys()].map(cel=>Array.isArray(cel)?cropCel(cel,d.width,d.height):cel);
+  for(let count=frames;;count--){
+    const held=new CelInterner<CroppedCel>();
+    for(const cel of existing)held.intern(cel);
+    try{
+      const drawings=effectDrawingCommands(d,layer,count,full,held);
+      const commands:PaintCommand[]=[{op:'add_layer',id:layer,name:EFFECT_PRESETS[recipe.kind].label+' FX'}];
+      for(let i=currentFrames;i<count;i++)commands.push({op:'frame_add',source_frame:0});
+      return [...commands,...drawings,{op:'effect_recipe',layer,recipe:full}];
+    }catch(error){
+      if(!(error instanceof EffectCapacityError)||currentFrames>1||count<=2)throw error;
+    }
+  }
 }
 
 /** Regeneration updates only the designated FX layer, preserving the whole document,
@@ -344,10 +367,11 @@ export function regenerateEffectCommands(d:PixelDocument,layer:string,recipe:Eff
  const target=d.layers.find(l=>l.id===layer);
  if(!target?.effect)throw new Error('Choose a generated effect layer to regenerate.');
  const full=normalizeEffectRecipe(recipe),count=frameCount(d);
- if(d.width*d.height*count>MAX_BATCH_PIXEL_WORK)throw new Error('This effect is too large to regenerate in one batch.');
  const ops:PaintCommand[]=[{op:'rename_layer',layer,name:EFFECT_PRESETS[full.kind].label+' FX'}];
- for(let i=0;i<count;i++)ops.push({op:'paste',layer,frame:i,x:0,y:0,width:d.width,height:d.height,
-  pixels:effectPixels(d.width,d.height,i,count,full)});
+ // Some old poses can be held into later frames. Release every slot before
+ // installing replacements so the peak budget matches the final artwork.
+ for(let frame=0;frame<count;frame++)ops.push({op:'clear',layer,frame});
+ ops.push(...effectDrawingCommands(d,layer,count,full));
  ops.push({op:'effect_recipe',layer,recipe:full});
  return ops;
 }

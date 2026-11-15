@@ -2,12 +2,15 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve,extname,relative,isAbsolute,sep } from 'node:path';
 import {privatePixelApi,privateMcpApi} from '../lib/workspace-http.ts';
+import {MAX_PROJECT_REQUEST_BYTES} from '../lib/project-codec.ts';
 import {workspaceProviders} from './workspace-file-store.ts';
 const port=Number(process.env.PORT||4317),root=resolve('dist-node');
 createServer(async(req,res)=>{
   try{
-    const chunks:Buffer[]=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>12_000_000){res.writeHead(413);res.end('Request too large');return;}chunks.push(chunk);}
-    const path=req.url||'/',headers=new Headers();for(const [key,value]of Object.entries(req.headers))if(value)headers.set(key,Array.isArray(value)?value.join(','):value);
+    const path=req.url||'/';
+    const limit=path.startsWith('/api/pixel/')?MAX_PROJECT_REQUEST_BYTES:12_000_000;
+    const chunks:Buffer[]=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>limit){res.writeHead(413);res.end('Request too large');return;}chunks.push(chunk);}
+    const headers=new Headers();for(const [key,value]of Object.entries(req.headers))if(value)headers.set(key,Array.isArray(value)?value.join(','):value);
     const request=new Request(`http://127.0.0.1:${port}${path}`,{method:req.method,headers,...(chunks.length?{body:Buffer.concat(chunks)}:{})});
     let response:Response;
     if(path.startsWith('/api/pixel/'))response=await privatePixelApi(request,workspaceProviders);

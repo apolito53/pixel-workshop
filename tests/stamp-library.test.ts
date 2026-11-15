@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {applyCommands,createDocument,color,frameView} from '../lib/pixels.ts';
+import {celPixel} from '../lib/cel-storage.ts';
 import {STAMP_LIBRARY_LIMIT,captureStamp,stampCommand,stampRgba,loadStamps,addSavedStamp,positionStamp} from '../lib/stamp-library.ts';
 test('capture a painted region and stamp without erasing transparent destination cells',()=>{
  const original=applyCommands(createDocument('Stamp',8,8),[
@@ -9,9 +10,9 @@ test('capture a painted region and stamp without erasing transparent destination
   {op:'pixel',x:2,y:2,color:'transparent'}]);
  const captured=captureStamp(original,'base',{x:1,y:1,width:2,height:2},0,'tree');
  const after=applyCommands(original,[stampCommand(original,captured,4,4,'base',0,0)]);
- assert.equal(after.layers[0].pixels[4*8+4],color('#ff000080'));
- assert.equal(after.layers[0].pixels[5*8+5],color('#113355'));
- assert.equal(original.layers[0].pixels[4*8+4],color('#113355'));
+ assert.equal(celPixel(after.layers[0].pixels,4,4,after.width),color('#ff000080'));
+ assert.equal(celPixel(after.layers[0].pixels,5,5,after.width),color('#113355'));
+ assert.equal(celPixel(original.layers[0].pixels,4,4,original.width),color('#113355'));
  assert.deepEqual(Array.from(stampRgba(captured).slice(0,4)),[255,0,0,128]);
 });
 test('snapping and stamps respect frame isolation',()=>{
@@ -19,8 +20,8 @@ test('snapping and stamps respect frame isolation',()=>{
  const stamp=captureStamp(doc,'base',{x:0,y:0,width:1,height:1},1,'cel');
  assert.deepEqual(positionStamp(doc,stamp,15,15,8),{x:8,y:8});
  const after=applyCommands(doc,[stampCommand(doc,stamp,10,10,'base',1,8)]);
- assert.equal(frameView(after,1).layers[0].pixels[8*16+8],color('#cc33cc'));
- assert.equal(frameView(after,0).layers[0].pixels[8*16+8],0);
+ assert.equal(celPixel(frameView(after,1).layers[0].pixels,8,8,after.width),color('#cc33cc'));
+ assert.equal(celPixel(frameView(after,0).layers[0].pixels,8,8,after.width),0);
 });
 test('stamp validation and bounded library',()=>{
  const doc=createDocument('Empty',4,4);

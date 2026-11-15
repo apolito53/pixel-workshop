@@ -2,7 +2,7 @@
 import {useCallback,useEffect,useMemo,useRef,useState,type PointerEvent as PE} from 'react';
 import {Pencil,Eraser,PaintBucket,Pipette,Minus,Square,Circle,Grid2X2,Undo2,Redo2,FilePlus,Download,FolderOpen,Eye,Plus,ZoomIn,ZoomOut,ChevronDown,X,Layers,Scan,Copy,ClipboardPaste,FlipHorizontal2,FlipVertical2,Trash2,Maximize,Play,Pause,Film,CopyPlus,Sparkles,Palette,SlidersHorizontal,KeyRound,Stamp,BookOpen,PanelsTopLeft} from 'lucide-react';
 import {packProject,unpackProject,isPackedProject,PACKED_PROJECT_MEDIA,MAX_PROJECT_FILE_BYTES,MAX_PROJECT_REQUEST_BYTES} from '../lib/project-codec.ts';
-import {applySnapshotCommands,clipFrameSequence,composite,createDocument,documentCapacity,MAX_ANIMATION_CELLS,MAX_LAYERS,MAX_ANIMATION_FRAMES,MAX_BATCH_PIXEL_WORK,frameCount,frameView,readRegion,validateDocument,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
+import {applySnapshotCommands,clipFrameSequence,composite,createCompactDocument,documentCapacity,MAX_ANIMATION_CELLS,MAX_LAYERS,MAX_ANIMATION_FRAMES,frameCount,frameView,readRegion,validateDocument,type AnimationClip,type PixelDocument,type PaintCommand,type PixelRegion} from '../lib/pixels.ts';
 import {MAX_CANVAS_SIDE} from '../lib/canvas-limits.ts';
 import {buildCanvasPreview,maxPreviewZoom,type CanvasPreviewOptions,type CanvasView} from '../lib/canvas-preview.ts';
 import type {ReferenceImage} from '../lib/reference.ts';
@@ -32,6 +32,7 @@ import WindPanel from './wind-panel.tsx';
 import {STAMP_LIBRARY_LIMIT,loadStamps,captureStamp,stampCommand,positionStamp,stampRgba,addSavedStamp,type StampAsset} from '../lib/stamp-library.ts';
 import {isHexInk,normalizeInk,rememberInk,rgbHex,splitProjectPalette,withOpacity,withRgb} from '../lib/color-workflow.ts';
 type Snapshot=EditorSnapshot;
+type ProjectListItem=Pick<PixelDocument,'id'|'name'|'width'|'height'|'revision'|'updatedAt'>;
 type Tool='select'|'pencil'|'eraser'|'fill'|'picker'|'line'|'rect'|'ellipse'|'stamp';
 const tools=[['pencil',Pencil,'Pencil','B'],['eraser',Eraser,'Eraser','E'],['fill',PaintBucket,'Fill','G'],['picker',Pipette,'Eyedropper','I'],['line',Minus,'Line','L'],['rect',Square,'Rectangle','R'],['ellipse',Circle,'Ellipse','O'],['select',Scan,'Select / move','V'],['stamp',Stamp,'Stamp copied pixels','S']] as const;
 // Keep precise explanations in tooltips/ARIA, but make drawer tile names concise.
@@ -44,7 +45,7 @@ async function api<T>(path:string,body?:unknown):Promise<T>{
   const headers=new Headers({accept:PACKED_PROJECT_MEDIA});
   if(body)headers.set('content-type','application/json');
   const serialized=body?JSON.stringify(wire):undefined;
-  if(serialized && new Blob([serialized]).size>MAX_PROJECT_REQUEST_BYTES)throw new Error('This project exceeds the 12 MB save request limit after compression. Reduce the frame count, layers, or canvas size before importing.');
+  if(serialized && new Blob([serialized]).size>MAX_PROJECT_REQUEST_BYTES)throw new Error(`This project exceeds the ${MAX_PROJECT_REQUEST_BYTES/1_000_000} MB save request limit after compression.`);
   const r=await fetch('/api/pixel/'+path,{method:body?'POST':'GET',headers,...(body?{body:serialized}:{}),cache:'no-store'});
   const data=await r.json() as T & {doc?:PixelDocument;error?:string};
   if(!r.ok)throw Object.assign(new Error(data.error||'Request failed'),{status:r.status});
@@ -144,7 +145,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  const [compactDrawTools,setCompactDrawTools]=useState(false),[drawToolsOpen,setDrawToolsOpen]=useState(false);
  const inspectorRef=useRef<HTMLElement>(null),drawerToggleRef=useRef<HTMLButtonElement>(null),drawerCloseRef=useRef<HTMLButtonElement>(null);
  const drawToolsRef=useRef<HTMLElement>(null),drawToolsToggleRef=useRef<HTMLButtonElement>(null),drawToolsCloseRef=useRef<HTMLButtonElement>(null);
- const [frame,setFrame]=useState(0),[playing,setPlaying]=useState(false),[onion,setOnion]=useState(false),[effectKind,setEffectKind]=useState<EffectKind>('embers'),[effectSeed,setEffectSeed]=useState(53),[snap,setSnap]=useState<Snapshot|null>(null),[list,setList]=useState<PixelDocument[]>([]),[tool,setTool]=useState<Tool>('pencil'),[ink,setInk]=useState('#f6da92'),[hexDraft,setHexDraft]=useState('#f6da92'),[recentColors,setRecentColors]=useState<string[]>([]),[layer,setLayer]=useState('base'),[zoom,setZoom]=useState(10),[grid,setGrid]=useState(true),[filled,setFilled]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState('Opening workspace…'),[error,setError]=useState(''),[cursor,setCursor]=useState('X —   Y —'),[hover,setHover]=useState<{x:number;y:number}|null>(null),[modal,setModal]=useState(false),[name,setName]=useState('Untitled sprite'),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[scale,setScale]=useState(1),[selection,setSelection]=useState<PixelRegion|null>(null),[clipboard,setClipboard]=useState<{width:number;height:number;pixels:number[]}|null>(null),[previewScale,setPreviewScale]=useState(1),[fitMode,setFitMode]=useState(true),[saveState,setSaveState]=useState<Pick<QueueState,'pending'|'saving'|'error'>>({pending:0,saving:false,error:null});
+ const [frame,setFrame]=useState(0),[playing,setPlaying]=useState(false),[onion,setOnion]=useState(false),[effectKind,setEffectKind]=useState<EffectKind>('embers'),[effectSeed,setEffectSeed]=useState(53),[snap,setSnap]=useState<Snapshot|null>(null),[list,setList]=useState<ProjectListItem[]>([]),[tool,setTool]=useState<Tool>('pencil'),[ink,setInk]=useState('#f6da92'),[hexDraft,setHexDraft]=useState('#f6da92'),[recentColors,setRecentColors]=useState<string[]>([]),[layer,setLayer]=useState('base'),[zoom,setZoom]=useState(10),[grid,setGrid]=useState(true),[filled,setFilled]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState('Opening workspace…'),[error,setError]=useState(''),[cursor,setCursor]=useState('X —   Y —'),[hover,setHover]=useState<{x:number;y:number}|null>(null),[modal,setModal]=useState(false),[name,setName]=useState('Untitled sprite'),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[scale,setScale]=useState(1),[selection,setSelection]=useState<PixelRegion|null>(null),[clipboard,setClipboard]=useState<{width:number;height:number;pixels:number[]}|null>(null),[previewScale,setPreviewScale]=useState(1),[fitMode,setFitMode]=useState(true),[saveState,setSaveState]=useState<Pick<QueueState,'pending'|'saving'|'error'>>({pending:0,saving:false,error:null});
  const [quickColorsOpen,setQuickColorsOpen]=useState(false);
  const [referenceView,setReferenceView]=useState<CanvasView>('overlay'),[referenceOpacity,setReferenceOpacity]=useState(.5),[artworkOpacity,setArtworkOpacity]=useState(1);
  const [exportFormat,setExportFormat]=useState<'png'|'svg'>('png');
@@ -280,7 +281,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   queue.current?.dispose();queue.current=new EditQueue(s,request=>api<Snapshot>('projects/'+s.doc.id,request),showQueue);
   setSaveState({pending:0,saving:false,error:null});present(s);
  },[present,showQueue,resetPan]);
- const refresh=useCallback(async()=>setList(await api<PixelDocument[]>('projects')),[]);
+ const refresh=useCallback(async()=>setList(await api<ProjectListItem[]>('projects')),[]);
  // Offer a one-time, dismissible learning hub after a workspace loads.
  useEffect(()=>{
   if(!snap?.doc)return;
@@ -294,7 +295,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[snap?.doc.id]);
  useEffect(()=>{let alive=true;(async()=>{try{
-  const imported=await importPendingKit();const entries=await api<PixelDocument[]>('projects');if(!alive)return;setList(entries);
+  const imported=await importPendingKit();const entries=await api<ProjectListItem[]>('projects');if(!alive)return;setList(entries);
   const wantsReturn=new URLSearchParams(window.location.search).get('resumeUiKit')==='1';
   let resume:UiReturn|null=null;
   if(wantsReturn)try{resume=parseUiReturn(sessionStorage.getItem(UI_RETURN_KEY));}catch{}
@@ -439,14 +440,25 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  },[snap?.doc.id,snap?.doc.width,snap?.doc.height,fitMode,mobileLayout]);
  useEffect(()=>setSelection(null),[layer]);
  useEffect(()=>setHover(null),[zoom,snap?.doc.id]);
- useEffect(()=>{const t=setInterval(async()=>{
-  const q=queue.current;if(!q||q.state.pending||locked.current||stroke.current||selectionDrag.current||document.hidden)return;
-  const before=q.state;
-  try{const s=await api<Snapshot>('projects/'+before.snapshot.doc.id);
-   if(queue.current===q&&!q.state.pending&&q.state.version===before.version&&!locked.current&&!stroke.current&&!selectionDrag.current&&s.doc.revision!==before.snapshot.doc.revision){adopt(s);setNotice('Canvas updated');}
-   if(queue.current===q&&!q.state.pending)await refresh();
-  }catch{}
- },3000);return()=>clearInterval(t);},[adopt,refresh]);
+ useEffect(()=>{
+  let polling=false,active=true;
+  const t=setInterval(async()=>{
+   const q=queue.current;if(polling||!q||q.state.pending||locked.current||stroke.current||selectionDrag.current||document.hidden)return;
+   const before=q.state;
+   const stillIdle=()=>active&&queue.current===q&&!q.state.pending&&q.state.version===before.version&&!locked.current&&!stroke.current&&!selectionDrag.current;
+   polling=true;
+   try{
+    const projects=await api<ProjectListItem[]>('projects');
+    if(!stillIdle())return;
+    setList(projects);
+    const project=projects.find(item=>item.id===before.snapshot.doc.id);
+    if(!project||project.revision===before.snapshot.doc.revision)return;
+    const next=await api<Snapshot>('projects/'+project.id);
+    if(stillIdle()&&next.doc.revision!==before.snapshot.doc.revision){adopt(next);setNotice('Canvas updated');}
+   }catch{}finally{polling=false;}
+  },3000);
+  return()=>{active=false;clearInterval(t);};
+ },[adopt]);
  useEffect(()=>{const beforeUnload=(e:BeforeUnloadEvent)=>{if(queue.current?.state.pending||stroke.current||selectionDrag.current||(uiDraftStorageErrorRef.current&&Object.keys(uiDraftsRef.current).length)){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',beforeUnload);return()=>window.removeEventListener('beforeunload',beforeUnload);},[]);
  const commit=useCallback(async(ops:PaintCommand[],base?:Snapshot,action='paint')=>{
   const q=queue.current;if(!q||locked.current||base&&base.doc.id!==q.state.snapshot.doc.id)return false;
@@ -478,13 +490,13 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   locked.current=true;setBusy(true);
   try{
    await queue.current?.flush();
-   const document={...createDocument(reference.name,reference.width,reference.height,'prepared-reference'),reference};
+   const document={...createCompactDocument(reference.name,reference.width,reference.height,'prepared-reference'),reference};
    adopt(await api<Snapshot>('projects',{document}));setFitMode(true);setReferenceView('overlay');setError('');setNotice('Tracing canvas saved');await refresh();return true;
   }finally{locked.current=false;setBusy(false);}
  };
  const openKitMember=async(id:string)=>{if(await open(id)){setInspectorTab('ui');setUiSections(['kit']);if(mobileLayout)setInspectorOpen(true);}};
  const getKitDocuments=async(kitId:string)=>{
-  const items=await api<PixelDocument[]>('projects');const found:PixelDocument[]=[];
+  const items=await api<ProjectListItem[]>('projects');const found:PixelDocument[]=[];
   for(let i=0;i<items.length;i+=4){
    const snapshots=await Promise.all(items.slice(i,i+4).map(item=>api<Snapshot>('projects/'+item.id)));
    found.push(...snapshots.map(item=>item.doc).filter(item=>item.ui?.kitId===kitId));
@@ -940,15 +952,11 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  const frameFull=!!(capacity&&frames>=capacity.maxFrames);
  const layersFull=!!(d&&capacity&&d.layers.length>=capacity.maxLayers);
  const frameLimitText=frameFull?`All ${MAX_ANIMATION_FRAMES} frames are in use.`:'';
- const layerLimitText=layersFull?(d!.layers.length===MAX_LAYERS?`All ${MAX_LAYERS} layer slots are in use.`:
-  'This canvas needs room for one blank drawing. Remove unused artwork or its reference to add a layer.'):'';
+ const layerLimitText=layersFull?`All ${MAX_LAYERS} layer slots are in use.`:'';
  const plannedSizeValid=[width,height].every(value=>Number.isInteger(value)&&value>=1&&value<=MAX_CANVAS_SIDE);
- const plannedDrawings=plannedSizeValid?Math.floor(MAX_ANIMATION_CELLS/(width*height)):0;
- const drawingSlots=d?Math.floor(MAX_ANIMATION_CELLS/(d.width*d.height)):0;
- const usedDrawings=capacity?drawingSlots-capacity.remainingCelBuffers:0;
- const usage=d?`${usedDrawings.toLocaleString()} / ${drawingSlots.toLocaleString()} drawing buffers used${d.reference?', including the reference':''}. Held cels share a drawing until edited.`:'';
+ const usage=capacity?`${capacity.storedCells.toLocaleString()} / ${MAX_ANIMATION_CELLS.toLocaleString()} pixel cells used${d?.reference?', including the reference':''}. Each distinct drawing uses its cropped area. Held frames share it.`:'';
  const effectRoom=useMemo(()=>d?effectCapacity(d):null,[d]);
- const canBackUpFx=!!(d&&capacity&&d.layers.length<MAX_LAYERS&&capacity.remainingCelBuffers>=frames&&d.width*d.height*frames<=MAX_BATCH_PIXEL_WORK);
+ const canBackUpFx=!!d&&d.layers.length<MAX_LAYERS;
  const previewKey=JSON.stringify([d?.id,d?.revision,effectTarget,activeFrame,effectKind,effectSeed,ink,effectSpeed,effectOpacity,effectDrift]);
  const validFxPreview=fxPreview?.key===previewKey?fxPreview.comparison:null;
  const stampCanFit=!!(d&&activeStamp&&activeStamp.width<=d.width&&activeStamp.height<=d.height);
@@ -1145,7 +1153,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
    <label className="effect-field">Speed<input aria-label="Effect speed" type="number" min={0.25} max={3} step={0.25} value={effectSpeed} onChange={e=>setEffectSpeed(Number(e.target.value))}/></label>
    <label className="effect-field">Opacity<input aria-label="Effect opacity" type="number" min={0.1} max={1} step={0.1} value={effectOpacity} onChange={e=>setEffectOpacity(Number(e.target.value))}/></label>
    <label className="effect-field">Drift<input aria-label="Effect horizontal drift" type="number" min={-3} max={3} step={0.25} value={effectDrift} onChange={e=>setEffectDrift(Number(e.target.value))}/></label>
-   {d&&<p className="effect-capacity" aria-live="polite">{effectRoom?.reason||`Uses one layer across ${effectRoom?.frames} frames.`}</p>}
+   {d&&<p className="effect-capacity" aria-live="polite">{effectRoom?.reason||`Uses one layer across ${frames===1?'up to ':''}${effectRoom?.frames} frames.`}</p>}
    <button className="secondary full effect-generate" disabled={busy||!effectRoom||!!effectRoom.reason} title={effectRoom?.reason||'Generate an effect without stopping playback'} onClick={()=>void addEffect()}><Sparkles size={14}/>Generate editable effect</button>
    {d&&layersFull&&<button type="button" className="text-button effects-manage-link" onClick={()=>activateInspectorTab('layers')}><Layers size={14}/>Manage layers to free a slot</button>}
    {d?.layers.some(l=>l.effect)&&<div className="effect-recipe-panel">
@@ -1165,7 +1173,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
       onChange={e=>{setPreserveFx(e.target.checked);setConfirmFxOverwrite(false);}}/>
      <span>Preserve original as a hidden backup layer</span>
     </label>
-    {!canBackUpFx&&<p className="fx-backup-warning">No room for a backup layer or pixel budget. You can still regenerate, but must explicitly confirm replacing the original.</p>}
+    {!canBackUpFx&&<p className="fx-backup-warning">A backup needs a free layer.</p>}
     {(!canBackUpFx||!preserveFx)&&<label className="fx-overwrite-confirm">
      <input type="checkbox" checked={confirmFxOverwrite} onChange={e=>setConfirmFxOverwrite(e.target.checked)}/>
      <span>I understand the original FX pixels will be replaced without a backup.</span>
@@ -1261,7 +1269,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  {guide.mode!=='off'&&!modal&&!packModal&&<WorkshopGuide mode={guide.mode} scope={guide.scope} index={guide.index}
   onStart={startGuide} onMove={moveGuide} onClose={closeGuide} onMenu={guideMenu}/>}
   {modal&&<div className="modal-backdrop" onClick={()=>setModal(false)}><section className="new-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" onClick={e=>e.stopPropagation()}><button className="dialog-close icon-button" aria-label="Close new canvas dialog" onClick={()=>setModal(false)}><X size={18}/></button><span className="eyebrow">A FRESH LITTLE START</span><h2 id="dialog-title">Make room for an idea.</h2><label>Canvas name<input autoFocus value={name} maxLength={80} onChange={e=>setName(e.target.value)}/></label><div className="dimension-inputs"><label>Width<input type="number" min={1} max={MAX_CANVAS_SIDE} value={width} onChange={e=>setWidth(Number(e.target.value))}/></label><span>×</span><label>Height<input type="number" min={1} max={MAX_CANVAS_SIDE} value={height} onChange={e=>setHeight(Number(e.target.value))}/></label></div><div className="size-presets">{[16,32,48,64,128].map(s=><button key={s} className={width===s&&height===s?'selected':''} onClick={()=>{setWidth(s);setHeight(s);}}>{s}×{s}</button>)}</div>
-   <p className="pack-description" aria-live="polite">{plannedSizeValid?`Up to ${MAX_LAYERS} layers and ${MAX_ANIMATION_FRAMES} frames. At this size, ${plannedDrawings.toLocaleString()} independent drawings fit. Blank layers and held frames can share drawings.`:`Enter whole-number dimensions from 1 to ${MAX_CANVAS_SIDE}.`}</p>
+   <p className="pack-description" aria-live="polite">{plannedSizeValid?`Up to ${MAX_LAYERS} layers and ${MAX_ANIMATION_FRAMES} frames. Drawings store their cropped area. Blank layers and held frames use no extra pixel cells.`:`Enter whole-number dimensions from 1 to ${MAX_CANVAS_SIDE}.`}</p>
    {error&&<p className="error-text">{error}</p>}<button className="primary full" disabled={busy||!plannedSizeValid} onClick={()=>void create()}><Plus size={16}/>Create canvas</button><button className="text-button example-button" disabled={busy} onClick={()=>void create('cottage')}>Open Moonkeeper’s cottage · 64 × 64</button><button className="text-button example-button" disabled={busy} onClick={()=>void create(true)}>Or open the little lantern</button></section></div>}
  </main>;
 }

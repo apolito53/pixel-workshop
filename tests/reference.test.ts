@@ -1,3 +1,4 @@
+import {celPixel} from '../lib/cel-storage.ts';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';
@@ -43,14 +44,14 @@ test('references are immutable guides across paint, animation, palette remap and
  let doc=applyCommands(createDocument('Trace',3,2),[{op:'reference_set',reference:prepareReference(source,'Guide')}]);
  doc=applyCommands(doc,[{op:'pixel',x:1,y:0,color:'#ff0000'},{op:'palette_remap',fromColor:'#ff0000',toColor:'#0000ff'},{op:'frame_add',blank:true}]);
  assert.deepEqual(doc.reference!.pixels,source.pixels);
- assert.equal(doc.layers[0].pixels[1],0x0000ffff);
+ assert.equal(celPixel(doc.layers[0].pixels,1,0,3),0x0000ffff);
  assert.equal(PNG.sync.read(encodePng(doc)).data[3],0);
  assert.deepEqual(PNG.sync.read(Buffer.from(encodeBrowserPng(doc))).data,PNG.sync.read(encodePng(doc)).data);
  assert.deepEqual(buildSpriteSheet(doc).bytes.subarray(0,4),new Uint8Array(4));
  assert.doesNotMatch(encodeSvg(doc),/#123456|#abcdef/);
  assert.deepEqual(validateDocument(JSON.parse(JSON.stringify(doc))),doc);
  assert.throws(()=>applyCommands(doc,[{op:'pixel',x:0,y:0,color:'#ffffff'},{op:'reference_set',reference:{...doc.reference,width:4}}]),/exactly match/);
- assert.equal(doc.layers[0].pixels[0],0,'invalid batch is atomic');
+ assert.equal(celPixel(doc.layers[0].pixels,0,0,3),0,'invalid batch is atomic');
 });
 test('overlay opacity, native crop and integer grid magnification keep every cell registered',()=>{
  const doc=createDocument('Overlay',3,2);doc.reference=prepareReference(source,'Guide');doc.layers[0].pixels[1]=0x0000ffff;
@@ -76,7 +77,10 @@ test('larger canvases share the existing cell budget including the reference and
  assert.equal(validateDocument(doc).height,384);
  const large=createDocument('Limit',1024,1024);large.reference=prepareReference({width:1024,height:1024,pixels:Array(1024*1024).fill(0)},'Full');
  const full=applyCommands(large,[{op:'add_layer',id:'second'},{op:'add_layer',id:'third'},
-  {op:'pixel',layer:'second',x:0,y:0,color:'#211111'},{op:'pixel',layer:'third',x:0,y:0,color:'#311111'}]);assert.equal(documentCells(full),MAX_ANIMATION_CELLS);
+  ...['base','second','third'].flatMap((layer,i)=>[
+    {op:'pixel',layer,x:0,y:0,color:['#111111','#211111','#311111'][i]},
+    {op:'pixel',layer,x:1023,y:1023,color:'#ffffff'}])]);
+ assert.equal(documentCells(full),MAX_ANIMATION_CELLS);
  const held=applyCommands(full,[{op:'add_layer',id:'fourth'},{op:'frame_add'}]);
  assert.equal(documentCells(held),MAX_ANIMATION_CELLS);
  assert.throws(()=>applyCommands(held,[{op:'pixel',layer:'fourth',frame:1,x:0,y:0,color:'#ffffff'}]),/budget/);

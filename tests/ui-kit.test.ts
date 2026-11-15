@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {applyCommands,composite,createDocument,frameView,validateDocument,type PixelDocument} from '../lib/pixels.ts';
+import {celPixel} from '../lib/cel-storage.ts';
 import type {Entry} from '../lib/project-service.ts';
 import {nineSliceContentBounds,stretchNineSlice} from '../lib/ui-metadata.ts';
 import {hasUiDraft,parseUiDrafts,setProjectDraft} from '../lib/ui-drafts.ts';
@@ -8,6 +9,10 @@ import {matchUiReturn,parseUiReturn} from '../lib/ui-return.ts';
 import {kitSignature,overviewKit,parseKitUndo,reviewKitColor,validateKitUndo} from '../lib/kit-review.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
 import {buildGamePack} from '../lib/game-pack.ts';
+
+function pixel(doc:PixelDocument,x:number,y:number,layer=0,frame=0){
+ return celPixel(frameView(doc,frame).layers[layer].pixels,x,y,doc.width);
+}
 
 test('nine-slice preview preserves corners and alpha while scaling the center',()=>{
  const source=new Uint8Array(5*5*4);
@@ -83,7 +88,7 @@ test('typed text survives project round trips, can be edited, and becomes ordina
  assert.equal(edit.layers[1].text?.text,'MOON');
  const painted=applyCommands(edit,[{op:'pixel',layer:'title',x:0,y:0,color:'#123456'}]);
  assert.equal(painted.layers[1].text,undefined);
- assert.notEqual(painted.layers[1].pixels[0],0);
+ assert.notEqual(pixel(painted,0,0,1),0);
 });
 test('palette remapping reaches hidden layers and every frame without changing transparency',()=>{
  const d=applyCommands(createDocument('Colors',8,8),[
@@ -92,15 +97,15 @@ test('palette remapping reaches hidden layers and every frame without changing t
   {op:'visibility',layer:'hidden',visible:false},{op:'palette',colors:['#ff0000','#12345680']}
  ]);
  const changed=applyCommands(d,[{op:'palette_remap',fromColor:'#ff0000',toColor:'#00ff00'}]);
- assert.equal(changed.layers[0].pixels[0],0x00ff0080);
- assert.equal(changed.layers[1].pixels[9],0x00ff0040);
- assert.equal(changed.animation?.frames[0].pixels.base[0],0x00ff0080);
+ assert.equal(pixel(changed,0,0),0x00ff0080);
+ assert.equal(pixel(changed,1,1,1),0x00ff0040);
+ assert.equal(pixel(changed,0,0,0,1),0x00ff0080);
  assert.deepEqual(changed.palette,['#00ff00','#12345680']);
- assert.equal(d.layers[0].pixels[0],0xff000080);
+ assert.equal(pixel(d,0,0),0xff000080);
 });
 test('kit review previews visible pixels and counts all frames, hidden layers and palette entries',()=>{
  const doc=applyCommands(createDocument('Panel',8,8,'panel'),[
-  {op:'pixel',x:0,y:0,color:'#ff000080'},{op:'add_layer',id:'hidden',name:'Hidden'},
+  {op:'pixel',x:5,y:3,color:'#ff000080'},{op:'add_layer',id:'hidden',name:'Hidden'},
   {op:'pixel',layer:'hidden',x:1,y:1,color:'#ff000040'},{op:'visibility',layer:'hidden',visible:false},
   {op:'frame_add',id:'second',source_frame:0},{op:'palette',colors:['#ff0000']},
   {op:'ui_set',ui:{kitId:'kit-one',assetKey:'uiPanel'}}
@@ -108,8 +113,10 @@ test('kit review previews visible pixels and counts all frames, hidden layers an
  const untouched=createDocument('Other',8,8,'other');
  const review=reviewKitColor([doc,untouched],'kit-one','#ff0000','#00ff00');
  assert.equal(review.impacts.length,1);assert.equal(review.impacts[0].pixels,4);assert.equal(review.impacts[0].metadata,true);
- assert.deepEqual(Array.from(review.impacts[0].before.slice(0,4)),[255,0,0,128]);
- assert.deepEqual(Array.from(review.impacts[0].after.slice(0,4)),[0,255,0,128]);
+ const offset=(3*doc.width+5)*4;
+ assert.deepEqual(Array.from(review.impacts[0].before.slice(offset,offset+4)),[255,0,0,128]);
+ assert.deepEqual(Array.from(review.impacts[0].after.slice(offset,offset+4)),[0,255,0,128]);
+ assert.deepEqual(Array.from(review.impacts[0].after.slice(0,4)),[0,0,0,0]);
  assert.equal(review.signature,kitSignature([untouched,doc]));
  assert.notEqual(review.signature,kitSignature([{...doc,revision:doc.revision+1},untouched]));
  const overview=overviewKit([doc,untouched]);assert.equal(overview.count,2);
@@ -133,10 +140,10 @@ test('kit-wide undo requires the exact latest recolor and retries safely after a
  assert.match(validateKitUndo(journal,[{...recolored.doc,revision:recolored.doc.revision+1}])!,/changed/);
  const request=(expected:string)=>new Request(`https://workshop.test/api/pixel/projects/${initial.id}`,{method:'POST',body:JSON.stringify({revision:recolored.doc.revision,action:'undo',requestId:'kit-undo-1',expectedLastRequestId:expected})});
  const blocked=await pixelApi(request('different-edit'),service);assert.equal(blocked.status,409);
- assert.equal((await service.get(initial.id)).entry.doc.layers[0].pixels[0],0x00ff00ff);
+ assert.equal(pixel((await service.get(initial.id)).entry.doc,0,0),0x00ff00ff);
  const undone=await pixelApi(request('kit-color-1'),service);assert.equal(undone.status,200);
  const repeated=await pixelApi(request('kit-color-1'),service);assert.equal(repeated.status,200);
- assert.equal((await service.get(initial.id)).entry.doc.layers[0].pixels[0],0xff0000ff);
+ assert.equal(pixel((await service.get(initial.id)).entry.doc,0,0),0xff0000ff);
  assert.equal((await service.get(initial.id)).entry.doc.revision,recolored.doc.revision+1);
 });
 
@@ -147,7 +154,7 @@ test('exported kit can be read back and refuses corrupted ZIP contents',async()=
  const art=createStardropArt(),edited=applyCommands(art.uiPanel,[{op:'pixel',layer:'base',x:20,y:20,color:'#123456'}]);
  const bytes=buildGamePack([edited]).bytes,docs=readGamePack(bytes);
  assert.equal(docs.length,1);assert.deepEqual(docs[0].ui,edited.ui);
- assert.equal(applyStardropUiKit(art,docs).art.uiPanel.layers[0].pixels[20+20*edited.width],0x123456ff);
+ assert.equal(pixel(applyStardropUiKit(art,docs).art.uiPanel,20,20),0x123456ff);
  assert.throws(()=>applyStardropUiKit(art,[edited,edited]),/more than one/);
  const corrupted=bytes.slice(),firstNameLength=new DataView(corrupted.buffer).getUint16(26,true);corrupted[30+firstNameLength+10]^=1;
  assert.throws(()=>readGamePack(corrupted),/integrity|game pack|entry|manifest/i);
@@ -200,11 +207,11 @@ test('Stardrop UI projects survive workspace import, editing, export and game pr
  const saved=await service.store.list(),pack=buildGamePack(saved),documents=readGamePack(pack.bytes);
  const preview=applyStardropUiKit(original,documents);
  assert.equal(preview.count,8);
- assert.equal(preview.art.uiPanel.layers[0].pixels[20+20*panel.width],0x123456ff);
+ assert.equal(pixel(preview.art.uiPanel,20,20),0x123456ff);
  assert.deepEqual(preview.art.uiPanel.ui?.slice,panelEdit.doc.ui!.slice);
  assert.equal(uiFrame(preview.art.uiButton,'rest',0),3);
  assert.equal(preview.art.uiLogo.layers.find(layer=>layer.id==='headline')?.text?.color,'#34aadd');
  assert.equal(preview.art.moonkeeper,original.moonkeeper);
- assert.equal(original.uiPanel.layers[0].pixels[20+20*panel.width]===0x123456ff,false);
+ assert.equal(pixel(original.uiPanel,20,20)===0x123456ff,false);
  assert.ok(pack.manifest.assets.every(asset=>asset.ui?.kitId==='roundtrip-kit'));
 });

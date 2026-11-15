@@ -33,7 +33,7 @@ test('duplicated backup preserves all original cels and has no regenerable recip
   const saved=frameView(updated,i).layers.find(l=>l.id==='frozen')!;
   assert.deepEqual(saved.pixels,original.pixels,'backup frame '+i);
  }
- assert.equal(updated.layers[0].pixels[0],before.layers[0].pixels[0]);
+ assert.deepEqual(updated.layers[0].pixels,before.layers[0].pixels);
  assert.deepEqual(validateDocument(updated),updated);
 });
 test('duplicate layer errors leave the original document unchanged',()=>{

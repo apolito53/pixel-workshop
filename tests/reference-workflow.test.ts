@@ -8,9 +8,11 @@ import {ProjectService} from '../lib/project-service.ts';
 import {fileStore} from '../server/file-store.ts';
 import {callTool} from '../lib/mcp-tools.ts';
 import {createDocument,frameView,type PixelDocument} from '../lib/pixels.ts';
+import {denseCel} from '../lib/cel-storage.ts';
 import {fitCanvasDimensions} from '../lib/canvas-limits.ts';
 import {fitReferenceAlignment,prepareReference,referenceRgba} from '../lib/reference.ts';
 
+const layerPixels=(doc:PixelDocument,index=0)=>denseCel(doc.layers[index].pixels,doc.width,doc.height);
 const source={width:3,height:2,pixels:[0x12345603,0xff0000ff,0x00ff0080,0x102030ff,0x04050600,0xabcdef88]};
 const pngFor=(s=source)=>{const png=new PNG({width:s.width,height:s.height});png.data.set(referenceRgba(s));return PNG.sync.write(png).toString('base64');};
 async function fixture(run:(service:ProjectService,call:(name:string,args:Record<string,unknown>)=>Promise<any>)=>Promise<void>){
@@ -25,7 +27,7 @@ test('one-call PNG import produces exact editable artwork and compact verificati
  const made=await call('import_reference',{png_base64:pngFor(),copy_to_layer:true,name:'Generated sprite'});
  assert.equal(made.copy.exactMatch,true);assert.equal(made.copy.matchingPixels,6);assert.equal(made.copy.layer,'base');assert.equal(made.preview.view,'artwork');
  assert.equal(made.referencePreparation.resampled,false);assert.equal(made.layers[0].pixels,undefined);assert.equal(made.reference.pixels,undefined);
- const doc=(await service.get(made.id)).entry.doc;assert.deepEqual(doc.layers[0].pixels,source.pixels);assert.deepEqual(doc.reference!.pixels,source.pixels);
+ const doc=(await service.get(made.id)).entry.doc;assert.deepEqual(layerPixels(doc),source.pixels);assert.deepEqual(doc.reference!.pixels,source.pixels);
  const exported=await callTool(service,'export_png',{id:made.id});
  const image=exported.content.find(c=>c.type==='image');assert.ok(image&&image.type==='image');
  const decoded=PNG.sync.read(Buffer.from(image.data,'base64')),expected=referenceRgba(source);
@@ -41,11 +43,11 @@ test('copy uses a new layer by default, protects other artwork, and undo/redo in
  const before=await service.edit(made.id,0,'paint',[{op:'pixel',x:0,y:0,color:'#ffffff'}]);
  const copied=await call('copy_reference',{id:made.id,revision:before.revision,name:'Copied source'});
  const doc=(await service.get(made.id)).entry.doc;
- assert.equal(doc.layers.length,2);assert.equal(doc.layers[1].name,'Copied source');assert.deepEqual(doc.layers[0].pixels,before.layers[0].pixels);assert.deepEqual(doc.layers[1].pixels,source.pixels);
+ assert.equal(doc.layers.length,2);assert.equal(doc.layers[1].name,'Copied source');assert.deepEqual(doc.layers[0].pixels,before.layers[0].pixels);assert.deepEqual(layerPixels(doc,1),source.pixels);
  assert.equal(copied.copy.exactMatch,true);assert.equal(copied.layers[1].pixels,undefined);
  assert.equal((await call('compare_reference',{id:made.id})).visibleMatch,false,'composited art can differ even when the copied layer matches');
  const undo=await service.edit(made.id,doc.revision,'undo');assert.equal(undo.layers.length,1);assert.deepEqual(undo.reference,before.reference);
- const redo=await service.edit(made.id,undo.revision,'redo');assert.deepEqual(redo.layers[1].pixels,source.pixels);
+ const redo=await service.edit(made.id,undo.revision,'redo');assert.deepEqual(layerPixels(redo,1),source.pixels);
  const stale=await callTool(service,'copy_reference',{id:made.id,revision:0});assert.equal(stale.isError,true);assert.equal((await service.get(made.id)).entry.doc.layers.length,2);
 }));
 
@@ -53,7 +55,7 @@ test('copy targets only the requested animation cel, replacing transparent pixel
  const made=await call('import_reference',{png_base64:pngFor()});
  const before=await service.edit(made.id,0,'paint',[{op:'rect',x:0,y:0,width:3,height:2,color:'#ffffffff'},{op:'frame_add'}]);
  const copied=await call('copy_reference',{id:made.id,revision:before.revision,layer:'base',frame:1});
- const doc=(await service.get(made.id)).entry.doc;assert.deepEqual(doc.layers[0].pixels,before.layers[0].pixels);assert.deepEqual(frameView(doc,1).layers[0].pixels,source.pixels);
+ const doc=(await service.get(made.id)).entry.doc;assert.deepEqual(doc.layers[0].pixels,before.layers[0].pixels);assert.deepEqual(layerPixels(frameView(doc,1)),source.pixels);
  assert.equal(copied.copy.frame,1);assert.equal(copied.copy.exactMatch,true);
  const beforeInvalid=structuredClone(doc);
  for(const args of [{frame:2},{frame:.5},{layer:'missing'},{layer:'base',name:'Misleading'},{name:''}]){
@@ -82,13 +84,13 @@ test('fitting is shared with the browser, native sizing rejects loss, and crops 
  assert.ok(prepareReference(tall,'Tall',fitReferenceAlignment(1,4096)).pixels.every(p=>p===0x123456ff));
  const made=await call('import_reference',{png_base64,copy_to_layer:true});
  assert.deepEqual([made.width,made.height],[1024,128]);assert.equal(made.referencePreparation.resampled,true);assert.equal(made.referencePreparation.sourceWidth,2048);assert.equal(made.copy.exactMatch,true);
- assert.deepEqual((await service.get(made.id)).entry.doc.layers[0].pixels,prepareReference(large,'Expected',alignment).pixels);
+ assert.deepEqual(layerPixels((await service.get(made.id)).entry.doc),prepareReference(large,'Expected',alignment).pixels);
  const count=(await service.store.list()).length;
  for(const args of [{sizing:'native'},{sizing:'invalid'},{sizing:'native',alignment}])assert.equal((await callTool(service,'import_reference',{png_base64,...args})).isError,true);
  assert.equal((await service.store.list()).length,count,'invalid imports leave no projects');
  const crop=await call('import_reference',{png_base64,copy_to_layer:true,alignment:{width:2,height:2,offsetX:513,offsetY:44,cellWidth:1,cellHeight:1}});
  assert.equal(crop.referencePreparation.resampled,false);assert.equal(crop.referencePreparation.croppedOrPadded,true);
- assert.deepEqual((await service.get(crop.id)).entry.doc.layers[0].pixels,[large.pixels[44*2048+513],large.pixels[44*2048+514],large.pixels[45*2048+513],large.pixels[45*2048+514]]);
+ assert.deepEqual(layerPixels((await service.get(crop.id)).entry.doc),[large.pixels[44*2048+513],large.pixels[44*2048+514],large.pixels[45*2048+513],large.pixels[45*2048+514]]);
 }));
 
 test('attaching and copying a reference to an existing canvas is one atomic, undoable edit',()=>fixture(async(service,call)=>{
@@ -105,7 +107,7 @@ test('missing references and layer budgets fail without modifying saved artwork'
  const empty=await service.create('Empty',3,2);
  for(const name of ['copy_reference','compare_reference'])assert.equal((await callTool(service,name,{id:empty.id,revision:0})).isError,true);
  let full:PixelDocument={...createDocument('Budget',1024,1024),reference:prepareReference({width:1024,height:1024,pixels:Array(1024*1024).fill(0xff112280)},'Large')};
- full.layers[0].pixels[0]=17;
+ full.layers[0].pixels=Array(1024*1024).fill(17);
  full.layers.push({...full.layers[0],id:'second',pixels:Array(1024*1024).fill(27)},{...full.layers[0],id:'third',pixels:Array(1024*1024).fill(37)});full=await service.create('Budget',1024,1024,full);
  assert.equal((await callTool(service,'copy_reference',{id:full.id,revision:0})).isError,true);
  assert.deepEqual((await service.get(full.id)).entry.doc,full);

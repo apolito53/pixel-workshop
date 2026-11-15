@@ -1,8 +1,9 @@
+import {celData,celPixel} from '../lib/cel-storage.ts';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {PNG} from 'pngjs';
-import {applyCommands,createDocument,color,composite,frameCount,frameView,readRegion,validateDocument,canvasCapacity,documentCapacity,documentCells,MAX_LAYERS,MAX_ANIMATION_FRAMES,type AnimationClip} from '../lib/pixels.ts';
-import {EFFECT_KINDS,EFFECT_PRESETS,EFFECT_GROUPS,effectPixels,generateEffectCommands,regenerateEffectCommands,hasFreeEffectLayerSlot} from '../lib/effects.ts';
+import {applyCommands,applySnapshotCommands,createCompactDocument,createDocument,color,composite,frameCount,frameView,readRegion,validateDocument,canvasCapacity,documentCapacity,documentCells,MAX_LAYERS,MAX_ANIMATION_FRAMES,type AnimationClip} from '../lib/pixels.ts';
+import {EFFECT_KINDS,EFFECT_PRESETS,EFFECT_GROUPS,effectCel,effectPixels,generateEffectCommands,regenerateEffectCommands,hasFreeEffectLayerSlot} from '../lib/effects.ts';
 import {buildSpriteSheet} from '../lib/sprite-sheet.ts';
 import {encodeRgbaPng} from '../lib/png.ts';
 import {encodeBrowserRgba} from '../lib/browser-png.ts';
@@ -28,11 +29,11 @@ test('editing an animation frame leaves base art untouched; transforms use selec
     {op:'transform',frame:1,mode:'move',x:1,y:1,width:1,height:1,x2:0,y2:0}
   ]);
   assert.equal(frameCount(base),2);
-  assert.equal(base.layers[0].pixels[1+4],color('#ff0000'));
-  assert.equal(base.layers[0].pixels[2+8],0);
-  assert.equal(frameView(base,1).layers[0].pixels[0],color('#ff0000'));
-  assert.equal(frameView(base,1).layers[0].pixels[1+4],0);
-  assert.equal(frameView(base,1).layers[0].pixels[2+8],color('#00ff00'));
+  assert.equal(celPixel(base.layers[0].pixels,1,1,base.width),color('#ff0000'));
+  assert.equal(celPixel(base.layers[0].pixels,2,2,base.width),0);
+  assert.equal(celPixel(frameView(base,1).layers[0].pixels,0,0,base.width),color('#ff0000'));
+  assert.equal(celPixel(frameView(base,1).layers[0].pixels,1,1,base.width),0);
+  assert.equal(celPixel(frameView(base,1).layers[0].pixels,2,2,base.width),color('#00ff00'));
   assert.deepEqual(readRegion(base,'base',{x:0,y:0,width:1,height:1},1),[color('#ff0000')]);
   assert.deepEqual(validateDocument(JSON.parse(JSON.stringify(base))),base);
 });
@@ -44,8 +45,8 @@ test('layer management propagates to all frames; blank cels and frame deletion w
     {op:'set_fps',fps:12}
   ]);
   assert.equal(doc.animation?.fps,12);
-  assert.equal(frameView(doc,1).layers[1].pixels[0],color('#abcdef80'));
-  assert.equal(frameView(doc,0).layers[1].pixels[0],0);
+  assert.equal(celPixel(frameView(doc,1).layers[1].pixels,0,0,doc.width),color('#abcdef80'));
+  assert.equal(celPixel(frameView(doc,0).layers[1].pixels,0,0,doc.width),0);
   doc=applyCommands(doc,[{op:'delete_layer',layer:'base'}]);
   assert.equal(doc.layers.length,1);
   assert.deepEqual(Object.keys(doc.animation!.frames[0].pixels),['glow']);
@@ -58,7 +59,7 @@ test('invalid imported cels and impossible edits fail without modifying original
   const bad=structuredClone(d);bad.animation!.frames[0].pixels.base=[1];
   assert.throws(()=>validateDocument(bad),/cel pixels/);
   assert.throws(()=>applyCommands(d,[{op:'pixel',frame:1,x:0,y:0,color:'#00ff00'},{op:'pixel',frame:2,x:0,y:0,color:'#ff0000'}]));
-  assert.equal(frameView(d,1).layers[0].pixels[0],0);
+  assert.equal(celPixel(frameView(d,1).layers[0].pixels,0,0,d.width),0);
 });
 test('sprite sheet exports exact RGBA and matching atlas coordinates',()=>{
   const d=applyCommands(createDocument('Two Frames',2,2),[
@@ -119,9 +120,9 @@ test('seeded procedural VFX produce editable transparent layers, preserving orig
   assert.equal(commands[0].op,'add_layer');
   const animated=applyCommands(base,commands);
   assert.ok(frameCount(animated)>1);
-  assert.equal(animated.layers[0].pixels[33],color('#ffffff'));
+  assert.equal(celPixel(animated.layers[0].pixels,1,1,animated.width),color('#ffffff'));
   assert.equal(animated.layers.length,2);
-  assert.ok(frameView(animated,1).layers[1].pixels.some(Boolean));
+  assert.ok(celData(frameView(animated,1).layers[1].pixels).some(Boolean));
   assert.deepEqual(validateDocument(JSON.parse(JSON.stringify(animated))),animated);
   assert.equal(composite(frameView(animated,1)).length,32*32*4);
 });
@@ -163,8 +164,8 @@ test('all generators become undoable pixel layers without altering existing art'
     assert.equal(frameCount(withFx),8,kind);
     assert.equal(withFx.layers.length,2,kind);
     assert.equal(withFx.layers[1].name,EFFECT_PRESETS[kind].label+' FX',kind);
-    assert.equal(withFx.layers[0].pixels[25],color('#aabbcc'),kind);
-    assert.ok(frameView(withFx,2).layers[1].pixels.some(Boolean),kind);
+    assert.equal(celPixel(withFx.layers[0].pixels,1,1,withFx.width),color('#aabbcc'),kind);
+    assert.ok(celData(frameView(withFx,2).layers[1].pixels).some(Boolean),kind);
     assert.deepEqual(validateDocument(JSON.parse(JSON.stringify(withFx))),withFx,kind);
   }
 });
@@ -216,7 +217,7 @@ test('saved VFX recipes survive import and can be regenerated without touching o
  assert.deepEqual(fx.effect,recipe);
  const modified=applyCommands(first,regenerateEffectCommands(first,fx.id,{...recipe,seed:117,speed:2,opacity:.5,drift:1}));
  assert.equal(modified.layers.length,2);
- assert.equal(modified.layers[0].pixels[0],color('#abcdef'));
+ assert.equal(celPixel(modified.layers[0].pixels,0,0,modified.width),color('#abcdef'));
  assert.equal(frameCount(modified),frameCount(first));
  assert.equal(modified.layers.find(l=>l.id===fx.id)?.effect?.seed,117);
  assert.equal(modified.layers.find(l=>l.id===fx.id)?.effect?.speed,2);
@@ -243,8 +244,8 @@ test('independent frame estimates and held cel capacity distinguish artwork from
     {op:'add_layer',id:'blossoms'},{op:'add_layer',id:'lamp'},
     ...Array.from({length:17},()=>({op:'frame_add'})),
   ]);
-  assert.equal(documentCells(doc),128*128);
-  assert.deepEqual(documentCapacity(doc),{maxFrames:96,maxLayers:64,remainingCelBuffers:255,blankAvailable:true});
+  assert.equal(documentCells(doc),0);
+  assert.deepEqual(documentCapacity(doc),{maxFrames:96,maxLayers:64,remainingCelBuffers:256,blankAvailable:true,storedCells:0,remainingCells:4194304});
   assert.deepEqual(frameView(doc,17).layers.map(layer=>layer.pixels===doc.layers[0].pixels),[true,true,true]);
 });
 test('96 frames and 64 layers support late-cel edits, FX, named clips, imports and exports',()=>{
@@ -263,4 +264,36 @@ test('96 frames and 64 layers support late-cel edits, FX, named clips, imports a
   assert.throws(()=>applyCommands(final,[{op:'add_layer',id:'overflow'}]),/64 layers/);
   assert.throws(()=>validateDocument({...final,layers:[...final.layers,final.layers[0]]}),/64 layers/);
   assert.throws(()=>validateDocument({...final,animation:{...final.animation,frames:[...final.animation!.frames,final.animation!.frames[0]]}}),/animation settings/);
+});
+
+test('weather fits a new still to actual cropped work and available pixels, preserving existing timeline lengths',()=>{
+  const still=createCompactDocument('Rain',1024,1024),recipe={kind:'rain' as const,seed:53,ink:'#4499cc'};
+  const blank=applySnapshotCommands(still,generateEffectCommands(still,recipe));
+  assert.equal(frameCount(blank),4);
+  const reference={width:1024,height:1024,name:'Guide',pixels:new Array<number>(1024*1024).fill(0)};
+  const guided={...still,reference};
+  const shorter=applySnapshotCommands(guided,generateEffectCommands(guided,recipe));
+  assert.equal(frameCount(shorter),3);
+  const five=applySnapshotCommands(still,Array.from({length:4},()=>({op:'frame_add'})));
+  assert.throws(()=>generateEffectCommands(five,recipe),/too large/);
+  const fullLayers=Array.from({length:2},(_,i)=>({...still.layers[0],id:'l'+i,
+    pixels:{x:0,y:0,width:1024,height:1024,data:new Array<number>(1024*1024).fill(i+1)}}));
+  assert.throws(()=>generateEffectCommands({...guided,layers:fullLayers},recipe),/available project pixels/);
+});
+
+test('regeneration releases all slots of a held drawing before charging its replacements',()=>{
+  const doc=createCompactDocument('Blast',1024,1024),recipe={kind:'explosion' as const,seed:53,ink:'#4499cc',speed:1,opacity:1,drift:0};
+  const base=doc.layers[0],solid={x:0,y:0,width:1024,height:1024,data:Array<number>(1024*1024).fill(0xf87722ff)};
+  const fx={...base,id:'fx',name:'Old blast',effect:recipe,pixels:solid};
+  const scenery=[1,2].map(i=>({...base,id:'bg'+i,pixels:{...solid,data:Array<number>(solid.data.length).fill(i)}}));
+  const layers=[base,...scenery,fx];
+  const held=Object.fromEntries(layers.map(layer=>[layer.id,layer.pixels]));
+  const original={...doc,layers,reference:{name:'Guide',width:1024,height:1024,pixels:Array<number>(1024*1024).fill(0)},
+    animation:{fps:8,frames:[{id:'middle',pixels:{...held}},{id:'end',pixels:{...held}}]}};
+  const commands=regenerateEffectCommands(original,'fx',recipe);
+  assert.throws(()=>applySnapshotCommands(original,commands.filter(c=>c.op!=='clear')),/pixel budget/);
+  const replaced=applySnapshotCommands(original,commands);
+  assert.equal(frameCount(replaced),3);
+  assert.equal(replaced.layers[0].pixels,base.pixels);
+  assert.deepEqual(replaced.layers.at(-1)!.pixels,effectCel(1024,1024,0,3,recipe));
 });

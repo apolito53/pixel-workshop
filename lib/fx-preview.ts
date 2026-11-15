@@ -1,5 +1,5 @@
 import {composite,frameCount,frameView,type PixelDocument} from './pixels.ts';
-import {effectPixels,normalizeEffectRecipe,type EffectRecipe} from './effects.ts';
+import {effectCel,normalizeEffectRecipe,type EffectRecipe} from './effects.ts';
 
 export type FxComparison={width:number;height:number;frame:number;before:Uint8Array;after:Uint8Array;changedPixels:number};
 export function compareEffectFrame(doc:PixelDocument,layer:string,frame:number,recipe:EffectRecipe):FxComparison{
@@ -7,7 +7,7 @@ export function compareEffectFrame(doc:PixelDocument,layer:string,frame:number,r
  if(!target?.effect)throw new Error('Choose a generated effect layer.');
  if(!Number.isInteger(frame)||frame<0||frame>=frameCount(doc))throw new Error('Invalid effect preview frame.');
  const view=frameView(doc,frame),before=composite(view);
- const updated=effectPixels(doc.width,doc.height,frame,frameCount(doc),normalizeEffectRecipe(recipe));
+ const updated=effectCel(doc.width,doc.height,frame,frameCount(doc),normalizeEffectRecipe(recipe));
  const next={...view,layers:view.layers.map(l=>l.id===layer?{...l,pixels:updated}:l)};
  const after=composite(next);
  let changedPixels=0;

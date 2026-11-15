@@ -1,3 +1,4 @@
+import {celPixel} from '../lib/cel-storage.ts';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {applyCommands,applySnapshotCommands,createDocument,type PaintCommand} from '../lib/pixels.ts';
@@ -41,9 +42,9 @@ test('failed multi-frame paints keep every preceding snapshot and text recipe in
   assert.deepEqual(source,before);
   const next=applySnapshotCommands(source,[red]);
   const second=applySnapshotCommands(next,[{...red,color:'#00ffff'}]);
-  assert.equal(source.animation!.frames[0].pixels.ink[18],before.animation!.frames[0].pixels.ink[18]);
-  assert.equal(next.animation!.frames[0].pixels.ink[18],0xff0000ff);
-  assert.equal(second.animation!.frames[0].pixels.ink[18],0x00ffffff);
+  assert.equal(celPixel(source.animation!.frames[0].pixels.ink,2,2,8),celPixel(before.animation!.frames[0].pixels.ink,2,2,8));
+  assert.equal(celPixel(next.animation!.frames[0].pixels.ink,2,2,8),0xff0000ff);
+  assert.equal(celPixel(second.animation!.frames[0].pixels.ink,2,2,8),0x00ffffff);
   const structural=applySnapshotCommands(source,[red,{op:'rename',name:'New name'}]);
   assert.equal(structural.layers[0].pixels,source.layers[0].pixels,'a metadata edit preserves the held background');
   assert.deepEqual(source,before);

@@ -1,5 +1,5 @@
 import {unpackProject,projectSummary,type ProjectSummary} from './project-codec.ts';
-import { applySnapshotCommands, createDocument, validateDocument, historyLimit, type PixelDocument, type PaintCommand } from './pixels.ts';
+import { applySnapshotCommands, createCompactDocument, validateDocument, historyLimit, type PixelDocument, type PaintCommand } from './pixels.ts';
 import type { EditorEdit, EditorSnapshot } from './edit-queue.ts';
 export type Entry={doc:PixelDocument;undo:PixelDocument[];redo:PixelDocument[];lastRequest?:{id:string;revision:number}};
 export interface ProjectStore { list():Promise<PixelDocument[]>; listSummaries?():Promise<ProjectSummary[]>; get(id:string):Promise<{entry:Entry;etag:string}|null>; put(id:string,entry:Entry,etag?:string):Promise<void> }
@@ -10,20 +10,22 @@ export class ProjectService {
   async listSummaries(){
     return this.store.listSummaries?this.store.listSummaries():(await this.store.list()).map(projectSummary);
   }
-  async create(name:string,width:number,height:number,imported?:unknown){
-    const doc=imported?validateDocument(unpackProject(imported)):createDocument(name,width,height);doc.id=crypto.randomUUID();doc.revision=0;doc.updatedAt=new Date().toISOString();
+  async create(name:string,width:number,height:number,imported?:unknown,beforeSave?:(doc:PixelDocument)=>void){
+    const doc=imported?validateDocument(unpackProject(imported)):createCompactDocument(name,width,height);doc.id=crypto.randomUUID();doc.revision=0;doc.updatedAt=new Date().toISOString();
+    beforeSave?.(doc);
     await this.store.put(doc.id,{doc,undo:[],redo:[]});return doc;
   }
   async get(id:string){const result=await this.store.get(safeId(id));if(!result)throw new Error('Project not found.');return result;}
   async edit(id:string,revision:number,action:'paint'|'undo'|'redo',commands?:PaintCommand[]){
     return (await this.editSnapshot(id,revision,[{action,commands}])).doc;
   }
-  async editSnapshot(id:string,revision:number,edits:EditorEdit[],requestId?:string,expectedLastRequestId?:string):Promise<EditorSnapshot>{
+  async editSnapshot(id:string,revision:number,edits:EditorEdit[],requestId?:string,expectedLastRequestId?:string,beforeSave?:(doc:PixelDocument)=>void):Promise<EditorSnapshot>{
     if(!Array.isArray(edits)||!edits.length||edits.length>8||edits.some(e=>!e||!['paint','undo','redo'].includes(e.action)))throw new Error('Send 1–8 valid edits in one save.');
     if(edits.reduce((n,e)=>n+(e.commands?.length??0),0)>5000)throw new Error('Send at most 5000 drawing commands in one save.');
     if(requestId!==undefined&&(typeof requestId!=='string'||!/^[a-z0-9_-]{1,100}$/i.test(requestId)))throw new Error('Invalid save request ID.');
     if(expectedLastRequestId!==undefined&&(typeof expectedLastRequestId!=='string'||!/^[a-z0-9_-]{1,100}$/i.test(expectedLastRequestId)||edits.length!==1||edits[0].action!=='undo'))throw new Error('Invalid guarded undo.');
-    const {entry,etag}=await this.get(id);
+    const {entry:stored,etag}=await this.get(id);
+    const entry={...stored,undo:[...stored.undo],redo:[...stored.redo]};
     const snapshot=()=>({doc:entry.doc,canUndo:!!entry.undo.length,canRedo:!!entry.redo.length});
     // A lost response can be retried without painting twice or adding another
     // undo step. A later external edit still triggers the revision guard.
@@ -42,6 +44,7 @@ export class ProjectService {
      const limit=historyLimit(entry.doc);entry.undo=entry.undo.slice(-limit);entry.redo=entry.redo.slice(-limit);
     }
     if(requestId)entry.lastRequest={id:requestId,revision:entry.doc.revision};
+    beforeSave?.(entry.doc);
     await this.store.put(id,entry,etag);return snapshot();
   }
 }

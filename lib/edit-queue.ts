@@ -10,15 +10,18 @@ const initial=(snapshot:EditorSnapshot):History=>({snapshot,undo:[],redo:[],unkn
 
 // Local history only covers states actually seen by this editor. Older history
 // is resolved by the server; subsequent edits are rebased on that response.
-function project(base:History,edits:EditorEdit[]):History {
+function project(base:History,edits:EditorEdit[],costs:WeakMap<EditorEdit,number>):History {
   const state={...base,undo:[...base.undo],redo:[...base.redo],snapshot:{...base.snapshot}};
   for(const edit of edits){
     const old=state.snapshot.doc;
     if(edit.action==='paint'){
-      state.snapshot.doc=applySnapshotCommands(old,edit.commands!);
+      const work={spent:0};
+      state.snapshot.doc=applySnapshotCommands(old,edit.commands!,work);
+      costs.set(edit,state.unresolved?MAX_BATCH_PIXEL_WORK:work.spent);
       if(!state.unresolved)state.undo.push(old);
       state.redo=[];state.unknownRedo=false;
     }else{
+      costs.set(edit,MAX_BATCH_PIXEL_WORK);
       if(state.unresolved)throw new Error('Wait for the previous history step to save.');
       const undo=edit.action==='undo',from=undo?state.undo:state.redo,to=undo?state.redo:state.undo;
       if(from.length){
@@ -38,24 +41,6 @@ function project(base:History,edits:EditorEdit[]):History {
   return state;
 }
 
-// Conservative work bounds let small strokes share a request without exceeding
-// the drawing engine's per-request command/work limits.
-function workBound(edit:EditorEdit,doc:PixelDocument){
-  // The cost of an edit that changes document structure depends on its position
-  // in the batch. Save it alone, preserving its atomicity and its undo boundary.
-  if(edit.action!=='paint'||edit.commands?.some(c=>[
-    'add_layer','duplicate_layer','delete_layer','frame_add','frame_delete','reference_set','palette_remap','wind_bake'
-  ].includes(c.op))) return MAX_BATCH_PIXEL_WORK;
-  return (edit.commands??[]).reduce((sum,c)=>{
-    const area=Number(c.width)*Number(c.height);
-    if(c.op==='rect'||c.op==='ellipse')return sum+area*2;
-    if(c.op==='transform'||c.op==='paste'||c.op==='stamp')return sum+area*3;
-    if(c.op==='fill'||c.op==='clear'||c.op==='text_set')return sum+doc.width*doc.height;
-    if(c.op==='line')return sum+Math.max(Math.abs(Number(c.x2)-Number(c.x)),Math.abs(Number(c.y2)-Number(c.y)))+1;
-    return sum+1;
-  },0);
-}
-
 export class EditQueue {
   private base:History;
   private edits:EditorEdit[]=[];
@@ -65,21 +50,22 @@ export class EditQueue {
   private closed=false;
   private failure:SaveFailure|null=null;
   private revision=0;
-  private view:EditorSnapshot;
+  private projected:History;
+  private costs=new WeakMap<EditorEdit,number>();
   private waiters:{resolve:()=>void;reject:(error:Error)=>void}[]=[];
   private send:(request:SaveRequest)=>Promise<EditorSnapshot>;
   private onChange:(state:QueueState)=>void;
   private delay:number;
   constructor(snapshot:EditorSnapshot,send:(request:SaveRequest)=>Promise<EditorSnapshot>,onChange:(state:QueueState)=>void,delay=75){
-    this.base=initial(snapshot);this.view=snapshot;this.send=send;this.onChange=onChange;this.delay=delay;
+    this.base=initial(snapshot);this.projected=this.base;this.send=send;this.onChange=onChange;this.delay=delay;
   }
-  get state():QueueState{return {snapshot:this.view,pending:this.edits.length,saving:this.sending,error:this.failure,version:this.revision};}
+  get state():QueueState{return {snapshot:this.projected.snapshot,pending:this.edits.length,saving:this.sending,error:this.failure,version:this.revision};}
   enqueue(edit:EditorEdit){
     if(this.closed)throw new Error('Canvas is closed.');
     if(this.edits.length>=256)throw new Error('Too many unsaved edits. Retry saving or save an editable copy.');
-    const next=[...this.edits,structuredClone(edit)];
-    this.view=project(this.base,next).snapshot;
-    this.edits=next;this.emit();this.schedule(this.delay);
+    const pending=structuredClone(edit);
+    this.projected=project(this.projected,[pending],this.costs);
+    this.edits.push(pending);this.emit();this.schedule(this.delay);
   }
   flush():Promise<void>{
     if(this.failure)return Promise.reject(new Error(this.failure.message));
@@ -99,7 +85,7 @@ export class EditQueue {
   private makeRequest():SaveRequest {
     let work=0,commands=0;const edits:EditorEdit[]=[];
     for(const edit of this.edits){
-      const cost=workBound(edit,this.base.snapshot.doc),count=edit.commands?.length??0;
+      const cost=this.costs.get(edit)??MAX_BATCH_PIXEL_WORK,count=edit.commands?.length??0;
       if(edits.length&&(edits.length>=8||work+cost>MAX_BATCH_PIXEL_WORK||commands+count>5000))break;
       edits.push(edit);work+=cost;commands+=count;
     }
@@ -117,10 +103,10 @@ export class EditQueue {
       if(snapshot.doc.id!==this.base.snapshot.doc.id||snapshot.doc.revision!==request.revision+request.edits.length){
         throw Object.assign(new Error('This project changed elsewhere. Your unsaved canvas is still available.'),{status:409});
       }
-      const acknowledged=project(this.base,request.edits);
+      const acknowledged=project(this.base,request.edits,this.costs);
       this.base=acknowledged.unresolved?initial(snapshot):{...acknowledged,snapshot};
       this.edits=this.edits.slice(request.edits.length);this.request=null;
-      this.view=project(this.base,this.edits).snapshot;
+      this.projected=project(this.base,this.edits,this.costs);
     }catch(error){
       if(this.closed)return;
       const e=error as Error&{status?:number};

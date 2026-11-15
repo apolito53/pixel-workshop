@@ -4,7 +4,7 @@ import {useEffect, useRef, useState, type MouseEvent} from 'react';
 import {Wind} from 'lucide-react';
 import './wind.css';
 import {frameCount, frameView, MAX_ANIMATION_FRAMES, type PaintCommand, type PixelDocument} from '../lib/pixels.ts';
-import {windAngle, windPose} from '../lib/wind.ts';
+import {windAngle, windPoseCel} from '../lib/wind.ts';
 
 type Props = {doc:PixelDocument; layer:string; frame:number; busy:boolean; commit:(ops:PaintCommand[])=>Promise<boolean>};
 
@@ -34,14 +34,16 @@ export default function WindPanel({doc, layer, frame, busy, commit}:Props) {
     const ctx = preview.current?.getContext('2d');
     if (!ctx || !source) return;
     const angle = valid ? windAngle(displayed, count, degrees, delay) : 0;
-    const pixels = windPose(source, doc.width, doc.height, x, y, angle);
-    const image = ctx.createImageData(doc.width, doc.height);
-    for (let i = 0; i < pixels.length; i++) {
-      const p = pixels[i];
+    const pose = windPoseCel(source, doc.width, doc.height, x, y, angle);
+    ctx.clearRect(0, 0, doc.width, doc.height);
+    if (!pose.width || !pose.height) return;
+    const image = ctx.createImageData(pose.width, pose.height);
+    for (let i = 0; i < pose.data.length; i++) {
+      const p = pose.data[i];
       image.data[i*4] = p >>> 24; image.data[i*4+1] = (p >>> 16) & 255;
       image.data[i*4+2] = (p >>> 8) & 255; image.data[i*4+3] = p & 255;
     }
-    ctx.putImageData(image, 0, 0);
+    ctx.putImageData(image, pose.x, pose.y);
   },[source,doc.width,doc.height,x,y,displayed,count,degrees,delay,valid]);
   function pickPivot(e:MouseEvent<HTMLCanvasElement>) {
     const rect = e.currentTarget.getBoundingClientRect();

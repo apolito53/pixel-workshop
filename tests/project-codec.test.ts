@@ -4,7 +4,8 @@ import {mkdtemp,rm,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {applySnapshotCommands,createDocument,validateDocument,MAX_ANIMATION_CELLS} from '../lib/pixels.ts';
-import {packProject,packLegacyProject,unpackProject,PACKED_PROJECT_FORMAT,PACKED_PROJECT_MEDIA,LEGACY_PACKED_MEDIA} from '../lib/project-codec.ts';
+import {denseProject,packProject,packPooledProject,packLegacyProject,unpackProject,POOLED_PROJECT_FORMAT,POOLED_PROJECT_MEDIA,PACKED_PROJECT_FORMAT,PACKED_PROJECT_MEDIA,LEGACY_PACKED_MEDIA} from '../lib/project-codec.ts';
+import {celPixel} from '../lib/cel-storage.ts';
 import {pixelApi} from '../lib/http-api.ts';
 import {ProjectService} from '../lib/project-service.ts';
 import {fileStore} from '../server/file-store.ts';
@@ -25,26 +26,26 @@ function sprite() {
 }
 
 test('packed sources budget unique RGBA buffers and restore nonconsecutive holds from either format',()=>{
-  const doc=sprite(),packed=packProject(doc),legacy=packLegacyProject(doc);
-  if(packed.format!==PACKED_PROJECT_FORMAT||legacy.format==='pixel-workshop/1')throw new Error('Expected packed projects');
+  const doc=sprite(),packed=packProject(doc),pooled=packPooledProject(doc),legacy=packLegacyProject(doc);
+  if(packed.format!==PACKED_PROJECT_FORMAT||pooled.format!==POOLED_PROJECT_FORMAT||legacy.format==='pixel-workshop/1')throw new Error('Expected packed projects');
   assert.equal(packed.cels.length,2);
   assert.equal(packed.cels[1].base,0);
   assert.deepEqual(packed.animation?.frames.map(f=>f.pixels.base),[0,1,0]);
   assert.ok(JSON.stringify(packed).length<JSON.stringify(doc).length);
-  for(const format of [packed,legacy]){
+  for(const format of [packed,pooled,legacy]){
     const restored=unpackProject(JSON.parse(JSON.stringify(format)));
-    assert.deepEqual(restored,doc);
+    assert.deepEqual(denseProject(restored),doc);
     assert.equal(restored.animation!.frames[0].pixels.base,restored.layers[0].pixels);
     assert.equal(restored.animation!.frames[2].pixels.base,restored.layers[0].pixels);
     assert.notEqual(restored.reference!.pixels,restored.layers[0].pixels);
     const edited=applySnapshotCommands(restored,[{op:'pixel',frame:1,x:200,y:50,color:'#102030'}]);
-    assert.equal(edited.layers[0].pixels[13000],0xabcdee00);
-    assert.equal(edited.animation!.frames[0].pixels.base[13000],0x102030ff);
-    assert.equal(edited.animation!.frames[2].pixels.base[13000],0xabcdee00);
+    assert.equal(celPixel(edited.layers[0].pixels,200,50,256),0xabcdee00);
+    assert.equal(celPixel(edited.animation!.frames[0].pixels.base,200,50,256),0x102030ff);
+    assert.equal(celPixel(edited.animation!.frames[2].pixels.base,200,50,256),0xabcdee00);
   }
   const old=createDocument('Old',8,8);
   assert.equal(packProject(old),old);
-  assert.deepEqual(validateDocument(unpackProject(JSON.parse(JSON.stringify(old)))),old);
+  assert.deepEqual(denseProject(validateDocument(unpackProject(JSON.parse(JSON.stringify(old))))),old);
 });
 
 test('pool decoder verifies selectors, previous bases, physical bounds and encoded pixel counts',()=>{
@@ -52,12 +53,19 @@ test('pool decoder verifies selectors, previous bases, physical bounds and encod
   if(packed.format!==PACKED_PROJECT_FORMAT)throw new Error();
   assert.throws(()=>unpackProject({...packed,width:MAX_ANIMATION_CELLS}));
   for(const data of ['AA==','!!!!','//8=','gA==','']){
-    assert.throws(()=>unpackProject({...packed,cels:[{data},packed.cels[1]]}));
+    assert.throws(()=>unpackProject({...packed,cels:[{...packed.cels[0],data},packed.cels[1]]}));
   }
   for(const base of [0,1,-1,'0'])assert.throws(()=>unpackProject({...packed,cels:[{...packed.cels[0],base},packed.cels[1]]}));
   for(const index of [2,-1,'0',0.5])assert.throws(()=>unpackProject({...packed,layers:[{...packed.layers[0],pixels:index}]}));
   assert.throws(()=>unpackProject({...packed,cels:[...packed.cels,packed.cels[0]]})); // unused
   assert.throws(()=>unpackProject({...packed,animation:{fps:1,frames:[{id:'a',pixels:{wrong:0}}]}}));
+  for(const bad of [{x:-1},{width:1.5},{width:0},{x:255},{y:Number.MAX_SAFE_INTEGER},{local:true},{height:'1'}]){
+    assert.throws(()=>unpackProject({...packed,cels:[{...packed.cels[0],...bad},packed.cels[1]]}));
+  }
+  // Five individually legal 1024² allocations must be rejected before decoding.
+  const layers=Array.from({length:5},(_,i)=>({...packed.layers[0],id:'layer'+i,pixels:i}));
+  const cels=layers.map(()=>({x:0,y:0,width:1024,height:1024,data:''}));
+  assert.throws(()=>unpackProject({...packed,width:1024,height:1024,layers,animation:undefined,reference:undefined,cels}));
   const legacy=packLegacyProject(sprite());
   if(legacy.format==='pixel-workshop/1')throw new Error();
   assert.throws(()=>unpackProject({...legacy,width:1024,height:1024,reference:{...legacy.reference,width:1024,height:1024}}));
@@ -114,10 +122,38 @@ test('packed browser negotiation imports, reads, edits, undoes, reopens after sa
     const painted=await call(path,{revision:made.doc.revision,action:'paint',commands:[{op:'pixel',x:4,y:4,color:'#00ffff'}]});
     assert.equal(painted.canUndo,true);
     const undone=await call(path,{revision:painted.doc.revision,action:'undo'});
-    assert.deepEqual(unpackProject(undone.doc).layers,original.layers);
-    assert.equal((await call(path,undefined,false)).doc.format,'pixel-workshop/1');
+    assert.deepEqual(denseProject(unpackProject(undone.doc)).layers,original.layers);
+    const dense=(await call(path,undefined,false)).doc;
+    assert.equal(dense.format,'pixel-workshop/1');
+    assert.deepEqual(dense.layers,original.layers);
+    const v2Response=await pixelApi(new Request('https://pixel.test/api/pixel/projects'+path,{headers:{accept:POOLED_PROJECT_MEDIA}}),service);
+    assert.equal((await v2Response.json() as {doc:{format:string}}).doc.format,POOLED_PROJECT_FORMAT);
     const oldResponse=await pixelApi(new Request('https://pixel.test/api/pixel/projects'+path,{headers:{accept:LEGACY_PACKED_MEDIA}}),service);
     assert.equal((await oldResponse.json() as {doc:{format:string}}).doc.format,'pixel-workshop/packed-1');
     assert.deepEqual(unpackProject((await call(path)).doc).reference,original.reference);
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+
+test('legacy format rejection leaves project creation, revision and history atomic',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'pw-legacy-limit-'));
+  try{
+    const service=new ProjectService(fileStore(root));
+    const doc=createDocument('Independent marks',1024,1024);
+    const commands=Array.from({length:4},(_,i)=>({op:'frame_add',source_frame:0,id:'f'+i}));
+    const held=applySnapshotCommands(doc,commands);
+    const distinct=Array.from({length:4},(_,i)=>({op:'pixel',frame:i+1,x:i,y:i,color:'#ffaa00'}));
+    const send=(path:string,body:unknown,media:string)=>pixelApi(new Request('https://pixel.test/api/pixel/projects'+path,{
+      method:'POST',headers:{accept:media},body:JSON.stringify(body)}),service);
+    const request={document:packProject(applySnapshotCommands(held,distinct))};
+    assert.equal((await send('',request,POOLED_PROJECT_MEDIA)).status,406);
+    assert.equal((await service.listSummaries()).length,0);
+    const saved=await service.create(doc.name,doc.width,doc.height,packProject(held));
+    const path='/'+saved.id,change={action:'paint',revision:saved.revision,commands:distinct};
+    assert.equal((await send(path,change,POOLED_PROJECT_MEDIA)).status,406);
+    const {entry}=await service.get(saved.id);
+    assert.equal(entry.doc.revision,saved.revision);
+    assert.equal(entry.undo.length,0);
+    assert.equal((await send(path,change,PACKED_PROJECT_MEDIA)).status,200);
   }finally{await rm(root,{recursive:true,force:true});}
 });

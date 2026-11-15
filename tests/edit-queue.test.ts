@@ -1,7 +1,8 @@
+import {celData,celPixel} from '../lib/cel-storage.ts';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {EditQueue,type EditorEdit,type EditorSnapshot,type SaveRequest} from '../lib/edit-queue.ts';
-import {createDocument,color} from '../lib/pixels.ts';
+import {applySnapshotCommands,createCompactDocument,createDocument,color} from '../lib/pixels.ts';
 import {ProjectService,type Entry,type ProjectStore} from '../lib/project-service.ts';
 import {pixelApi} from '../lib/http-api.ts';
 
@@ -32,10 +33,10 @@ test('rapid strokes render before a delayed save, batch in order, and survive ea
  try{
   q.enqueue(pixel(0));const flushed=q.flush(),first=await transport.next();
   for(let x=1;x<20;x++)q.enqueue(pixel(x));
-  assert.equal(q.state.pending,20);assert.equal(q.state.snapshot.doc.layers[0].pixels.filter(Boolean).length,20);
+  assert.equal(q.state.pending,20);assert.equal(celData(q.state.snapshot.doc.layers[0].pixels).filter(Boolean).length,20);
   first.resolve(await save(service,doc.id,first.request));
   let request=await transport.next(),batches=1;
-  assert.equal(q.state.snapshot.doc.layers[0].pixels.filter(Boolean).length,20,'an old acknowledgement must not erase newer strokes');
+  assert.equal(celData(q.state.snapshot.doc.layers[0].pixels).filter(Boolean).length,20,'an old acknowledgement must not erase newer strokes');
   while(true){
    const count=request.request.edits.length;assert.ok(count<=8);
    request.resolve(await save(service,doc.id,request.request));batches++;
@@ -44,7 +45,7 @@ test('rapid strokes render before a delayed save, batch in order, and survive ea
   }
   await flushed;assert.equal(q.state.pending,0);assert.equal(batches,4);
   const saved=(await service.get(doc.id)).entry;
-  assert.equal(saved.doc.revision,20);assert.equal(saved.doc.layers[0].pixels.filter(Boolean).length,20);assert.equal(saved.undo.length,12);
+  assert.equal(saved.doc.revision,20);assert.equal(celData(saved.doc.layers[0].pixels).filter(Boolean).length,20);assert.equal(saved.undo.length,12);
  }finally{q.dispose();}
 });
 
@@ -53,11 +54,11 @@ test('undo and redo are immediate while saves are pending and preserve one histo
  const q=new EditQueue({doc,canUndo:false,canRedo:false},r=>save(service,doc.id,r),()=>{},10000);
  try{
   q.enqueue(pixel(0));q.enqueue(pixel(1,'#00ff00'));q.enqueue({action:'undo'});
-  assert.equal(q.state.snapshot.doc.layers[0].pixels[1],0);assert.equal(q.state.snapshot.canRedo,true);
-  q.enqueue({action:'redo'});assert.equal(q.state.snapshot.doc.layers[0].pixels[1],color('#00ff00'));
+  assert.equal(celPixel(q.state.snapshot.doc.layers[0].pixels,1,0,32),0);assert.equal(q.state.snapshot.canRedo,true);
+  q.enqueue({action:'redo'});assert.equal(celPixel(q.state.snapshot.doc.layers[0].pixels,1,0,32),color('#00ff00'));
   await q.flush();assert.equal((await service.get(doc.id)).entry.undo.length,2);
-  q.enqueue({action:'undo'});q.enqueue({action:'undo'});assert.equal(q.state.snapshot.canUndo,false);assert.equal(q.state.snapshot.doc.layers[0].pixels.filter(Boolean).length,0);
-  await q.flush();assert.equal((await service.get(doc.id)).entry.doc.layers[0].pixels.filter(Boolean).length,0);
+  q.enqueue({action:'undo'});q.enqueue({action:'undo'});assert.equal(q.state.snapshot.canUndo,false);assert.equal(celData(q.state.snapshot.doc.layers[0].pixels).filter(Boolean).length,0);
+  await q.flush();assert.equal(celData((await service.get(doc.id)).entry.doc.layers[0].pixels).filter(Boolean).length,0);
  }finally{q.dispose();}
 });
 
@@ -66,10 +67,10 @@ test('a lost save response retains the local canvas and retries the same request
  const q=new EditQueue({doc,canUndo:false,canRedo:false},async r=>{requests.push(r);const saved=await save(service,doc.id,r);if(drop){drop=false;throw new Error('Network response lost');}return saved;},()=>{},10000);
  try{
   q.enqueue(pixel(0));await assert.rejects(q.flush(),/Network/);
-  assert.equal(q.state.pending,1);assert.equal(q.state.snapshot.doc.layers[0].pixels[0],color('#ff0000'));
+  assert.equal(q.state.pending,1);assert.equal(celPixel(q.state.snapshot.doc.layers[0].pixels,0,0,32),color('#ff0000'));
   q.enqueue(pixel(1));q.retry();await q.flush();
   assert.equal(requests[0].requestId,requests[1].requestId);assert.equal(requests[1].edits.length,1);
-  const saved=(await service.get(doc.id)).entry;assert.equal(saved.doc.revision,2);assert.equal(saved.undo.length,2);assert.equal(saved.doc.layers[0].pixels.filter(Boolean).length,2);
+  const saved=(await service.get(doc.id)).entry;assert.equal(saved.doc.revision,2);assert.equal(saved.undo.length,2);assert.equal(celData(saved.doc.layers[0].pixels).filter(Boolean).length,2);
  }finally{q.dispose();}
 });
 
@@ -81,8 +82,8 @@ test('a conflicting MCP edit pauses saves without replacing or discarding the un
   await service.edit(doc.id,0,'paint',[{op:'pixel',x:7,y:0,color:'#0000ff'}]);
   try{await save(service,doc.id,held.request);assert.fail('Expected revision conflict');}catch(error){held.reject(Object.assign(error as Error,{status:409}));}
   await rejected;assert.equal(q.state.error?.conflict,true);assert.equal(q.state.pending,2);
-  assert.equal(q.state.snapshot.doc.layers[0].pixels[0],color('#ff0000'));assert.equal(q.state.snapshot.doc.layers[0].pixels[1],color('#ff0000'));
-  const remote=(await service.get(doc.id)).entry.doc;assert.equal(remote.layers[0].pixels[0],0);assert.equal(remote.layers[0].pixels[7],color('#0000ff'));
+  assert.equal(celPixel(q.state.snapshot.doc.layers[0].pixels,0,0,32),color('#ff0000'));assert.equal(celPixel(q.state.snapshot.doc.layers[0].pixels,1,0,32),color('#ff0000'));
+  const remote=(await service.get(doc.id)).entry.doc;assert.equal(celPixel(remote.layers[0].pixels,0,0,32),0);assert.equal(celPixel(remote.layers[0].pixels,7,0,32),color('#0000ff'));
  }finally{q.dispose();}
 });
 
@@ -92,8 +93,8 @@ test('older server history is resolved before replaying later optimistic strokes
  const q=new EditQueue({doc:old,canUndo:true,canRedo:false},r=>save(service,doc.id,r),()=>{},10000);
  try{
   q.enqueue({action:'undo'});q.enqueue(pixel(1));await q.flush();
-  assert.equal(q.state.snapshot.doc.layers[0].pixels[0],0);assert.equal(q.state.snapshot.doc.layers[0].pixels[1],color('#ff0000'));
-  q.enqueue({action:'undo'});await q.flush();assert.equal(q.state.snapshot.doc.layers[0].pixels.filter(Boolean).length,0);
+  assert.equal(celPixel(q.state.snapshot.doc.layers[0].pixels,0,0,32),0);assert.equal(celPixel(q.state.snapshot.doc.layers[0].pixels,1,0,32),color('#ff0000'));
+  q.enqueue({action:'undo'});await q.flush();assert.equal(celData(q.state.snapshot.doc.layers[0].pixels).filter(Boolean).length,0);
  }finally{q.dispose();}
 });
 
@@ -105,6 +106,26 @@ test('HTTP save batches are atomic, idempotent, and return the saved snapshot wi
  const duplicate=await post(request),reply=await duplicate.json() as EditorSnapshot;
  assert.equal(reply.doc.revision,2);assert.equal((await service.get(doc.id)).entry.undo.length,2);
  const invalid=await post({revision:2,requestId:'invalid',edits:[pixel(2),pixel(99)]});assert.equal(invalid.status,400);
- assert.equal((await service.get(doc.id)).entry.doc.revision,2);assert.equal((await service.get(doc.id)).entry.doc.layers[0].pixels[2],0);
+ assert.equal((await service.get(doc.id)).entry.doc.revision,2);assert.equal(celPixel((await service.get(doc.id)).entry.doc.layers[0].pixels,2,0,32),0);
  await service.edit(doc.id,2,'paint',[{op:'clear'}]);assert.equal((await post(request)).status,409);
+});
+
+test('rapid brush edits on a full-size drawing split before combined raster work exceeds the save budget',async()=>{
+ const doc=createCompactDocument('Background',1024,1024);
+ doc.layers[0].pixels={x:0,y:0,width:1024,height:1024,data:new Array(1024*1024).fill(color('#012345'))};
+ const batches:number[]=[];
+ let snapshot:EditorSnapshot={doc,canUndo:false,canRedo:false};
+ const queue=new EditQueue(snapshot,async request=>{
+  const work={spent:0};
+  for(const edit of request.edits)snapshot={doc:applySnapshotCommands(snapshot.doc,edit.commands!,work),canUndo:true,canRedo:false};
+  batches.push(request.edits.length);
+  return snapshot;
+ },()=>{},10000);
+ try{
+  for(let x=0;x<5;x++)queue.enqueue(pixel(x));
+  await queue.flush();
+  assert.deepEqual(batches,[4,1]);
+  assert.equal(snapshot.doc.revision,5);
+  for(let x=0;x<5;x++)assert.equal(celPixel(snapshot.doc.layers[0].pixels,x,0,1024),color('#ff0000'));
+ }finally{queue.dispose();}
 });

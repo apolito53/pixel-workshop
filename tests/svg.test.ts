@@ -47,9 +47,9 @@ test('SVG has true vector geometry, transparent margins and a scalable native vi
 });
 
 test('SVG matches PNG compositing for layered colors, hidden layers and every alpha value',()=>{
-  let doc=createDocument('Alpha',256,2);
-  doc.layers[0].pixels=Array.from({length:512},(_,i)=>(0x49baff00|(i%256))>>>0);
-  doc=applyCommands(doc,[
+  const base=createDocument('Alpha',256,2);
+  base.layers[0].pixels=Array.from({length:512},(_,i)=>(0x49baff00|(i%256))>>>0);
+  const doc=applyCommands(base,[
     {op:'add_layer',id:'glow',name:'Glow'},
     {op:'rect',layer:'glow',x:42,y:1,width:97,height:1,color:'#ff004080'},
     {op:'add_layer',id:'hidden',name:'Hidden'},

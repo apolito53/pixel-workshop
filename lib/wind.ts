@@ -1,3 +1,4 @@
+import {blankCel, cropCel, denseCel, type Cel, type CroppedCel} from './cel-storage.ts';
 import {frameCount, frameView, MAX_ANIMATION_FRAMES, MAX_BATCH_PIXEL_WORK, requireInt, type PaintCommand, type PixelDocument} from './pixels.ts';
 
 export function windAngle(frame:number, frames:number, degrees:number, delay:number) {
@@ -5,22 +6,48 @@ export function windAngle(frame:number, frames:number, degrees:number, delay:num
   return Math.round(Math.sin(2 * Math.PI * (frame - delay) / frames) * degrees * 10000) / 10000 || 0;
 }
 
-/** Inverse-sample pixel centers around an integer pivot. Out-of-bounds samples are transparent. */
-export function windPose(source:number[], width:number, height:number, pivotX:number, pivotY:number, degrees:number) {
-  if (degrees === 0) return source;
-  const radians = degrees * Math.PI / 180;
-  const cos = Math.cos(radians), sin = Math.sin(radians);
-  const pixels = Array<number>(width * height);
-  for (let y = 0; y < height; y++) {
-    const dy = y - pivotY;
-    for (let x = 0; x < width; x++) {
-      const dx = x - pivotX;
-      const sx = Math.round(pivotX + dx * cos + dy * sin);
-      const sy = Math.round(pivotY - dx * sin + dy * cos);
-      pixels[y * width + x] = sx >= 0 && sx < width && sy >= 0 && sy < height ? source[sy * width + sx] : 0;
+/** Rotate the outside edges of the stored pixels so every nearest-neighbor sample is covered. */
+function rotatedBounds(source:CroppedCel, width:number, height:number, pivotX:number, pivotY:number, cos:number, sin:number) {
+  let left=width, top=height, right=-1, bottom=-1;
+  for(const x of [source.x-.5, source.x+source.width-.5]) {
+    for(const y of [source.y-.5, source.y+source.height-.5]) {
+      const dx=x-pivotX, dy=y-pivotY;
+      const xx=pivotX+dx*cos-dy*sin, yy=pivotY+dx*sin+dy*cos;
+      left=Math.min(left,xx); right=Math.max(right,xx);
+      top=Math.min(top,yy); bottom=Math.max(bottom,yy);
     }
   }
-  return pixels;
+  const x=Math.max(0,Math.floor(left)), y=Math.max(0,Math.floor(top));
+  return {x,y,width:Math.max(0,Math.min(width,Math.ceil(right)+1)-x),
+    height:Math.max(0,Math.min(height,Math.ceil(bottom)+1)-y)};
+}
+
+function rotateCrop(source:CroppedCel,width:number,height:number,pivotX:number,pivotY:number,degrees:number,
+  reserve?:(cells:number)=>void):CroppedCel {
+  if(!degrees||!source.width)return source;
+  const radians=degrees*Math.PI/180, cos=Math.cos(radians), sin=Math.sin(radians);
+  const box=rotatedBounds(source,width,height,pivotX,pivotY,cos,sin);
+  reserve?.(box.width*box.height);
+  if(!box.width||!box.height)return blankCel();
+  const data=new Array<number>(box.width*box.height);
+  for(let y=0;y<box.height;y++){
+    const dy=box.y+y-pivotY;
+    for(let x=0;x<box.width;x++){
+      const dx=box.x+x-pivotX;
+      const sx=Math.round(pivotX+dx*cos+dy*sin)-source.x;
+      const sy=Math.round(pivotY-dx*sin+dy*cos)-source.y;
+      data[y*box.width+x]=sx>=0&&sx<source.width&&sy>=0&&sy<source.height ? source.data[sy*source.width+sx] : 0;
+    }
+  }
+  return cropCel({...box,data},width,height);
+}
+
+export function windPoseCel(source:Cel,width:number,height:number,pivotX:number,pivotY:number,degrees:number) {
+  return rotateCrop(cropCel(source,width,height),width,height,pivotX,pivotY,degrees);
+}
+
+export function windPose(source:Cel,width:number,height:number,pivotX:number,pivotY:number,degrees:number) {
+  return degrees===0 ? denseCel(source,width,height) : denseCel(windPoseCel(source,width,height,pivotX,pivotY,degrees),width,height);
 }
 
 /** The browser and both MCP transports send the small recipe. The engine bakes it in one edit. */
@@ -37,14 +64,14 @@ export function planWindBake(doc:PixelDocument, cmd:PaintCommand):PaintCommand[]
   if (typeof (cmd.degrees ?? 6) !== 'number' || !Number.isFinite(degrees) || degrees <= 0 || degrees > 30)
     throw new Error('Wind sway must be greater than 0 and at most 30 degrees.');
   const delay = requireInt(cmd.delay ?? 0, 0, count - 1, 'delay');
-  if (!target.pixels.some(pixel => pixel & 255)) throw new Error('Choose a layer with visible pixels on the source frame.');
+  const source = cropCel(target.pixels, doc.width, doc.height);
+  if (!source.data.some(pixel => pixel & 255)) throw new Error('Choose a layer with visible pixels on the source frame.');
   const angles = Array.from({length:count}, (_, i) => windAngle(i, count, degrees, delay));
-  const uniqueAngles = new Set(angles);
-  // The rest pose is already in the project. Bound all new raster allocations before generating one.
-  const area = doc.width * doc.height;
-  if ((uniqueAngles.size - Number(uniqueAngles.has(0))) * area > MAX_BATCH_PIXEL_WORK)
-    throw new Error('This loop has too many full-size poses to bake in one edit. Use fewer frames or a smaller canvas.');
-
+  let poseWork=0;
+  const reserve=(area:number)=>{
+    poseWork+=area;
+    if(poseWork>MAX_BATCH_PIXEL_WORK)throw new Error('These wind poses are too large to bake in one edit. Reduce the source drawing bounds or the frame count.');
+  };
   const layer = target.id;
   const commands:PaintCommand[] = [];
   for (let i = current; i < count; i++) commands.push({op:'frame_add', source_frame:sourceFrame});
@@ -63,8 +90,8 @@ export function planWindBake(doc:PixelDocument, cmd:PaintCommand):PaintCommand[]
     if (first !== undefined) {
       commands.push({op:'hold_cel', layer, frame:i, source_frame:first});
     } else {
-      const pose = windPose(target.pixels, doc.width, doc.height, pivotX, pivotY, angle);
-      commands.push({op:'paste', layer, frame:i, x:0, y:0, width:doc.width, height:doc.height, pixels:pose});
+      const pose = rotateCrop(source, doc.width, doc.height, pivotX, pivotY, angle, reserve);
+      commands.push({op:'replace_cel', layer, frame:i, x:pose.x, y:pose.y, width:pose.width, height:pose.height, pixels:pose.data});
       firstAtAngle.set(angle, i);
     }
   }

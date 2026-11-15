@@ -1,13 +1,17 @@
 import {MAX_ANIMATION_CELLS, MAX_ANIMATION_FRAMES, MAX_LAYERS, frameCount, validateDocument, type PixelDocument} from './pixels.ts';
 import {MAX_CANVAS_SIDE} from './canvas-limits.ts';
 
-import {CelInterner} from './cel-storage.ts';
+import {CelInterner, cropCel, denseCel, type Cel, type CroppedCel} from './cel-storage.ts';
 
 const LEGACY_PACKED_FORMAT = 'pixel-workshop/packed-1';
-export const PACKED_PROJECT_FORMAT = 'pixel-workshop/packed-2';
+export const POOLED_PROJECT_FORMAT = 'pixel-workshop/packed-2';
+export const PACKED_PROJECT_FORMAT = 'pixel-workshop/packed-3';
 export const LEGACY_PACKED_MEDIA = 'application/vnd.pixel-workshop.packed+json';
-export const PACKED_PROJECT_MEDIA = LEGACY_PACKED_MEDIA+';version=2';
-export const MAX_PROJECT_REQUEST_BYTES = 12_000_000;
+export const POOLED_PROJECT_MEDIA = LEGACY_PACKED_MEDIA+';version=2';
+export const PACKED_PROJECT_MEDIA = LEGACY_PACKED_MEDIA+';version=3';
+const LEGACY_PIXEL_LIMIT = 4_194_304;
+// Fits every budgeted RGBA word at the maximum PackBits cost, plus indices and metadata.
+export const MAX_PROJECT_REQUEST_BYTES = 32_000_000;
 // The file chooser can compact dense, older-format source locally before uploading.
 export const MAX_PROJECT_FILE_BYTES = MAX_ANIMATION_CELLS * 12 + 1_000_000;
 const PACK_AT = 300_000;
@@ -20,11 +24,14 @@ type ProjectWire<Slot,Format extends string> = Omit<PixelDocument,'format'|'laye
   reference?:Omit<NonNullable<PixelDocument['reference']>,'pixels'> & {pixels:PackedCel};
 };
 type LegacyProject = ProjectWire<PackedCel,typeof LEGACY_PACKED_FORMAT>;
-type PackedProject = ProjectWire<number,typeof PACKED_PROJECT_FORMAT> & {cels:{data:string;base?:number}[]};
+type Packet = {data:string;base?:number};
+type CropPacket = Omit<CroppedCel,'data'> & Packet & {local?:true};
+type PooledProject = ProjectWire<number,typeof POOLED_PROJECT_FORMAT> & {cels:Packet[]};
+type PackedProject = ProjectWire<number,typeof PACKED_PROJECT_FORMAT> & {cels:CropPacket[]};
 
-export function isPackedProject(input:unknown):input is LegacyProject|PackedProject {
+export function isPackedProject(input:unknown):input is LegacyProject|PooledProject|PackedProject {
   const format=(input as {format?:unknown}|null)?.format;
-  return format===PACKED_PROJECT_FORMAT || format===LEGACY_PACKED_FORMAT;
+  return format===PACKED_PROJECT_FORMAT || format===POOLED_PROJECT_FORMAT || format===LEGACY_PACKED_FORMAT;
 }
 
 /** Number of pixel words required by the original dense JSON representation. */
@@ -93,19 +100,44 @@ function decodeCel(input:PackedCel,n:number,previous?:number[]):number[] {
   return pixels;
 }
 
+/** Dense JSON clients allocate a full image for every layer in every frame. */
+export function denseProject(doc:PixelDocument):PixelDocument<number[]> {
+  if(denseProjectCells(doc)>LEGACY_PIXEL_LIMIT)throw new Error('Project exceeds the dense JSON pixel budget.');
+  const cache=new Map<Cel,number[]>();
+  function expand(cel:Cel) {
+    let pixels=cache.get(cel);
+    if(!pixels){pixels=denseCel(cel,doc.width,doc.height);cache.set(cel,pixels);}
+    return pixels;
+  }
+  const {layers,animation,...meta}=doc;
+  return {...meta,layers:layers.map(layer=>({...layer,pixels:expand(layer.pixels)})),
+    ...(animation?{animation:{...animation,frames:animation.frames.map(frame=>({...frame,
+      pixels:Object.fromEntries(Object.entries(frame.pixels).map(([id,cel])=>[id,expand(cel)]))}))}}:{})};
+}
+
+export class UnsupportedProjectFormat extends Error {
+  constructor(){super('This project exceeds the capacity of the requested format. Open it with a client that supports packed-3.');}
+}
+
+function checkLegacyDimensions(doc:PixelDocument) {
+  if(doc.width>1024 || doc.height>1024 || doc.layers.length>64 || frameCount(doc)>96)throw new UnsupportedProjectFormat();
+}
+
 /** Preserve the wire protocol used by older clients for documents they can edit. */
 export function packLegacyProject(doc:PixelDocument):PixelDocument|LegacyProject {
+  checkLegacyDimensions(doc);
   const denseCells=denseProjectCells(doc);
-  if(denseCells>MAX_ANIMATION_CELLS)throw new Error('Project exceeds the legacy animation pixel budget.');
-  if(denseCells<PACK_AT)return doc;
+  if(denseCells>LEGACY_PIXEL_LIMIT)throw new UnsupportedProjectFormat();
+  if(denseCells<PACK_AT)return denseProject(doc);
   const {layers,animation,reference,...meta}=doc;
-  const previous=new Map(layers.map(l=>[l.id,l.pixels]));
+  const dense=(cel:Cel)=>denseCel(cel,doc.width,doc.height);
+  const previous=new Map(layers.map(l=>[l.id,dense(l.pixels)]));
   return {...meta,format:LEGACY_PACKED_FORMAT,
-    layers:layers.map(l=>({...l,pixels:encodeCel(l.pixels)})),
+    layers:layers.map(l=>({...l,pixels:encodeCel(previous.get(l.id)!)})),
     ...(reference?{reference:{...reference,pixels:encodeCel(reference.pixels)}}:{}),
     ...(animation?{animation:{...animation,frames:animation.frames.map(f=>{
-      const pixels=Object.fromEntries(Object.entries(f.pixels).map(([id,values])=>{
-        const delta=encodeCel(values,previous.get(id));
+      const pixels=Object.fromEntries(Object.entries(f.pixels).map(([id,cel])=>{
+        const values=dense(cel),delta=encodeCel(values,previous.get(id));
         previous.set(id,values);
         return [id,delta];
       }));
@@ -113,23 +145,25 @@ export function packLegacyProject(doc:PixelDocument):PixelDocument|LegacyProject
     })}}:{})};
 }
 
-/** A pool entry stores its pixels once. A delta may only refer to an earlier entry. */
-export function packProject(doc:PixelDocument):PixelDocument|PackedProject {
+function indexProject(doc:PixelDocument) {
   const {layers,animation,reference,...meta}=doc;
-  if(layers.length===1 && !animation?.frames.length && denseProjectCells(doc)<PACK_AT)return doc;
-  const interner=new CelInterner();
-  const indexes=new Map<number[],number>();
-  const sources:number[][]=[];
+  const interner=new CelInterner<CroppedCel>();
+  const indexes=new Map<Cel,number>();
+  const sources:CroppedCel[]=[];
   const bases:(number|undefined)[]=[];
   const previous=new Map<string,number>();
-  const indexCel=(id:string,pixels:number[])=>{
-    const source=interner.intern(pixels);
-    let index=indexes.get(source);
+  const indexCel=(id:string,cel:Cel)=>{
+    let index=indexes.get(cel);
     if(index===undefined){
-      index=sources.length;
-      sources.push(source);
-      indexes.set(source,index);
-      bases.push(previous.get(id));
+      const source=interner.intern(cropCel(cel,doc.width,doc.height));
+      index=indexes.get(source);
+      if(index===undefined){
+        index=sources.length;
+        sources.push(source);
+        indexes.set(source,index);
+        bases.push(previous.get(id));
+      }
+      indexes.set(cel,index);
     }
     previous.set(id,index);
     return index;
@@ -138,15 +172,57 @@ export function packProject(doc:PixelDocument):PixelDocument|PackedProject {
   const indexedAnimation=animation?{...animation,frames:animation.frames.map(frame=>({
     id:frame.id,pixels:Object.fromEntries(Object.entries(frame.pixels).map(([id,pixels])=>[id,indexCel(id,pixels)]))
   }))}:undefined;
-  if(sources.length===layers.length*frameCount(doc) && denseProjectCells(doc)<PACK_AT)return doc;
-  const cels=sources.map((source,index)=>{
+  return {sources,bases,project:{...meta,layers:indexedLayers,
+    ...(indexedAnimation?{animation:indexedAnimation}:{}),
+    ...(reference?{reference:{...reference,pixels:encodeCel(reference.pixels)}}:{})}};
+}
+
+/** The v2 pool deduplicated cels, but each unique cel needs a complete canvas. */
+export function packPooledProject(doc:PixelDocument):PixelDocument|PooledProject {
+  checkLegacyDimensions(doc);
+  const {sources,bases,project}=indexProject(doc);
+  if((sources.length+Number(Boolean(doc.reference)))*doc.width*doc.height>LEGACY_PIXEL_LIMIT)throw new UnsupportedProjectFormat();
+  if(sources.length===doc.layers.length*frameCount(doc) && denseProjectCells(doc)<PACK_AT)return denseProject(doc);
+  const full=sources.map(cel=>denseCel(cel,doc.width,doc.height));
+  const cels=full.map((source,index)=>{
     const base=bases[index];
-    const {data}=encodeCel(source,base===undefined?undefined:sources[base]);
+    const {data}=encodeCel(source,base===undefined?undefined:full[base]);
     return base===undefined?{data}:{data,base};
   });
-  return {...meta,format:PACKED_PROJECT_FORMAT,cels,layers:indexedLayers,
-    ...(indexedAnimation?{animation:indexedAnimation}:{}),
-    ...(reference?{reference:{...reference,pixels:encodeCel(reference.pixels)}}:{})};
+  return {...project,format:POOLED_PROJECT_FORMAT,cels};
+}
+
+type Bounds=Omit<CroppedCel,'data'>;
+/** Align local pixels on the canvas to predict the next crop from a previous one. */
+function predictor(base:CroppedCel,target:Bounds) {
+  if(base.x===target.x && base.y===target.y && base.width===target.width && base.height===target.height)return base.data;
+  const pixels=new Array<number>(target.width*target.height).fill(0);
+  const left=Math.max(base.x,target.x),right=Math.min(base.x+base.width,target.x+target.width);
+  const top=Math.max(base.y,target.y),bottom=Math.min(base.y+base.height,target.y+target.height);
+  for(let y=top;y<bottom;y++)for(let x=left;x<right;x++)
+    pixels[(y-target.y)*target.width+x-target.x]=base.data[(y-base.y)*base.width+x-base.x];
+  return pixels;
+}
+
+export function packProject(doc:PixelDocument):PixelDocument|PackedProject {
+  if(doc.layers.length===1 && !doc.animation?.frames.length && Array.isArray(doc.layers[0].pixels) && denseProjectCells(doc)<PACK_AT)return doc;
+  const {sources,bases,project}=indexProject(doc);
+  const cels=sources.map((source,index)=>{
+    const {x,y,width,height}=source;
+    const bounds={x,y,width,height};
+    const direct=encodeCel(source.data);
+    const base=bases[index];
+    if(base===undefined || width===0)return {...bounds,data:direct.data};
+    const prior=sources[base];
+    const aligned=encodeCel(source.data,predictor(prior,bounds));
+    let best:CropPacket=aligned.data.length<direct.data.length?{...bounds,data:aligned.data,base}:{...bounds,data:direct.data};
+    if((prior.x!==x||prior.y!==y) && prior.width===width && prior.height===height){
+      const shifted=encodeCel(source.data,prior.data);
+      if(shifted.data.length+13<best.data.length)best={...bounds,data:shifted.data,base,local:true};
+    }
+    return best;
+  });
+  return {...project,format:PACKED_PROJECT_FORMAT,cels};
 }
 
 export function unpackProject(input:unknown):PixelDocument {
@@ -170,23 +246,27 @@ export function unpackProject(input:unknown):PixelDocument {
   if(input.format===LEGACY_PACKED_FORMAT){
     // Every v1 writer enforced the original dense bound. Keep it before decoding
     // even for tiny compressed inputs with many full-size zero/delta packets.
-    if(n*(slots+Number(Boolean(reference)))>MAX_ANIMATION_CELLS)throw invalid();
-    const interner=new CelInterner();
-    const initial=input.layers.map(layer=>({...layer,pixels:interner.intern(decodeCel(layer.pixels,n))}));
-    const previous=new Map(initial.map(layer=>[layer.id,layer.pixels]));
-    const {animation:legacyAnimation,reference:legacyReference,...meta}=input;
-    return {...meta,format:'pixel-workshop/1',layers:initial,
+    if(n*(slots+Number(Boolean(reference)))>LEGACY_PIXEL_LIMIT)throw invalid();
+    const interner=new CelInterner<CroppedCel>();
+    const previous=new Map<string,{full:number[];crop:CroppedCel}>();
+    const read=(id:string,packet:PackedCel)=>{
+      const prior=previous.get(id);
+      const full=decodeCel(packet,n,prior?.full);
+      if(prior?.full===full)return prior.crop;
+      const crop=interner.intern(cropCel(full,width,height));
+      previous.set(id,{full,crop});
+      return crop;
+    };
+    const {layers:legacyLayers,animation:legacyAnimation,reference:legacyReference,...meta}=input;
+    return {...meta,format:'pixel-workshop/1',layers:legacyLayers.map(layer=>({...layer,pixels:read(layer.id,layer.pixels)})),
       ...(legacyReference?{reference:{...legacyReference,pixels:decodeCel(legacyReference.pixels,n)}}:{}),
       ...(legacyAnimation?{animation:{...legacyAnimation,frames:legacyAnimation.frames.map(frame=>({
-        id:frame.id,pixels:Object.fromEntries(Object.entries(frame.pixels).map(([id,packed])=>{
-          const values=interner.intern(decodeCel(packed,n,previous.get(id)));
-          previous.set(id,values);return [id,values];
-        }))
+        id:frame.id,pixels:Object.fromEntries(Object.entries(frame.pixels).map(([id,packet])=>[id,read(id,packet)]))
       }))}}:{})};
   }
 
   const {cels,...doc}=input;
-  if(!Array.isArray(cels)||!cels.length||cels.length>slots||n*(cels.length+Number(Boolean(reference)))>MAX_ANIMATION_CELLS)throw invalid();
+  if(!Array.isArray(cels)||!cels.length||cels.length>slots)throw invalid();
   const used=new Set<number>();
   const checkIndex=(index:number)=>{
     if(!Number.isInteger(index)||index<0||index>=cels.length)throw invalid();
@@ -195,12 +275,37 @@ export function unpackProject(input:unknown):PixelDocument {
   for(const layer of doc.layers)checkIndex(layer.pixels);
   for(const frame of doc.animation?.frames??[])for(const index of Object.values(frame.pixels))checkIndex(index);
   if(used.size!==cels.length)throw invalid();
-  const buffers:number[][]=[];
-  for(const cel of cels){
-    if(!cel||typeof cel.data!=='string')throw invalid();
-    const {base,data}=cel;
-    if(base!==undefined&&(!Number.isInteger(base)||base<0||base>=buffers.length||!data))throw invalid();
-    buffers.push(decodeCel(base===undefined?{data}:{data,delta:true},n,base===undefined?undefined:buffers[base]));
+  for(let index=0;index<cels.length;index++){
+    const cel=cels[index];
+    if(!cel||typeof cel.data!=='string'||(cel.base!==undefined&&(!Number.isInteger(cel.base)||cel.base<0||cel.base>=index)))throw invalid();
+  }
+  let buffers:Cel[];
+  if(input.format===POOLED_PROJECT_FORMAT){
+    if(n*(cels.length+Number(Boolean(reference)))>LEGACY_PIXEL_LIMIT)throw invalid();
+    const full:number[][]=[];
+    for(const {base,data} of cels){
+      if(!data)throw invalid();
+      full.push(decodeCel(base===undefined?{data}:{data,delta:true},n,base===undefined?undefined:full[base]));
+    }
+    buffers=full.map(pixels=>cropCel(pixels,width,height));
+  }else{
+    // Check every declared allocation before reading even the first packet.
+    let words=reference?n:0;
+    for(const {x,y,width:w,height:h,data,base,local} of input.cels){
+      if(![x,y,w,h].every(Number.isInteger)||x<0||y<0||w<0||h<0||x+w>width||y+h>height)throw invalid();
+      if((w===0||h===0)&&(x!==0||y!==0||w!==0||h!==0||data!==''||base!==undefined))throw invalid();
+      if(local!==undefined&&(local!==true||base===undefined||w!==input.cels[base].width||h!==input.cels[base].height))throw invalid();
+      words+=w*h;
+      if(words>MAX_ANIMATION_CELLS)throw invalid();
+    }
+    const crops:CroppedCel[]=[];
+    for(const {x,y,width:w,height:h,base,data,local} of input.cels){
+      const bounds={x,y,width:w,height:h};
+      const previous=base===undefined?undefined:local?crops[base].data:predictor(crops[base],bounds);
+      const pixels=w===0?[]:decodeCel(previous?{data,delta:true}:{data},w*h,previous);
+      crops.push({...bounds,data:pixels});
+    }
+    buffers=crops;
   }
   const {layers:indexedLayers,animation:indexedAnimation,reference:packedReference,...meta}=doc;
   return {...meta,format:'pixel-workshop/1',

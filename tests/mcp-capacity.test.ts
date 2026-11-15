@@ -22,6 +22,10 @@ test('stdio MCP edits the last frame and layer, regenerates FX, and exports at e
   }
   const large=await call('create_canvas',{name:'Wide panorama',width:1024,height:7});
   await call('paint',{id:large.summary.id,revision:0,commands:[{op:'pixel',x:1023,y:6,color:'#42ad59'}]});
+  const inspection=await call('get_canvas',{id:large.summary.id,include_pixels:true});
+  assert.equal(inspection.summary.pixelCells.used,1);
+  assert.equal(inspection.summary.layers[0].pixels.length,1024*7);
+  assert.equal(inspection.summary.layers[0].pixels.at(-1),0x42ad59ff);
   const panorama=await call('export_png',{id:large.summary.id});assert.ok(panorama.image);
   const wide=PNG.sync.read(Buffer.from(panorama.image.data,'base64'));
   assert.deepEqual([wide.width,wide.height],[1024,7]);assert.deepEqual([...wide.data.subarray(-4)],[66,173,89,255]);

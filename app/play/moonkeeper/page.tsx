@@ -2,6 +2,7 @@
 
 import {useCallback,useEffect,useRef,useState,type CSSProperties} from 'react';
 import Link from 'next/link';
+import type {Cel} from '../../../lib/cel-storage.ts';
 import {composite,frameCount,frameView,type PixelDocument} from '../../../lib/pixels.ts';
 import {createStardropArt,STARDROP_ASSETS,type StardropArt,type StardropArtName} from '../../../lib/stardrop-art.ts';
 import {STARDROP_UI_ASSETS,UI_ICONS,UI_STATES,UI_SLICES,type UiIconName} from '../../../lib/stardrop-ui-art.ts';
@@ -41,7 +42,7 @@ function rng(g:Game){
   let s=g.seed|0;s^=s<<13;s^=s>>>17;s^=s<<5;g.seed=s;return(s>>>0)/4294967296;
 }
 function rasterize(doc:PixelDocument):HTMLCanvasElement[]{
-  const poses:{cels:number[][];canvas:HTMLCanvasElement}[]=[];
+  const poses:{cels:Cel[];canvas:HTMLCanvasElement}[]=[];
   return Array.from({length:frameCount(doc)},(_,f)=>{
     const view=frameView(doc,f);
     const cels=view.layers.filter(layer=>layer.visible).map(layer=>layer.pixels);

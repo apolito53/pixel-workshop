@@ -1,8 +1,8 @@
 'use client';
 import {useEffect,useMemo,useRef,useState,type CSSProperties,type PointerEvent,type SetStateAction} from 'react';
-import {composite,documentCapacity,frameCount,frameView,type PaintCommand,type PixelDocument} from '../lib/pixels.ts';
+import {composite,MAX_LAYERS,frameCount,frameView,type PaintCommand,type PixelDocument} from '../lib/pixels.ts';
 import {nineSliceContentBounds,stretchNineSlice,validatePixelText,validateSlice,type PixelTextRecipe,type UiMetadata,type UiSlice} from '../lib/ui-metadata.ts';
-import {renderPixelText,textDimensions} from '../lib/pixel-font.ts';
+import {renderTextCel,textDimensions} from '../lib/pixel-font.ts';
 import {hasUiDraft,type UiDraft} from '../lib/ui-drafts.ts';
 import type {UiSection} from '../lib/ui-return.ts';
 import type {ColorImpact,KitColorReview,KitOverview,KitUndo} from '../lib/kit-review.ts';
@@ -70,7 +70,7 @@ function TextPreview({doc,layer,recipe,editing}:{doc:PixelDocument;layer:string;
   try{
    const valid=validatePixelText(recipe,doc.width,doc.height,frameCount(doc)),size=textDimensions(valid);
    if(valid.x+size.width>doc.width||valid.y+size.height>doc.height)return null;
-   const textPixels=renderPixelText(valid,doc.width,doc.height),view=frameView(doc,valid.frame);
+   const textPixels=renderTextCel(valid,doc.width,doc.height),view=frameView(doc,valid.frame);
    const layers=editing?view.layers.map(item=>item.id===layer?{...item,pixels:textPixels}:item):
     [...view.layers,{id:'preview-text',name:'Preview',visible:true,pixels:textPixels}];
    return composite({...view,layers});
@@ -121,7 +121,7 @@ export default function UiKitPanel({doc,frame,layer,ink,busy,onCommit,onSaveDraf
  const [colorReview,setColorReview]=useState<KitColorReview|null>(null),[reviewing,setReviewing]=useState(false);
  const kitPalette=paletteState?.kitId===doc.ui?.kitId?paletteState:null;
  const selected=doc.layers.find(item=>item.id===layer),storedText=selected?.text;
- const textNeedsRoom=!storedText&&doc.layers.length>=documentCapacity(doc).maxLayers;
+ const textNeedsRoom=!storedText&&doc.layers.length>=MAX_LAYERS;
  const textKey=layer+'@'+(storedText?.frame??frame),textBase=JSON.stringify(storedText??null);
  const initialText=():PixelTextRecipe=>storedText??{text:doc.width>=49?'STARDROP':doc.width>=13?'OK':doc.width>=6?'I':'',x:Math.min(1,doc.width-1),y:Math.min(1,doc.height-1),scale:1,spacing:1,color:ink,frame};
  const text=draft.text?.[textKey]?.value??initialText();

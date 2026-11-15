@@ -5,7 +5,8 @@ import {X,ImagePlus,Eye,Trash2} from 'lucide-react';
 import {fitCanvasDimensions,MAX_CANVAS_SIDE,MAX_REFERENCE_PNG_BYTES,MAX_SOURCE_SIDE,MAX_SOURCE_PIXELS} from '../lib/canvas-limits.ts';
 import {prepareReference,referenceRgba,fitReferenceAlignment,type ReferenceAlignment,type ReferenceImage,type ReferenceSource} from '../lib/reference.ts';
 import type {CanvasView} from '../lib/canvas-preview.ts';
-import {createDocument,type PixelDocument} from '../lib/pixels.ts';
+import {cropCel} from '../lib/cel-storage.ts';
+import {composite,createCompactDocument,type PixelDocument} from '../lib/pixels.ts';
 
 type Props={doc:PixelDocument|null;busy:boolean;view:CanvasView;referenceOpacity:number;artworkOpacity:number;
  onView:(view:CanvasView)=>void;onReferenceOpacity:(v:number)=>void;onArtworkOpacity:(v:number)=>void;
@@ -146,8 +147,8 @@ function PixelifyPanel({onCreate,busy}:{onCreate:(doc:PixelDocument)=>Promise<vo
       spread(x+1,y,7/16);spread(x-1,y+1,3/16);spread(x,y+1,5/16);spread(x+1,y+1,1/16);
      }
     }
-    const doc=createDocument(file.name.replace(/\.[^.]+$/,'').slice(0,72)||'Pixelified image',width,height,'pixelified-image');
-    doc.layers[0].pixels=pixels;doc.palette=[...palette].slice(0,128);setPreview(doc);setFileName(file.name);
+    const doc=createCompactDocument(file.name.replace(/\.[^.]+$/,'').slice(0,72)||'Pixelified image',width,height,'pixelified-image');
+    doc.layers[0].pixels=cropCel(pixels,width,height);doc.palette=[...palette].slice(0,128);setPreview(doc);setFileName(file.name);
    }finally{bitmap.close();}
   }catch(e){setError((e as Error).message);}finally{setWorking(false);}
  };
@@ -166,7 +167,7 @@ function PixelifyPanel({onCreate,busy}:{onCreate:(doc:PixelDocument)=>Promise<vo
   <label className="reference-check"><input type="checkbox" checked={dither} onChange={e=>setDither(e.target.checked)}/>Use dithering for smoother gradients</label>
   {error&&<p className="error-text" role="alert">{error}</p>}
   {preview&&<><p className="reference-name">{preview.width} × {preview.height} · {preview.palette.length} palette colors<br/><span className="muted">Preview is the exact editable pixel data.</span></p>
-   <div style={{background:'var(--panel)',padding:8,display:'grid',placeItems:'center',maxHeight:240,overflow:'auto'}}><canvas ref={el=>{if(!el)return;el.width=preview.width;el.height=preview.height;const c=el.getContext('2d');if(!c)return;const img=c.createImageData(preview.width,preview.height);preview.layers[0].pixels.forEach((p,i)=>{img.data[i*4]=p>>>24;img.data[i*4+1]=(p>>>16)&255;img.data[i*4+2]=(p>>>8)&255;img.data[i*4+3]=p&255;});c.putImageData(img,0,0);el.style.width=Math.min(220,preview.width*4,220*preview.width/preview.height)+'px';el.style.height='auto';el.style.imageRendering='pixelated';}}/></div>
+   <div style={{background:'var(--panel)',padding:8,display:'grid',placeItems:'center',maxHeight:240,overflow:'auto'}}><canvas ref={el=>{if(!el)return;el.width=preview.width;el.height=preview.height;const c=el.getContext('2d');if(!c)return;const rgba=composite(preview);c.putImageData(new ImageData(new Uint8ClampedArray(rgba),preview.width,preview.height),0,0);el.style.width=Math.min(220,preview.width*4,220*preview.width/preview.height)+'px';el.style.height='auto';el.style.imageRendering='pixelated';}}/></div>
    <button className="primary full" disabled={busy||working} onClick={()=>void onCreate(preview)}>Open as editable canvas</button>
   </>}
  </section>;

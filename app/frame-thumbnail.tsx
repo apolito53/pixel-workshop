@@ -1,18 +1,19 @@
 'use client';
 import {useEffect,useRef} from 'react';
+import {celPixel,type Cel} from '../lib/cel-storage.ts';
 import {composite,frameView,type PixelDocument} from '../lib/pixels.ts';
 
 // The timeline displays 44px thumbnails. Cache nearest-neighbor samples by
 // immutable cel identity so held frames share the resize work.
-const samples=new WeakMap<number[],{width:number;height:number;pixels:number[]}>();
-function sample(pixels:number[],width:number,height:number,w:number,h:number){
+const samples=new WeakMap<Cel,{width:number;height:number;pixels:number[]}>();
+function sample(pixels:Cel,width:number,height:number,w:number,h:number){
  if(w===width&&h===height)return pixels;
  const cached=samples.get(pixels);
  if(cached?.width===width&&cached.height===height)return cached.pixels;
  const result=new Array<number>(w*h);
  for(let y=0;y<h;y++){
-  const row=Math.floor((y+.5)*height/h)*width;
-  for(let x=0;x<w;x++)result[y*w+x]=pixels[row+Math.floor((x+.5)*width/w)];
+  const sourceY=Math.floor((y+.5)*height/h);
+  for(let x=0;x<w;x++)result[y*w+x]=celPixel(pixels,Math.floor((x+.5)*width/w),sourceY,width);
  }
  samples.set(pixels,{width,height,pixels:result});
  return result;
@@ -20,7 +21,7 @@ function sample(pixels:number[],width:number,height:number,w:number,h:number){
 
 export default function FrameThumbnail({doc,index}:{doc:PixelDocument;index:number}){
  const ref=useRef<HTMLCanvasElement>(null);
- const previous=useRef<{width:number;height:number;cels:number[][]}|null>(null);
+ const previous=useRef<{width:number;height:number;cels:Cel[]}|null>(null);
  useEffect(()=>{
   const canvas=ref.current;if(!canvas)return;
   const {width,height}=doc;

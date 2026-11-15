@@ -1,3 +1,4 @@
+import {celData,celPixel} from '../lib/cel-storage.ts';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm,writeFile} from 'node:fs/promises';
@@ -14,13 +15,13 @@ import {lanternDemo} from '../lib/demo.ts';
 
 test('drawing is exact and atomic; invalid batches do not alter source',()=>{
  const source=createDocument('Test',8,8),next=applyCommands(source,[{op:'line',x:0,y:0,x2:7,y2:7,color:'#ff0000'}]);
- assert.equal(next.layers[0].pixels.filter(Boolean).length,8);assert.equal(source.layers[0].pixels.filter(Boolean).length,0);
+ assert.equal(celData(next.layers[0].pixels).filter(Boolean).length,8);assert.equal(source.layers[0].pixels.filter(Boolean).length,0);
  assert.throws(()=>applyCommands(source,[{op:'pixel',x:0,y:0,color:'#ff0000'},{op:'pixel',x:8,y:0,color:'#ff0000'}]));assert.equal(source.layers[0].pixels[0],0);
 });
 test('flood fill respects a closed outline; transparent erase preserves other pixels',()=>{
  let d=applyCommands(createDocument('Fill',8,8),[{op:'rect',x:1,y:1,width:6,height:6,filled:false,color:'#123456'},{op:'fill',x:2,y:2,color:'#ff0000'}]);
- assert.equal(d.layers[0].pixels[0],0);assert.equal(d.layers[0].pixels[2*8+2],color('#ff0000'));assert.equal(d.layers[0].pixels[1*8+1],color('#123456'));
- d=applyCommands(d,[{op:'pixel',x:2,y:2,color:'transparent'}]);assert.equal(d.layers[0].pixels[2*8+2],0);
+ assert.equal(celPixel(d.layers[0].pixels,0,0,d.width),0);assert.equal(celPixel(d.layers[0].pixels,2,2,8),color('#ff0000'));assert.equal(celPixel(d.layers[0].pixels,1,1,8),color('#123456'));
+ d=applyCommands(d,[{op:'pixel',x:2,y:2,color:'transparent'}]);assert.equal(celPixel(d.layers[0].pixels,2,2,8),0);
 });
 test('selection transforms preserve exact RGBA and handle overlapping moves atomically',()=>{
  const a=color('#ff000080'),b=color('#00ff00'),base=applyCommands(createDocument('Selection',5,3),[{op:'paste',x:0,y:0,width:3,height:2,pixels:[a,0,b,b,a,0]}]);
@@ -31,9 +32,9 @@ test('selection transforms preserve exact RGBA and handle overlapping moves atom
  assert.deepEqual(readRegion(flipped,'base',{x:0,y:0,width:3,height:2}),[0,a,b,b,0,a]);
  const copied=applyCommands(base,[{op:'transform',mode:'copy',x:0,y:0,width:2,height:2,x2:3,y2:1}]);
  assert.deepEqual(readRegion(copied,'base',{x:3,y:1,width:2,height:2}),[a,0,b,a]);
- assert.equal(copied.layers[0].pixels[0],a);
+ assert.equal(celPixel(copied.layers[0].pixels,0,0,copied.width),a);
  assert.throws(()=>applyCommands(base,[{op:'clear'},{op:'transform',mode:'move',x:0,y:0,width:3,height:2,x2:4,y2:0}]));
- assert.equal(base.layers[0].pixels[0],a);
+ assert.equal(celPixel(base.layers[0].pixels,0,0,base.width),a);
  assert.throws(()=>applyCommands(base,[{op:'paste',x:0,y:0,width:1,height:1,pixels:[-1]}]));
 });
 test('layers composite alpha and visibility correctly',()=>{
@@ -55,9 +56,9 @@ test('project JSON round-trips and rejects corrupt layers',()=>{
 test('storage persists edits and undo/redo; stale revisions and concurrent writes fail safely',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'pixel-test-'));try{
  const s=new ProjectService(fileStore(dir));const d=await s.create('Saved',8,8);await s.edit(d.id,0,'paint',[{op:'pixel',x:0,y:0,color:'#ffffff'}]);
- const restored=new ProjectService(fileStore(dir));assert.equal((await restored.get(d.id)).entry.doc.layers[0].pixels[0],color('#ffffff'));
+ const restored=new ProjectService(fileStore(dir));assert.equal(celPixel((await restored.get(d.id)).entry.doc.layers[0].pixels,0,0,8),color('#ffffff'));
  await assert.rejects(()=>restored.edit(d.id,0,'paint',[{op:'clear'}]),/changed/);
- const u=await restored.edit(d.id,1,'undo');assert.equal(u.revision,2);assert.equal(u.layers[0].pixels[0],0);const r=await restored.edit(d.id,2,'redo');assert.equal(r.revision,3);assert.equal(r.layers[0].pixels[0],color('#ffffff'));
+ const u=await restored.edit(d.id,1,'undo');assert.equal(u.revision,2);assert.equal(celPixel(u.layers[0].pixels,0,0,8),0);const r=await restored.edit(d.id,2,'redo');assert.equal(r.revision,3);assert.equal(celPixel(r.layers[0].pixels,0,0,8),color('#ffffff'));
  const results=await Promise.allSettled([s.edit(d.id,3,'paint',[{op:'pixel',x:1,y:1,color:'#ff0000'}]),restored.edit(d.id,3,'paint',[{op:'pixel',x:2,y:2,color:'#00ff00'}])]);assert.equal(results.filter(x=>x.status==='fulfilled').length,1);
  }finally{await rm(dir,{recursive:true,force:true});}
 });
@@ -87,7 +88,7 @@ test('a whole 1024-square native paste fits an atomic edit but repeated work sta
   const pixels=Array(d.width*d.height).fill(0xffaa66ff);
   const paste={op:'paste',x:0,y:0,width:d.width,height:d.height,pixels};
   const painted=applyCommands(d,[paste]);
-  assert.equal(painted.layers[0].pixels.at(-1),0xffaa66ff);
+  assert.equal(celPixel(painted.layers[0].pixels,1023,1023,1024),0xffaa66ff);
   assert.throws(()=>applyCommands(d,Array(5).fill(paste)),/batch is too large/);
-  assert.equal(d.layers[0].pixels[0],0);
+  assert.equal(celPixel(d.layers[0].pixels,0,0,d.width),0);
 });

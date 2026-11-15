@@ -1,3 +1,4 @@
+import {celPixel} from './cel-storage.ts';
 import {composite,frameView,hex,type PixelDocument,type PaintCommand} from './pixels.ts';
 import {packRgba,type ReferenceImage} from './reference.ts';
 
@@ -34,17 +35,20 @@ export function compareReference(doc:PixelDocument,frame=0,layer?:string){
  if(!doc.reference)throw new Error('This canvas has no tracing reference.');
  const view=frameView(doc,frame),target=layer===undefined?undefined:view.layers.find(l=>l.id===layer);
  if(layer!==undefined&&!target)throw new Error('Layer not found.');
- const actual=target?target.pixels:packRgba(composite(view)),expected=doc.reference.pixels;
+ const compositePixels=target?null:packRgba(composite(view)),expected=doc.reference.pixels;
  let differentPixels=0,visibleDifferentPixels=0;
  type Difference={x:number;y:number;expected:string;actual:string};
  let firstDifference:Difference|null=null;
  let firstVisibleDifference:Difference|null=null;
- for(let i=0;i<expected.length;i++)if(actual[i]!==expected[i]){
+ for(let i=0;i<expected.length;i++){
+  const x=i%doc.width,y=Math.floor(i/doc.width);
+  const actual=target?celPixel(target.pixels,x,y,doc.width):compositePixels![i];
+  if(actual===expected[i])continue;
   differentPixels++;
-  const difference={x:i%doc.width,y:Math.floor(i/doc.width),expected:hex(expected[i]),actual:hex(actual[i])};
+  const difference={x,y,expected:hex(expected[i]),actual:hex(actual)};
   firstDifference??=difference;
   // RGB under zero alpha is retained in layers but normalized by artwork compositing.
-  if((actual[i]&255)!==0||(expected[i]&255)!==0){visibleDifferentPixels++;firstVisibleDifference??=difference;}
+  if((actual&255)!==0||(expected[i]&255)!==0){visibleDifferentPixels++;firstVisibleDifference??=difference;}
  }
  return {frame,layer:layer??null,target:layer===undefined?'composited artwork':'layer',
   ...referencePreparation(doc.reference),totalPixels:expected.length,matchingPixels:expected.length-differentPixels,

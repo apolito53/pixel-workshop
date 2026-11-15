@@ -5,6 +5,7 @@ export const playerReleaseNotes = {
     {
       title: 'November 2026',
       changes: [
+        'Small drawings now use only the space around their pixels. Paint beyond their edges or erase them and the stored bounds adjust automatically.',
         'Keep up to 64 layers and 96 frames on canvases up to 1024 pixels per side. Held drawings share space until you edit them.',
         'Reorder layers, rename them and organize them in collapsible folders.',
         'Use Wind animation in Effects to pin a drawing, preview its sway and bake the loop into editable frames.',

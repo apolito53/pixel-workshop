@@ -1,3 +1,4 @@
+import {celData,type Cel} from './cel-storage.ts';
 import {celUses,composite,frameCount,frameView,type PixelDocument} from './pixels.ts';
 
 export type KitMember={id:string;name:string;assetKey:string|null;frames:number};
@@ -14,7 +15,7 @@ export function overviewKit(docs:PixelDocument[]):KitOverview{
  for(const doc of docs){
   const used=new Set<string>();
   for(const pixels of celUses(doc).keys()){
-   for(const pixel of pixels)if((pixel&255)!==0)used.add('#'+(pixel>>>8).toString(16).padStart(6,'0'));
+   for(const pixel of celData(pixels))if((pixel&255)!==0)used.add('#'+(pixel>>>8).toString(16).padStart(6,'0'));
   }
   for(const ink of doc.palette)if(/^#[0-9a-f]{6}/i.test(ink))used.add(ink.slice(0,7).toLowerCase());
   for(const color of used)usage.set(color,(usage.get(color)??0)+1);
@@ -31,15 +32,19 @@ export function reviewKitColor(docs:PixelDocument[],kitId:string,from:string,to:
  for(const doc of docs){
   let pixels=0;
   for(const [values,uses] of celUses(doc)){
-   for(const value of values)if(matches(value))pixels+=uses;
+   for(const value of celData(values))if(matches(value))pixels+=uses;
   }
   const metadata=doc.palette.some(isSource)||doc.layers.some(layer=>isSource(layer.text?.color)||isSource(layer.effect?.ink));
   if(!pixels&&!metadata)continue;
   const view=frameView(doc,0),before=composite(view);
-  const previews=new Map<number[],number[]>();
+  const previews=new Map<Cel,Cel>();
   const after=composite({...view,layers:view.layers.map(layer=>{
    let mapped=previews.get(layer.pixels);
-   if(!mapped){mapped=layer.pixels.map(replace);previews.set(layer.pixels,mapped);}
+   if(!mapped){
+    const source=layer.pixels, data=celData(source).map(replace);
+    mapped=Array.isArray(source)?data:{...source,data};
+    previews.set(source,mapped);
+   }
    return {...layer,pixels:mapped};
   })});
   impacts.push({id:doc.id,name:doc.name,revision:doc.revision,pixels,metadata,width:doc.width,height:doc.height,before,after});
