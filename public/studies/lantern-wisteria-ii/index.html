@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#18171c">
+<title>Lantern Wisteria II · Pixel Workshop</title>
+<meta name="description" content="A layered pixel-art wisteria on a coastal bluff. Play the wind loop, inspect the tree, or download the editable Pixel Workshop project.">
+<meta property="og:image" content="https://pixel-workshop-nine.vercel.app/studies/lantern-wisteria-ii/still.png">
+<style>
+:root {
+  color-scheme:dark; --bg:#18171c; --panel:#211f27; --ink:#f4eff2; --muted:#c2b9c6; --line:#49424f;
+  --lav:#ddc4f0; --size:880px; font:15px/1.45 'DM Sans',system-ui,sans-serif;
+}
+* { box-sizing:border-box } [hidden] { display:none!important }
+body { margin:0; background:var(--bg); color:var(--ink) }
+a { color:inherit; text-underline-offset:4px } button,input { font:inherit }
+button,a { -webkit-tap-highlight-color:transparent }
+button:focus-visible,a:focus-visible,input:focus-visible { outline:2px solid var(--lav); outline-offset:3px }
+main { width:min(calc(100% - clamp(28px,8vw,104px)),var(--size)); margin:auto; padding:24px 0 32px }
+nav,header,.tools,.transport,footer,.links,.view,.scale { display:flex; align-items:center }
+nav { justify-content:space-between; gap:12px; padding-bottom:15px; border-bottom:1px solid var(--line); font-size:.83rem }
+nav a { text-decoration:none } nav a:hover, .source:hover { color:var(--lav); text-decoration:underline }
+.brand { font-weight:650; letter-spacing:-.03em }
+.brand b { display:inline-block; width:12px; height:12px; margin-right:8px; background:var(--lav); vertical-align:-1px; clip-path:polygon(27% 0,73% 0,73% 27%,100% 27%,100% 73%,73% 73%,73% 100%,27% 100%,27% 73%,0 73%,0 27%,27% 27%) }
+.source { color:var(--muted) }
+header { justify-content:space-between; gap:12px; padding:clamp(20px,4vh,36px) 0 20px; flex-wrap:wrap }
+h1 { font:normal clamp(2.2rem,6vw,4rem)/1 'Instrument Serif','Baskerville',Georgia,serif; letter-spacing:-.056em; margin:0 }
+h1 em { font-weight:normal; color:#e4cde9 }
+h1 .edition { display:inline-block; margin-left:.08em; font-size:.64em; letter-spacing:-.09em; vertical-align:.12em }
+header p,footer p { color:var(--muted); margin:0 }
+header p { font-size:.8rem; font-variant-numeric:tabular-nums } figure { margin:0 }
+.stage { width:100%; aspect-ratio:384/248; display:grid; place-items:center; overflow:hidden; position:relative; background:#121117; box-shadow:inset 0 0 0 1px var(--line) }
+.stage.sprite { background-color:#25232c; background-image:conic-gradient(#2b2833 25%,transparent 0 50%,#2b2833 0 75%,transparent 0); background-size:20px 20px }
+.stage img,.stage canvas { grid-area:1/1; display:block; object-fit:contain; image-rendering:pixelated; width:100%; height:100% }
+.stage.native canvas { width:auto; height:auto; max-width:100%; max-height:100% }
+.stage .error { position:absolute; inset:auto 12px 12px; margin:0; padding:8px 12px; border-radius:3px; background:#211e2bef; color:#ffdfcf; font-size:.82rem }
+.tools { justify-content:space-between; gap:12px; padding:9px 0; flex-wrap:wrap }
+.view,.scale { gap:3px }
+.tools button,.transport button { color:var(--muted); border:1px solid transparent; background:none; cursor:pointer; min-height:38px; padding:6px 10px; font-size:.83rem; border-radius:4px }
+.tools button:hover,.transport button:hover { color:var(--ink); background:#322e39 }
+.tools button[aria-pressed=true] { background:#302a37; border-color:#655570; color:#f2dffb }
+.scale button { padding-inline:8px }
+.transport { gap:12px; padding:8px 12px; border:1px solid var(--line); background:var(--panel); min-height:52px }
+.transport button { min-width:38px; color:var(--ink); padding-inline:6px }
+#play { min-width:71px; text-align:left; white-space:nowrap }
+#play span { display:inline-grid; width:15px; margin-right:4px; text-align:center }
+.step { font-size:1.3rem!important; line-height:1 }
+#timeline { min-width:36px; flex:auto; height:32px; cursor:pointer; accent-color:var(--lav) }
+#counter { color:var(--muted); font-size:.8rem; font-variant-numeric:tabular-nums; white-space:nowrap; min-width:4.4em; text-align:right }
+footer { border-top:1px solid var(--line); margin-top:12px; padding:19px 0 0; gap:12px 20px; justify-content:space-between; flex-wrap:wrap }
+footer p { font-size:.84rem; max-width:35ch }
+.links { gap:10px; flex-wrap:wrap }
+.links a { padding:9px 12px; border-radius:4px; text-decoration:none; font-size:.85rem }
+.project { background:var(--lav); color:#21192a; font-weight:650 }
+.pack { border:1px solid #625768 }
+.links a:hover { filter:brightness(1.13) }
+
+.inspector { border:1px solid var(--line); background:var(--panel); border-radius:4px; }
+.inspector-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 9px 0 12px; }
+.inspector-head button { font:inherit; font-size:.83rem; border:0; color:var(--ink); background:transparent; cursor:pointer; padding:8px 4px; min-height:38px; }
+#layer-toggle { flex:auto; display:flex; align-items:center; gap:8px; text-align:left; }
+#layer-toggle::before { content:'›'; color:var(--lav); font-size:1.1em; }
+#layer-toggle[aria-expanded=true]::before { transform:rotate(90deg); }
+#layer-count { color:var(--muted); font-size:.78rem; font-variant-numeric:tabular-nums; }
+#layer-count.filtered,#reset-layers { color:var(--lav); }
+#layer-body { border-top:1px solid var(--line); padding:12px; }
+#layer-message { color:var(--muted); font-size:.84rem; margin:0; }
+#layer-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr)); gap:16px 18px; align-items:start; }
+#layer-list fieldset { min-width:0; border:0; padding:0; margin:0; }
+#layer-list legend { color:var(--lav); font-size:.79rem; margin-bottom:4px; font-weight:650; }
+#layer-list label { display:flex; align-items:center; gap:8px; cursor:pointer; font-size:.85rem; min-height:30px; }
+#layer-list input { accent-color:var(--lav); width:14px; height:14px; margin:0; flex:none; }
+@media(max-width:570px){
+  main { padding-top:16px } header { gap:8px; padding-bottom:16px } header p { width:100% }
+  .tools { gap:3px } .tools button { padding-inline:8px } .scale button { padding-inline:6px }
+  .transport { padding:4px 6px; gap:3px } #play { min-width:59px }
+  .transport .step { min-width:32px } footer { margin-top:7px; padding-top:14px }
+}
+</style>
+</head>
+<body>
+<main>
+  <nav aria-label="Workshop navigation">
+    <a class="brand" href="https://pixel-workshop-nine.vercel.app/"><b aria-hidden="true"></b>Pixel Workshop</a>
+    <a class="source" href="https://pixel-workshop-nine.vercel.app/studies/lantern-wisteria/index.html">View the first study</a>
+  </nav>
+  <header>
+    <h1>Lantern <em>Wisteria</em> <span class="edition">II</span></h1>
+    <p>24 frames · 8 fps · 3 seconds</p>
+  </header>
+  <figure aria-label="Lantern Wisteria II wind study">
+    <div class="stage" id="stage">
+      <img id="poster" src="still.png" width="384" height="248" alt="A flowering wisteria and its hanging lantern on a coastal bluff at dusk.">
+      <canvas id="art" width="384" height="248" hidden role="img" aria-label="Wisteria on the coast"></canvas>
+      <p class="error" id="error" role="status" hidden></p>
+    </div>
+    <div class="transport" role="group" aria-label="Animation playback" hidden>
+      <button type="button" id="play" aria-label="Play animation"><span aria-hidden="true">▷</span>Play</button>
+      <button type="button" class="step" id="prev" aria-label="Previous frame" title="Previous frame">‹</button>
+      <input id="timeline" type="range" min="1" max="24" value="1" aria-label="Animation frame">
+      <button type="button" class="step" id="next" aria-label="Next frame" title="Next frame">›</button>
+      <output id="counter" for="timeline" aria-live="off">01 / 24</output>
+    </div>
+    <div class="tools" hidden>
+      <div class="view" role="group" aria-label="Artwork view">
+        <button type="button" id="scene" aria-pressed="true">Coastal scene</button>
+        <button type="button" id="tree" aria-pressed="false">Isolated tree</button>
+      </div>
+      <div class="scale" role="group" aria-label="Display size">
+        <button type="button" id="fit" aria-pressed="true">Fit</button>
+        <button type="button" id="native" aria-pressed="false" title="Display at native pixel size">1×</button>
+      </div>
+    </div>
+    <section class="inspector" id="inspector" aria-label="Tree layers" hidden>
+      <div class="inspector-head">
+        <button type="button" id="layer-toggle" aria-expanded="false" aria-controls="layer-body">Tree layers <span id="layer-count"></span></button>
+        <button type="button" id="reset-layers" hidden>Restore all</button>
+      </div>
+      <div id="layer-body" hidden>
+        <p role="status" id="layer-message"></p>
+        <div id="layer-list"></div>
+      </div>
+    </section>
+  </figure>
+  <footer>
+    <p>Import the editable project into Pixel Workshop to paint individual tufts and flowers.</p>
+    <div class="links">
+      <a class="project" href="wisteria-ii.pixel.json" download>Editable project ↓</a>
+      <a class="pack" href="wisteria-ii.zip" download>Asset pack ↓</a>
+    </div>
+  </footer>
+</main>
+<script>
+(() => {
+  const count = 24, fps = 8, columns = 6;
+  const byId = id => document.getElementById(id);
+  const stage = byId('stage'), art = byId('art'), poster = byId('poster'), timeline = byId('timeline');
+  const error = byId('error'), play = byId('play'), counter = byId('counter');
+  const context = art.getContext('2d');
+  if (!context) return;
+  const media = matchMedia('(prefers-reduced-motion: reduce)');
+  const views = {
+    scene: {url:'scene-sheet.png', width:384, height:248, label:'Wisteria on the coast'},
+    tree: {url:'tree-sheet.png', width:256, height:224, label:'Isolated flowering wisteria on a checkerboard'}
+  };
+  let view = 'scene', frame = 0, playing = false, timer = 0, started = 0, initialized = false;
+  const inspector = byId('inspector'), layerBody = byId('layer-body'), layerToggle = byId('layer-toggle');
+  const layerCount = byId('layer-count'), resetLayers = byId('reset-layers'), disabledLayers = new Set();
+  let layerData, poseAtlas, loadingLayers;
+  function draw() {
+    const {image,width,height,label,ready} = views[view];
+    if (!ready) return;
+    if (art.width !== width || art.height !== height) { art.width = width; art.height = height; }
+    context.imageSmoothingEnabled = false;
+    context.clearRect(0,0,width,height);
+    if (view === 'tree' && layerData && disabledLayers.size) {
+      for (const layer of layerData.layers) {
+        if (disabledLayers.has(layer.id)) continue;
+        const pose = layerData.poses[layer.poses[frame]];
+        if (pose.w && pose.h) context.drawImage(poseAtlas,pose.x,pose.y,pose.w,pose.h,pose.dx,pose.dy,pose.w,pose.h);
+      }
+    } else context.drawImage(image,(frame%columns)*width,Math.floor(frame/columns)*height,width,height,0,0,width,height);
+    art.hidden = false;
+    poster.hidden = true;
+    art.setAttribute('aria-label',label);
+    timeline.value = frame+1;
+    timeline.setAttribute('aria-valuetext','Frame '+(frame+1)+' of '+count);
+    counter.value = String(frame+1).padStart(2,'0')+' / '+count;
+  }
+  function tick(now) {
+    if (!playing) return;
+    const next = Math.floor((now-started)*fps/1000)%count;
+    if (next !== frame) { frame = next; draw(); }
+    timer = requestAnimationFrame(tick);
+  }
+  function setPlaying(value) {
+    cancelAnimationFrame(timer);
+    playing = value;
+    play.innerHTML = playing ? '<span aria-hidden="true">Ⅱ</span>Pause' : '<span aria-hidden="true">▷</span>Play';
+    play.setAttribute('aria-label',playing?'Pause animation':'Play animation');
+    if (playing) {
+      started = performance.now() - frame*1000/fps;
+      timer = requestAnimationFrame(tick);
+    }
+  }
+  function seek(value) { setPlaying(false); frame = (value+count)%count; draw(); }
+  function showView(key) {
+    if (!views[key].ready) return;
+    view = key;
+    stage.classList.toggle('sprite',key==='tree');
+    inspector.hidden = key!=='tree';
+    for (const name of Object.keys(views)) byId(name).setAttribute('aria-pressed',String(key===name));
+    draw();
+  }
+  function setNative(value) {
+    stage.classList.toggle('native',value);
+    byId('fit').setAttribute('aria-pressed',String(!value));
+    byId('native').setAttribute('aria-pressed',String(value));
+  }
+  function ready(key) {
+    if (!initialized && (key===view || views[view].failed)) {
+      initialized = true;
+      for (const selector of ['.transport','.tools']) document.querySelector(selector).hidden = false;
+      showView(key);
+      setPlaying(!media.matches && !document.hidden);
+    }
+  }
+  function failed(key) {
+    views[key].failed = true;
+    error.hidden = false;
+    error.textContent = 'The '+(key==='scene'?'coastal backdrop':'isolated tree')+' sheet could not load.';
+    const other = key==='scene'?'tree':'scene';
+    if (views[other].ready) ready(other);
+  }
+  for (const [key,item] of Object.entries(views)) {
+    const image = item.image = new Image();
+    const button = byId(key);
+    button.disabled = true;
+    button.onclick = () => showView(key);
+    image.onload = () => {
+      if (image.naturalWidth !== item.width*columns || image.naturalHeight !== item.height*(count/columns)) {
+        failed(key); return;
+      }
+      item.ready = true;
+      button.disabled = false;
+      ready(key);
+    };
+    image.onerror = () => failed(key);
+    image.src = item.url;
+  }
+  function updateLayerCount() {
+    const total = layerData.layers.length;
+    layerCount.textContent = (total-disabledLayers.size)+' / '+total+' visible';
+    layerCount.classList.toggle('filtered',disabledLayers.size>0);
+    resetLayers.hidden = disabledLayers.size===0;
+  }
+  function populateLayers() {
+    const groups = new Map();
+    for (const layer of [...layerData.layers].reverse()) {
+      const group = layer.group || 'Tree';
+      if (!groups.has(group)) {
+        const fieldset = document.createElement('fieldset'), legend = document.createElement('legend');
+        legend.textContent = group;
+        fieldset.append(legend);
+        byId('layer-list').append(fieldset);
+        groups.set(group,fieldset);
+      }
+      const label = document.createElement('label'), input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = true;
+      input.onchange = () => {
+        if (input.checked) disabledLayers.delete(layer.id);
+        else disabledLayers.add(layer.id);
+        updateLayerCount();
+        draw();
+      };
+      label.append(input,document.createTextNode(layer.name));
+      groups.get(group).append(label);
+    }
+    updateLayerCount();
+  }
+  function loadLayers() {
+    if (layerData || loadingLayers) return;
+    byId('layer-message').textContent = 'Loading layers…';
+    const script = document.createElement('script');
+    const manifest = new Promise((resolve,reject) => {
+      script.onload = () => resolve(globalThis.wisteriaLayers);
+      script.onerror = reject;
+    });
+    script.src = 'layers.js';
+    document.head.append(script);
+    const atlas = new Image(), imageLoaded = new Promise((resolve,reject) => {
+      atlas.onload = resolve;
+      atlas.onerror = reject;
+    });
+    atlas.src = 'layer-poses.png';
+    loadingLayers = Promise.all([manifest,imageLoaded]).then(([data]) => {
+      if (!data || data.frames!==count || !Array.isArray(data.layers) || !Array.isArray(data.poses)) throw Error();
+      layerData = data;
+      poseAtlas = atlas;
+      populateLayers();
+      byId('layer-message').textContent = '';
+    }).catch(() => {
+      byId('layer-message').textContent = 'The layer assets could not load. Reopen this panel to retry.';
+      loadingLayers = null;
+      script.remove();
+    });
+  }
+  layerToggle.onclick = () => {
+    const opening = layerBody.hidden;
+    layerBody.hidden = !opening;
+    layerToggle.setAttribute('aria-expanded',String(opening));
+    if (opening) loadLayers();
+  };
+  resetLayers.onclick = () => {
+    disabledLayers.clear();
+    for (const input of byId('layer-list').querySelectorAll('input')) input.checked = true;
+    updateLayerCount();
+    draw();
+    if (!layerBody.hidden) layerToggle.focus();
+  };
+  byId('fit').onclick = () => setNative(false);
+  byId('native').onclick = () => setNative(true);
+  play.onclick = () => setPlaying(!playing);
+  byId('prev').onclick = () => seek(frame-1);
+  byId('next').onclick = () => seek(frame+1);
+  timeline.oninput = () => seek(Number(timeline.value)-1);
+  document.addEventListener('visibilitychange',() => {if (document.hidden) setPlaying(false);});
+  media.addEventListener('change',e => {if (e.matches) setPlaying(false);});
+})();
+</script>
+</body>
+</html>
