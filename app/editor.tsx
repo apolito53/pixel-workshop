@@ -31,6 +31,8 @@ import StampWorkbench from './stamp-workbench.tsx';
 import WindPanel from './wind-panel.tsx';
 import {STAMP_LIBRARY_LIMIT,loadStamps,captureStamp,stampCommand,positionStamp,stampRgba,addSavedStamp,type StampAsset} from '../lib/stamp-library.ts';
 import {isHexInk,normalizeInk,rememberInk,rgbHex,splitProjectPalette,withOpacity,withRgb} from '../lib/color-workflow.ts';
+import './image-finishing.css';
+import {useImageFinishing} from './finishing-launcher.tsx';
 type Snapshot=EditorSnapshot;
 type ProjectListItem=Pick<PixelDocument,'id'|'name'|'width'|'height'|'revision'|'updatedAt'>;
 type Tool='select'|'pencil'|'eraser'|'fill'|'picker'|'line'|'rect'|'ellipse'|'stamp';
@@ -95,6 +97,7 @@ function render(c:HTMLCanvasElement|null,d:PixelDocument|null,z:number,grid=fals
  if(grid&&z>=3){ctx.strokeStyle='#ffffff38';ctx.beginPath();for(let x=0;x<=d.width;x++){ctx.moveTo(x*z+.5,0);ctx.lineTo(x*z+.5,c.height);}for(let y=0;y<=d.height;y++){ctx.moveTo(0,y*z+.5);ctx.lineTo(c.width,y*z+.5);}ctx.stroke();}
 }
 export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspace?:()=>void;workspaceId?:string}={}){
+ const {finishingOpen,openFinishing}=useImageFinishing();
  const [guide,setGuide]=useState<{mode:'off'|'menu'|'tour';scope:GuideScope;index:number}>({mode:'off',scope:'all',index:0});
  const guideToggleRef=useRef<HTMLButtonElement>(null);
  const guidePreviousRef=useRef<{tab:InspectorTab;inspectorOpen:boolean;drawOpen:boolean}|null>(null);
@@ -232,7 +235,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
    if(!quickColorsRef.current?.contains(e.target as Node))setQuickColorsOpen(false);
   };
   const escape=(e:KeyboardEvent)=>{
-   if((e.target as HTMLElement|null)?.closest('[data-release-notes-dialog]'))return;
+   if((e.target as HTMLElement|null)?.closest('[data-release-notes-dialog],.finishing-workspace'))return;
    if(e.key==='Escape'){
     e.preventDefault();e.stopImmediatePropagation();
     setQuickColorsOpen(false);quickColorsButtonRef.current?.focus();
@@ -384,7 +387,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   if(!compactDrawTools||!drawToolsOpen||guide.mode!=='off')return;
   drawToolsCloseRef.current?.focus();
   const handle=(e:KeyboardEvent)=>{
-   if((e.target as HTMLElement).closest('.reference-dialog,[data-release-notes-dialog]'))return;
+   if((e.target as HTMLElement).closest('.reference-dialog,[data-release-notes-dialog],.finishing-workspace'))return;
    if(e.key==='Escape'){
     e.preventDefault();e.stopImmediatePropagation();
     setDrawToolsOpen(false);drawToolsToggleRef.current?.focus();return;
@@ -410,7 +413,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   if(!mobileLayout||!inspectorOpen||guide.mode!=='off')return;
   drawerCloseRef.current?.focus();
   const handle=(e:KeyboardEvent)=>{
-   if((e.target as HTMLElement).closest('.reference-dialog,[data-release-notes-dialog]'))return;
+   if((e.target as HTMLElement).closest('.reference-dialog,[data-release-notes-dialog],.finishing-workspace'))return;
    if(e.key==='Escape'){
     e.preventDefault();e.stopImmediatePropagation();
     setInspectorOpen(false);drawerToggleRef.current?.focus();return;
@@ -725,7 +728,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
    if(!queue.current?.state.pending)setNotice(`Exported ${doc.width*scale} × ${doc.height*scale} ${exportFormat.toUpperCase()}`);
   }catch(e){setError((e as Error).message);}
  };
- useEffect(()=>{const h=(e:KeyboardEvent)=>{if((e.target as HTMLElement|null)?.closest('[data-release-notes]'))return;if(e.key==='Escape'&&(modal||packModal)){if(!busy){setModal(false);setPackModal(false);}return;}if(guide.mode==='menu'||e.defaultPrevented||(e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"],[role="tab"]')||stroke.current||selectionDrag.current)return;if(e.key==='Escape'){setModal(false);setPackModal(false);setSelection(null);return;}if(modal||packModal)return;const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='z'){e.preventDefault();void commit([],undefined,e.shiftKey?'redo':'undo');return;}if(mod&&key==='c'&&selection){e.preventDefault();copySelection();return;}if(mod&&key==='v'&&clipboard){e.preventDefault();pasteSelection();return;}if(mod&&key==='x'&&selection){e.preventDefault();copySelection();clearSelection();return;}if(selection&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const step=e.shiftKey?10:1;transformSelection('move',e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0,e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0);return;}if(selection&&['Delete','Backspace'].includes(e.key)){e.preventDefault();clearSelection();return;}if(mod)return;const t=tools.find(t=>t[3].toLowerCase()===key);if(t)chooseTool(t[0]);if(key==='h')setGrid(v=>!v);};window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);});
+ useEffect(()=>{const h=(e:KeyboardEvent)=>{if(finishingOpen)return;if((e.target as HTMLElement|null)?.closest('[data-release-notes]'))return;if(e.key==='Escape'&&(modal||packModal)){if(!busy){setModal(false);setPackModal(false);}return;}if(guide.mode==='menu'||e.defaultPrevented||(e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"],[role="tab"]')||stroke.current||selectionDrag.current)return;if(e.key==='Escape'){setModal(false);setPackModal(false);setSelection(null);return;}if(modal||packModal)return;const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='z'){e.preventDefault();void commit([],undefined,e.shiftKey?'redo':'undo');return;}if(mod&&key==='c'&&selection){e.preventDefault();copySelection();return;}if(mod&&key==='v'&&clipboard){e.preventDefault();pasteSelection();return;}if(mod&&key==='x'&&selection){e.preventDefault();copySelection();clearSelection();return;}if(selection&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const step=e.shiftKey?10:1;transformSelection('move',e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0,e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0);return;}if(selection&&['Delete','Backspace'].includes(e.key)){e.preventDefault();clearSelection();return;}if(mod)return;const t=tools.find(t=>t[3].toLowerCase()===key);if(t)chooseTool(t[0]);if(key==='h')setGrid(v=>!v);};window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);});
  const addFrame=async()=>{
   const doc=current.current?.doc;if(!doc||playing)return;
   const next=frameCount(doc);
@@ -964,7 +967,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   positionStamp(d!,activeStamp!,hover.x,hover.y,stampSnap):null;
  return <main className="workshop"><header className="app-header"><a className="brand" href="/"><span className="brand-mark">{Array.from({length:9},(_,i)=><i key={i}/>)}</span><span>pixel<span className="brand-light">workshop</span><small>A LITTLE ROOM TO MAKE THINGS</small></span></a>{onManageWorkspace&&<button type="button" data-guide="workspace" className="text-button workspace-header-button" aria-label="Manage workspace" title="Workspace and agent connection" onClick={()=>void manageWorkspace()}><KeyRound size={16}/><span>Workspace</span></button>}<button type="button" ref={guideToggleRef} className="guide-header-button"
  title="Guided tour and interactive help" aria-label="Open Pixel Workshop guide" onClick={openGuide}>
- <BookOpen size={17}/><span>Guide</span></button><div className="header-meta"><span className="version">WORKSPACE / 01</span><span className="connection"><i/> MCP enabled</span></div><button className="primary" data-guide="quick-export" aria-label={`Export current frame as ${exportFormat.toUpperCase()}`} disabled={!d||busy} onClick={()=>void exportFrame()}><Download size={15}/>Export {exportFormat.toUpperCase()}</button></header>
+ <BookOpen size={17}/><span>Guide</span></button><button type="button" className="finish-editor-launch" aria-label="Open Image Finishing" title="Finish a full-resolution image" onClick={()=>{openFinishing();setPlaying(false);setQuickColorsOpen(false);setDrawToolsOpen(false);setInspectorOpen(false);setGuide(old=>({...old,mode:'off'}));}}><SlidersHorizontal size={17}/><span>Image Finishing</span></button><div className="header-meta"><span className="version">WORKSPACE / 01</span><span className="connection"><i/> MCP enabled</span></div><button className="primary" data-guide="quick-export" aria-label={`Export current frame as ${exportFormat.toUpperCase()}`} disabled={!d||busy} onClick={()=>void exportFrame()}><Download size={15}/>Export {exportFormat.toUpperCase()}</button></header>
  <div className="document-bar"><div className="document-switch" data-guide="project-list"><FolderOpen size={15}/><select aria-label="Open saved project" value={d?.id||''} disabled={busy} onChange={e=>void open(e.target.value)}>{!d&&<option>Opening workspace…</option>}{list.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><ChevronDown size={13}/></div><span className="document-size">{d?`${d.width} × ${d.height} px`:'—'}</span><span className="separator"/><button className="text-button" data-guide="new-canvas" disabled={busy} onClick={()=>setModal(true)}><FilePlus size={15}/>New canvas</button><button className="text-button open-file" disabled={busy} onClick={()=>file.current?.click()}><FolderOpen size={15}/>Open project</button><a className="text-button stardrop-editor-link" data-guide="stardrop" href="/play/moonkeeper" title="Play Stardrop, a game made with Pixel Workshop">✧ <span>Play Stardrop</span></a></div>
  <div className="work-area" data-tools-open={mobileLayout&&inspectorOpen} data-draw-open={compactDrawTools&&drawToolsOpen}>
  <button type="button" className="draw-tools-backdrop" tabIndex={-1} aria-label="Dismiss drawing tools" onClick={closeDrawTools}/>

@@ -3,6 +3,7 @@ import {useEffect,useState,type FormEvent} from 'react';
 import {KeyRound,Copy,LockKeyhole,LogOut,Sparkles,X,Link2} from 'lucide-react';
 import Editor from './editor.tsx';
 import ReleaseNotes from './release-notes.tsx';
+import FinishingLauncher, { FinishingProvider } from './finishing-launcher.tsx';
 
 type SessionInfo={authenticated:boolean;id?:string;hasPassword?:boolean};
 type SessionResponse=SessionInfo & {error?:string;token?:string};
@@ -21,7 +22,7 @@ function copyText(text:string) {
   if(!navigator.clipboard?.writeText)throw new Error('Clipboard unavailable. Try opening the site over HTTPS.');
   return navigator.clipboard.writeText(text);
 }
-export default function WorkspaceGate(){
+function WorkspaceGateContent(){
   const [session,setSession]=useState<SessionInfo|null>(null);
   const [loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
   const [mode,setMode]=useState<'create'|'join'>('create');
@@ -111,6 +112,11 @@ export default function WorkspaceGate(){
       <span className="eyebrow">A LITTLE ROOM TO MAKE THINGS</span>
       <h1 id="workspace-heading">Your own pixel workshop.</h1>
       <p>Each workspace keeps its sprites, animations, and history separate. No email or account required.</p>
+      <div className="workspace-finishing-entry">
+        <span className="eyebrow">ARTWORK & PHOTOS</span>
+        <p>Fine-tune color and lighting at full resolution. Open an image and start editing right here.</p>
+        <FinishingLauncher />
+      </div>
       <div className="workspace-mode" role="group" aria-label="Workspace action">
         <button type="button" aria-pressed={mode==='create'} className={mode==='create'?'active':''}
           onClick={()=>{setMode('create');setError('');setPassword('');}}>Create workspace</button>
@@ -140,4 +146,8 @@ export default function WorkspaceGate(){
       <ReleaseNotes edition="workshop"/>
     </section>
   </main>;
+}
+
+export default function WorkspaceGate(){
+  return <FinishingProvider><WorkspaceGateContent /></FinishingProvider>;
 }

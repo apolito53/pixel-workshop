@@ -1,0 +1,5 @@
+.workspace-finishing-entry{margin:20px 0;padding:17px;border:1px solid #6c584b;border-radius:8px;background:linear-gradient(125deg,#e7ad720d,transparent)}
+.workspace-finishing-entry p{margin:8px 0 13px;font-size:12px;line-height:1.65;color:#b9b4b0}
+.finishing-launch-button{display:inline-flex;align-items:center;justify-content:center;gap:9px;width:100%;min-height:44px;padding:11px 17px;border:1px solid #9a7756;border-radius:6px;background:#e7ad7215;color:#efc49a;font-weight:650}
+.finishing-launch-button:hover:not(:disabled){background:#e7ad7228}
+.finishing-entry-link{display:inline-block;margin-top:20px;color:#b9b4b0;font-size:12px}

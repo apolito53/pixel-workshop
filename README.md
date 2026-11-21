@@ -2,6 +2,8 @@
 
 [Open the live editor](https://pixel-workshop-nine.vercel.app)
 
+[**Image Finishing**](https://pixel-workshop-nine.vercel.app/finish) · Adjust the color, lighting, and detail of an illustration or photograph at its original resolution. Includes reversible adjustments, before/after comparison, cropping, reusable presets, editable project files, and the `finish_image` MCP tool. [Workflow and agent guide](docs/image-finishing.md).
+
 [**Play Stardrop: A Moonkeeper Tale**](https://pixel-workshop-nine.vercel.app/play/moonkeeper) · A small arcade game using ten native, editable Pixel Workshop assets (sprites, cels, environment art, and seeded effects). In-game art workbench exports every asset as `.pixel.json` or a sprite sheet. [Production notes and feature wishlist](docs/stardrop-production-notes.md).
 
 [**Lantern Wisteria III**](https://pixel-workshop-nine.vercel.app/studies/lantern-wisteria-iii/index.html) · A gust travels from the western crown to the seaward tips. Scrub the 42-frame loop, slow it to half speed, or open the layered tree and coastal scene in Pixel Workshop.
@@ -12,7 +14,7 @@
 
 ![Original lantern drawn through MCP](artifacts/lantern-preview.png)
 
-A precise pixel-art editor with one TypeScript drawing engine shared by a React browser workspace and MCP tools. Every canvas cell is an actual output pixel. No image-generation API or GPU is needed.
+A precise pixel-art editor with one TypeScript drawing engine shared by a React browser workspace and MCP tools, plus a separate full-resolution image-finishing workspace. Every pixel-art canvas cell is an actual output pixel. Image Finishing preserves the resolution of ordinary images and shares its deterministic adjustment engine with MCP. No image-generation API or GPU is needed.
 
 The workspace screen, editor footer, and Stardrop title screen include **What’s new**. Maintain the separate [player-facing release notes](lib/player-release-notes.ts) with each production release, adding plain-language shipped changes to the relevant experience. Project context: [current handoff](WORKING_MEMORY.md) · [durable notes](CRYSTALIZED_MEMORY.md) · [tasks](TODO.md) · [ideas](SPITBALL.md).
 
@@ -37,7 +39,7 @@ Open http://127.0.0.1:4317. The Node service serves the React/Vite build, projec
 
 For a client that launches a local server, run `node --experimental-strip-types server/stdio.ts` with this repository as its working directory. `PIXEL_DATA_DIR` should point to the same directory used by the browser service. Both processes use revision checks, a file lock, and atomic writes.
 
-Available tools (MCP server v0.3.0): `create_canvas`, `list_canvases`, `get_canvas`, `import_reference`, `copy_reference`, `compare_reference`, `paint`, `undo`, `redo`, `export_png`, `export_svg`, `export_sprite_sheet`, `generate_effect`, `regenerate_effect`. Recipes are persisted on FX layers and returned by `get_canvas`. Drawing commands accept a zero-based `frame` index; animation controls are `frame_add`, `frame_delete`, and `set_fps`. The public HTTP `/mcp` endpoint requires an `Authorization: Bearer <workspace-token>` header. Inside the editor, open **Workspace → Copy MCP connection** to get a ready-to-use endpoint/header configuration. This is a secret providing access to that one workspace; keep it private. The stand-alone local stdio process deliberately uses its separate local filesystem and does not need a remote bearer token. Pull the latest code and restart a local stdio process; refresh your MCP client's tool list after updating either transport.
+Available tools (MCP server v0.3.0): `create_canvas`, `list_canvases`, `get_canvas`, `import_reference`, `copy_reference`, `compare_reference`, `paint`, `undo`, `redo`, `export_png`, `export_svg`, `export_sprite_sheet`, `generate_effect`, `regenerate_effect`, `finish_image`. The [image-finishing agent guide](docs/image-finishing.md) describes full-resolution PNG adjustments and editable project round-trips. Recipes are persisted on FX layers and returned by `get_canvas`. Drawing commands accept a zero-based `frame` index; animation controls are `frame_add`, `frame_delete`, and `set_fps`. The public HTTP `/mcp` endpoint requires an `Authorization: Bearer <workspace-token>` header. Inside the editor, open **Workspace → Copy MCP connection** to get a ready-to-use endpoint/header configuration. This is a secret providing access to that one workspace; keep it private. The stand-alone local stdio process deliberately uses its separate local filesystem and does not need a remote bearer token. Pull the latest code and restart a local stdio process; refresh your MCP client's tool list after updating either transport.
 
 Example drawing batch (use the ID and revision returned by `create_canvas`):
 

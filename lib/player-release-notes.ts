@@ -5,6 +5,8 @@ export const playerReleaseNotes = {
     {
       title: 'November 2026',
       changes: [
+        'Open Image Finishing to adjust the light, color, and detail of artwork or photos at full resolution, with before/after comparison and reversible edits.',
+        'Crop, save reusable looks, and download an editable finishing project or a finished PNG or JPEG. Agents can use the same controls through MCP.',
         'Small drawings now use only the space around their pixels. Paint beyond their edges or erase them and the stored bounds adjust automatically.',
         'Keep up to 64 layers and 96 frames on canvases up to 1024 pixels per side. Held drawings share space until you edit them.',
         'Reorder layers, rename them and organize them in collapsible folders.',

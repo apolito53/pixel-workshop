@@ -10,12 +10,26 @@ import { buildSpriteSheet } from './sprite-sheet.ts';
 import { EFFECT_KINDS, generateEffectCommands, regenerateEffectCommands, type EffectKind } from './effects.ts';
 import { encodePng, encodeRgbaPng } from './png.ts';
 import { encodeSvg, encodeRgbaSvg } from './svg.ts';
+import {FINISHING_CONTROLS,MAX_FINISHING_DIMENSION,normalizeFinishingSettings} from './image-finishing.ts';
+import {prepareFinishingPng,renderFinishingPng,MAX_FINISHING_PNG_BASE64} from './finishing-png.ts';
+import {FINISHING_PROJECT_FORMAT,FINISHING_RECIPE_FORMAT,readFinishingProject,type FinishingProject} from './finishing-project.ts';
 
 const id={type:'string',description:'Project ID returned by create_canvas or list_canvases.'};
 const rev={type:'integer',minimum:0,description:'Current document revision. Reload with get_canvas after a conflict.'};
 const frame={type:'integer',minimum:0,maximum:MAX_ANIMATION_FRAMES-1};
 const schema=(properties:Record<string,unknown>,required:string[]=[])=>({type:'object',properties,required,additionalProperties:false});
+const finishingAdjustments=schema(Object.fromEntries(FINISHING_CONTROLS.map(control=>[control.key,{type:'number',minimum:control.min,maximum:control.max,description:`${control.label}; neutral ${control.defaultValue}.`}])));
+const finishingCrop={...schema({x:{type:'integer',minimum:0,maximum:MAX_FINISHING_DIMENSION-1},y:{type:'integer',minimum:0,maximum:MAX_FINISHING_DIMENSION-1},width:{type:'integer',minimum:1,maximum:MAX_FINISHING_DIMENSION},height:{type:'integer',minimum:1,maximum:MAX_FINISHING_DIMENSION}},['x','y','width','height']),type:['object','null']};
+const finishingProject=schema({format:{type:'string',enum:[FINISHING_PROJECT_FORMAT]},name:{type:'string',maxLength:160},
+  source:schema({name:{type:'string',maxLength:160},dataUrl:{type:'string',maxLength:MAX_FINISHING_PNG_BASE64+22},width:{type:'integer',minimum:1,maximum:MAX_FINISHING_DIMENSION},height:{type:'integer',minimum:1,maximum:MAX_FINISHING_DIMENSION}},['dataUrl','width','height']),
+  recipe:schema({format:{type:'string',enum:[FINISHING_RECIPE_FORMAT]},adjustments:finishingAdjustments,crop:finishingCrop},['format','adjustments','crop']),
+},['format','source','recipe']);
 export const toolDefinitions=[
+  {name:'finish_image',description:'Apply deterministic color, light and detail edits at full resolution. Supply exactly one of png_base64 (original source) or project (a .finish.json object from Image Finishing). output defaults to image; project returns an editable .finish.json resource with the original PNG and cumulative recipe, and both returns both. Projects reopen in the browser and can be passed back to this tool. For project inputs, supplied adjustment keys replace those saved values and omitted keys retain them; crop:null clears a crop. Always rerender the immutable ORIGINAL with cumulative settings, never feed the previous flattened export back as the source. No saved canvas is created or changed. Accepts 24 megapixels, 16384 pixels per side and 8 MB compressed PNG; hosted JSON-RPC limit 12 MB including base64. Use 8-bit or indexed sRGB PNG without embedded ICC profiles. No silent resizing. Crop uses integer original-image coordinates. Defaults: exposure 0 stops; gamma 1; other controls 0. Browser Image Finishing accepts larger files and additional formats.',
+    inputSchema:schema({png_base64:{type:'string',maxLength:MAX_FINISHING_PNG_BASE64},project:finishingProject,
+      name:{type:'string',maxLength:160},adjustments:finishingAdjustments,crop:finishingCrop,
+      output:{type:'string',enum:['image','project','both'],description:'Choose project to return an editable source-and-recipe file without also transferring a flattened PNG.'},
+    }),annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}},
   {name:'list_canvases',description:'List canvases, sizes, animation frame counts, layers, and revisions.',
     inputSchema:schema({}),annotations:{readOnlyHint:true}},
   {name:'create_canvas',description:`Create a transparent pixel canvas 1–${MAX_CANVAS_SIDE} pixels per side, within the document pixel budget.`,
@@ -65,6 +79,30 @@ export const toolDefinitions=[
 ];
 export async function callTool(service:ProjectService,name:string,args:Record<string,unknown>={}) {
   try {
+    if(name==='finish_image'){
+      if((args.png_base64===undefined)===(args.project===undefined))throw new Error('Supply exactly one of png_base64 or an editable finishing project.');
+      const output=args.output??'image';if(!['image','project','both'].includes(output as string))throw new Error('Choose image, project, or both as the finishing output.');
+      if(args.name!==undefined&&(typeof args.name!=='string'||!args.name.trim()||args.name.length>160))throw new Error('Use an image name from 1 to 160 characters.');
+      const project=args.project===undefined?undefined:readFinishingProject(args.project);
+      if(project&&!project.source.dataUrl.startsWith('data:image/png;base64,'))throw new Error('MCP finishing currently reads PNG-based projects. Convert this JPEG/WebP source to an sRGB PNG, or continue editing it in the browser.');
+      if(args.adjustments!==undefined)normalizeFinishingSettings(args.adjustments);
+      const original=project?project.source.dataUrl.slice(22):args.png_base64;
+      const adjustments=project?{...project.recipe.adjustments,...(args.adjustments as Record<string,number>|undefined)}:args.adjustments;
+      const crop=args.crop===undefined?project?.recipe.crop:args.crop;
+      const prepared=prepareFinishingPng(original,adjustments,crop);
+      if(project&&(project.source.width!==prepared.source.width||project.source.height!==prepared.source.height))throw new Error('The project dimensions do not match its original PNG.');
+      const rendered=output==='project'?null:renderFinishingPng(prepared);
+      const title=(args.name as string|undefined)??project?.name??'Finished image';
+      const filename=(title.replace(/[^a-z0-9_-]+/gi,'-').replace(/^-|-$/g,'').slice(0,100)||'finished-image');
+      const editable:FinishingProject={format:FINISHING_PROJECT_FORMAT,name:title,
+        source:{name:project?.source.name??title,...prepared.source,dataUrl:'data:image/png;base64,'+original},recipe:prepared.recipe};
+      return {content:[{type:'text' as const,text:JSON.stringify({
+        source:prepared.source,width:prepared.bounds.width,height:prepared.bounds.height,
+        ...(rendered?{mimeType:'image/png',byteLength:rendered.bytes.byteLength}:{}),resampled:false,stored:false,recipe:prepared.recipe,
+        ...(output!=='project'?{imageFile:filename+'.png'}:{}),...(output!=='image'?{projectFile:filename+'.finish.json'}:{}),
+      })},...(rendered?[{type:'image' as const,mimeType:'image/png',data:rendered.bytes.toString('base64')}]:[]),
+      ...(output!=='image'?[{type:'resource' as const,resource:{uri:`pixel-workshop://finishing/${filename}.finish.json`,mimeType:'application/json',text:JSON.stringify(editable)}}]:[])]};
+    }
     if(name==='list_canvases')return {content:[{type:'text' as const,
       text:JSON.stringify((await service.listSummaries()).map(d=>({id:d.id,name:d.name,width:d.width,height:d.height,
         revision:d.revision,layers:d.layers,frames:d.frames})))}]};
