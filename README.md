@@ -20,7 +20,9 @@ The workspace screen, editor footer, and Stardrop title screen include **What’
 
 ## In-app Field Guide
 
-Once you create or open a workspace, a **Guide** button appears in the editor header. On first visit, a skippable introduction offers an interactive tour. Choose the complete 33-stop walkthrough or one of seven chapters: **Start here**, **Draw & arrange**, **Bring it to life**, **Procedural magic**, **Make a UI kit**, **Ship your assets**, or **Workspaces & agents**.
+Once you create or open a workspace, a **Guide** button appears in the editor header. On first visit, a skippable introduction offers an interactive tour. The 38-stop walkthrough also opens by chapter. Choose **Start here**, **Draw & arrange**, **Bring it to life**, **Procedural magic**, **Make a UI kit**, **Ship your assets**, **Workspaces & agents**, or **Build a sprite stack**.
+
+In **Build a sprite stack**, choose **New canvas → Sprite Stack → Open practice lantern** to make a separate, editable example. Rotate it, pick a lit window in the preview, repaint that pixel on its slice, then undo the stroke. The last stop shows how to export and reopen the complete stack.
 
 The guide highlights the actual controls and, on compact layouts, opens the drawing drawer or appropriate inspector tab for you. Use **Back**, **Next**, **Chapters**, or **Close**; Escape also closes it. Short optional “try it” prompts explain real workflows without automatically changing your artwork, exporting files, or issuing agent tokens. Opening a project or export dialog temporarily hides the guide and returns to the same step when the dialog closes. You can reopen the guide at any time. Read the [guide-driven UX audit](docs/tutorial-ux-audit.md) for the prioritized improvements we uncovered while teaching every feature.
 

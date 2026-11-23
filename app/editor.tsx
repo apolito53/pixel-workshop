@@ -19,7 +19,8 @@ import UiKitPanel from './ui-kit-panel.tsx';
 import {hasUiDraft,parseUiDrafts,setProjectDraft,type UiDraft,type UiDraftMap} from '../lib/ui-drafts.ts';
 import {matchUiReturn,parseUiReturn,UI_RETURN_KEY,type UiReturn,type UiSection} from '../lib/ui-return.ts';
 import {kitSignature,overviewKit,parseKitUndo,reviewKitColor,validateKitUndo,type KitColorReview,type KitUndo} from '../lib/kit-review.ts';
-import {guideSteps,type GuideScope} from '../lib/workshop-guide.ts';
+import {guideStepForProject,guideSteps,type GuideScope} from '../lib/workshop-guide.ts';
+import {practiceLanternStack} from '../lib/demo.ts';
 import {clipRange,clipsAtFrame,type ClipRange} from '../lib/clip-range.ts';
 import WorkshopGuide from './workshop-tour.tsx';
 import ReleaseNotes from './release-notes.tsx';
@@ -177,7 +178,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  const [clipName,setClipName]=useState('idle'),[clipFrom,setClipFrom]=useState(0),[clipTo,setClipTo]=useState(0),[clipFps,setClipFps]=useState(8),[clipMode,setClipMode]=useState<AnimationClip['mode']>('loop');
  const [previewClip,setPreviewClip]=useState<string|null>(null);
  const previewPosition=useRef(0);
- const guideStep=guide.mode==='tour'?guideSteps(guide.scope)[guide.index]:undefined;
+ const guideStep=guide.mode==='tour'?guideStepForProject(guideSteps(guide.scope)[guide.index],!!snap?.doc.stack):undefined;
  const queue=useRef<EditQueue|null>(null),viewport=useRef<HTMLDivElement>(null),selectionDrag=useRef<{base:Snapshot;start:{x:number;y:number};source:PixelRegion|null;region:PixelRegion;layer:string;frame:number}|null>(null),canvas=useRef<HTMLCanvasElement>(null),preview=useRef<HTMLCanvasElement>(null),file=useRef<HTMLInputElement>(null),current=useRef(snap),locked=useRef(false),stroke=useRef<{base:Snapshot;start:{x:number;y:number};last:{x:number;y:number};ops:PaintCommand[];frame:number}|null>(null);
  useEffect(()=>{
   const receive=(event:StorageEvent)=>{
@@ -369,7 +370,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
    setDrawToolsOpen(false);setInspectorTab(guideStep.panel);
    setInspectorOpen(mobileLayout);
   }
- },[guideStep?.id,compactDrawTools,mobileLayout]);
+ },[guideStep?.id,guideStep?.panel,compactDrawTools,mobileLayout]);
  const touchNavigationActive=mobileLayout||touchCapable;
  useEffect(()=>{
   resetPan();
@@ -1288,7 +1289,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   <label className="scale-select">Frame size<select aria-label="Frame export scale" value={scale} onChange={e=>setScale(Number(e.target.value))}>{[1,2,4,8].map(s=><option key={s} value={s} disabled={!!d&&exportFormat==='png'&&d.width*d.height*s*s>4_194_304}>{s}× {d?`· ${d.width*s} × ${d.height*s}`:''}</option>)}</select></label>
   <p>{exportFormat==='svg'?'Scalable vector pixels with transparency. Visible layers are combined; the pixel-art shape stays crisp.':'Transparent background. Clean pixels, ready for your game.'}</p>
   <button className="secondary full" disabled={!d||busy} onClick={()=>void exportFrame()}>Current frame {exportFormat.toUpperCase()} <Download size={14}/></button>
-  {d?.stack?<button type="button" className="secondary full" disabled={busy} onClick={async()=>{
+  {d?.stack?<button type="button" data-guide="stack-export" className="secondary full" disabled={busy} onClick={async()=>{
    try{
     const {exportStackPages}=await import('../lib/sprite-stack-pages.ts');
     const pack=await exportStackPages(d);
@@ -1350,7 +1351,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
     </button>
    </section>
   </div>}
- {guide.mode!=='off'&&!modal&&!packModal&&<WorkshopGuide mode={guide.mode} scope={guide.scope} index={guide.index}
+ {guide.mode!=='off'&&!modal&&!packModal&&<WorkshopGuide mode={guide.mode} scope={guide.scope} index={guide.index} step={guideStep}
   onStart={startGuide} onMove={moveGuide} onClose={closeGuide} onMenu={guideMenu}/>}
   {modal&&<div className="modal-backdrop" onClick={()=>setModal(false)}><section className="new-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" onClick={e=>e.stopPropagation()}><button className="dialog-close icon-button" aria-label="Close new canvas dialog" onClick={()=>setModal(false)}><X size={18}/></button><span className="eyebrow">A FRESH LITTLE START</span><h2 id="dialog-title">Make room for an idea.</h2><div className="new-kind" role="group" aria-label="Canvas type">
     <button type="button" aria-pressed={newKind==='sprite'} onClick={()=>setNewKind('sprite')}><Grid2X2 size={15}/>2D sprite</button>
@@ -1358,6 +1359,10 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
    </div><label>Canvas name<input autoFocus value={name} maxLength={80} onChange={e=>setName(e.target.value)}/></label><div className="dimension-inputs"><label>Width<input type="number" min={1} max={MAX_CANVAS_SIDE} value={width} onChange={e=>setWidth(Number(e.target.value))}/></label><span>×</span><label>Height<input type="number" min={1} max={MAX_CANVAS_SIDE} value={height} onChange={e=>setHeight(Number(e.target.value))}/></label></div><div className="size-presets">{[16,32,48,64,128].map(s=><button key={s} className={width===s&&height===s?'selected':''} onClick={()=>{setWidth(s);setHeight(s);}}>{s}×{s}</button>)}</div>
    {newKind==='stack'&&<label>Number of slices<input aria-label="Initial slice count" type="number" min={1} max={depthLimit} value={newDepth||''} onChange={e=>setNewDepth(Number(e.target.value))}/></label>}
    <p className="pack-description" aria-live="polite">{plannedSizeValid&&newKind==='stack'?`Each slice is ${width} × ${height} pixels. Choose 1–${depthLimit} slices, ordered from base to top.`:plannedSizeValid?`Up to ${MAX_LAYERS} layers and ${MAX_ANIMATION_FRAMES} frames. Drawings store their cropped area. Blank layers and held frames use no extra pixel cells.`:`Enter whole-number dimensions from 1 to ${MAX_CANVAS_SIDE}.`}</p>
-   {error&&<p className="error-text">{error}</p>}<button className="primary full" disabled={busy||!plannedSizeValid||(newKind==='stack'&&!validStackDepth)} onClick={makeCanvas}><Plus size={16}/>{newKind==='stack'?'Create sprite stack':'Create canvas'}</button><button className="text-button example-button" disabled={busy} onClick={()=>void create('cottage')}>Open Moonkeeper’s cottage · 64 × 64</button><button className="text-button example-button" disabled={busy} onClick={()=>void create(true)}>Or open the little lantern</button></section></div>}
+   {error&&<p className="error-text">{error}</p>}<button className="primary full" disabled={busy||!plannedSizeValid||(newKind==='stack'&&!validStackDepth)} onClick={makeCanvas}><Plus size={16}/>{newKind==='stack'?'Create sprite stack':'Create canvas'}</button>
+   {newKind==='stack'?<button className="text-button example-button" disabled={busy} onClick={()=>void create(false,practiceLanternStack())}>Open practice lantern</button>:<>
+    <button className="text-button example-button" disabled={busy} onClick={()=>void create('cottage')}>Open Moonkeeper’s cottage · 64 × 64</button>
+    <button className="text-button example-button" disabled={busy} onClick={()=>void create(true)}>Or open the little lantern</button>
+   </>}</section></div>}
  </main>;
 }

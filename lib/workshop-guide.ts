@@ -3,11 +3,11 @@ import type {InspectorTab} from './inspector-tabs.ts';
 
 /** Pure, versioned guide copy. Each target must map to a visible in-editor data-guide anchor. */
 export const GUIDE_VERSION=1;
-export type GuideChapterId='start'|'drawing'|'animation'|'effects'|'ui'|'export'|'workspace';
+export type GuideChapterId='start'|'drawing'|'animation'|'effects'|'ui'|'export'|'workspace'|'stack';
 export type GuideScope='all'|GuideChapterId;
 export type GuidePanel='none'|'drawing'|InspectorTab;
 export type GuideChapter={
- id:GuideChapterId;title:string;subtitle:string;icon:'rocket'|'paint'|'film'|'sparkles'|'package'|'key';
+ id:GuideChapterId;title:string;subtitle:string;icon:'rocket'|'paint'|'film'|'sparkles'|'package'|'key'|'box';
 };
 export type GuideStep={
  id:string;chapter:GuideChapterId;title:string;body:string;tryIt:string;target:string;panel:GuidePanel;
@@ -21,6 +21,7 @@ export const GUIDE_CHAPTERS:readonly GuideChapter[]=[
  {id:'ui',title:'Make a UI kit',subtitle:'Stretchable frames, states, text, and shared colors',icon:'package'},
  {id:'export',title:'Ship your assets',subtitle:'PNG, SVG, sprite sheets, tiles, and game packs',icon:'package'},
  {id:'workspace',title:'Workspaces & agents',subtitle:'Private projects, MCP, and inspiration',icon:'key'},
+ {id:'stack',title:'Build a sprite stack',subtitle:'Paint a little lantern you can turn in your hand',icon:'box'},
 ];
 
 export const GUIDE_STEPS:readonly GuideStep[]=[
@@ -162,7 +163,34 @@ export const GUIDE_STEPS:readonly GuideStep[]=[
   body:'Stardrop is a playable proof-of-concept built from native Pixel Workshop assets. Its art gallery includes downloadable, editable characters, environments, and effects.',
   tryIt:'Open Stardrop after the tour and explore its complete downloadable art pack.',
   target:'stardrop',panel:'none'},
+
+ {id:'stack-start',chapter:'stack',title:'Open a lantern to practice on',
+  body:'Choose New canvas → Sprite Stack → Open practice lantern. This creates a separate project. If you already have a stack open, you can follow along with it.',
+  tryIt:'For a blank model, set the width, height and number of slices, then choose Create sprite stack. Open project also accepts an editable stack file.',
+  target:'new-canvas',panel:'none'},
+ {id:'stack-slices',chapter:'stack',title:'Find the lantern glass',
+  body:'A slice is a horizontal cut through the lantern. Slice 1 is the base. The arrows change height (Z). Within each slice, color layers let you paint the metal and glass separately at that same height.',
+  tryIt:'Move the slice slider from the base to the middle. Watch the flat drawing change from a metal foot to a cross-section of the lit window.',
+  target:'stack-slices',panel:'none'},
+ {id:'stack-orbit',chapter:'stack',title:'Pick a pixel from the lantern',
+  body:'Drag the Orbit preview to turn the lantern. Click or tap a gold window pixel without dragging. The flat canvas marks that exact pixel and selects its slice and color layer.',
+  tryIt:'Pick the glass, then a dark corner post. Open Layers to see which layer each belongs to. On a phone, Layers is under Panels.',
+  target:'stack-orbit',panel:'none'},
+ {id:'stack-paint',chapter:'stack',title:'Paint one pixel of light',
+  body:'Choose a contrasting color and use Pencil on the marked cell in the flat canvas. Watch that spot change in the Orbit preview. The neighboring slices keep their colors.',
+  tryIt:'Use Undo in the drawing tools, or press Ctrl+Z (⌘Z on Mac). Watch the original pixel return in both views.',
+  target:'canvas',panel:'none'},
+ {id:'stack-export',chapter:'stack',title:'Take the lantern with you',
+  body:'In Export, choose Export stack pages ZIP for the bottom-to-top PNG sheets and an editable copy with the original layers.',
+  tryIt:'Choose Open project and select the downloaded .stack.zip to reopen a copy. You can also use Save editable project for a single .pixel.json file.',
+  target:'stack-export',panel:'export'},
 ];
+
+/** Let readers follow the stack chapter from a flat sprite without converting their project. */
+export function guideStepForProject(step:GuideStep|undefined,hasStack:boolean):GuideStep|undefined {
+ if(!step||step.chapter!=='stack'||step.id==='stack-start'||hasStack)return step;
+ return {...step,target:'new-canvas',panel:'none'};
+}
 
 export function guideSteps(scope:GuideScope):GuideStep[]{
  return scope==='all'?[...GUIDE_STEPS]:GUIDE_STEPS.filter(step=>step.chapter===scope);

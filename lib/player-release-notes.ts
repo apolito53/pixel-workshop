@@ -5,6 +5,7 @@ export const playerReleaseNotes = {
     {
       title: 'November 2026',
       changes: [
+        'Open Guide → Build a sprite stack to practice on a little brass lantern. Pick a window, repaint it and watch the light change in the orbit preview.',
         'Build a 3D sprite by painting horizontal slices. Rotate the stack and click a visible pixel to jump to its slice and layer.',
         'Save your favorite view and export the slices as PNG sheets, with an editable copy of the stack included.',
         'Open Image Finishing to adjust the light, color, and detail of artwork or photos at full resolution, with before/after comparison and reversible edits.',

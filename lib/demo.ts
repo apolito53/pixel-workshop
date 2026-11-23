@@ -1,4 +1,4 @@
-import { createDocument, applyCommands, type PaintCommand } from './pixels.ts';
+import { createDocument, createStackDocument, applyCommands, type PaintCommand } from './pixels.ts';
 export function lanternCommands():PaintCommand[] {
   const ops:PaintCommand[]=[];
   const r=(x:number,y:number,width:number,height:number,color:string)=>ops.push({op:'rect',x,y,width,height,color});
@@ -22,3 +22,38 @@ export function lanternCommands():PaintCommand[] {
 }
 
 export function lanternDemo(){return applyCommands(createDocument('The little lantern',48,48,'demo-lantern'),lanternCommands());}
+
+/** A small native stack with two pickable materials for the Field Guide. */
+export function practiceLanternStack(){
+  const doc=createStackDocument('Practice lantern',13,13,18,{view:{yaw:28,pitch:12,zoom:1.1,spread:0}});
+  const ops:PaintCommand[]=[
+    {op:'rename_layer',layer:'base',name:'Metal frame'},
+    {op:'add_layer',id:'glass',name:'Amber glass'},
+  ];
+  const iron='#3d3549',copper='#855866',rim='#c28466',brass='#efb67d';
+  const rect=(z:number,x:number,y:number,w:number,h:number,color:string,layer='base')=>
+    ops.push({op:'rect',frame:z,layer,x,y,width:w,height:h,color});
+  // The base, eaves and stepped roof have clipped corners and a bright front lip.
+  const plate=(z:number,r:number,color:string,lip:string)=>{
+    rect(z,7-r,6-r,2*r-1,2*r+1,color);
+    rect(z,6-r,7-r,2*r+1,2*r-1,color);
+    rect(z,7-r,6+r,2*r-1,1,lip);
+  };
+  plate(0,3,iron,copper);plate(1,4,copper,brass);plate(2,4,iron,rim);
+  for(let z=3;z<=9;z++){
+    rect(z,3,3,7,7,'#cc7954','glass');
+    rect(z,4,4,5,6,'#efae62','glass');
+    rect(z,5,5,3,5,z>=4&&z<=7?'#ffe6a1':'#ffd181','glass');
+    for(const x of [3,9])for(const y of [3,9]){
+      rect(z,x,y,1,1,'transparent','glass');
+      rect(z,x,y,1,1,x===3&&y===9?rim:iron);
+    }
+  }
+  plate(10,4,iron,copper);plate(11,5,copper,brass);
+  plate(12,4,iron,copper);plate(13,3,copper,rim);plate(14,2,iron,copper);
+  for(const z of [15,16]){
+    rect(z,4,6,1,1,copper);rect(z,8,6,1,1,iron);
+  }
+  rect(17,4,6,5,1,rim);
+  return applyCommands(doc,ops);
+}

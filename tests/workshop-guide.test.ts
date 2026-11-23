@@ -1,19 +1,23 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {GUIDE_CHAPTERS,GUIDE_STEPS,guideSteps,validateGuide} from '../lib/workshop-guide.ts';
+import {GUIDE_CHAPTERS,GUIDE_STEPS,guideStepForProject,guideSteps,validateGuide} from '../lib/workshop-guide.ts';
 import {placeGuideCard} from '../lib/workshop-tour-position.ts';
+import {practiceLanternStack} from '../lib/demo.ts';
+import {applySnapshotCommands,frameCount} from '../lib/pixels.ts';
+import {createSpriteStackRenderer} from '../lib/sprite-stack-renderer.ts';
 
 const editor=readFileSync(new URL('../app/editor.tsx',import.meta.url),'utf8');
 const colors=readFileSync(new URL('../app/color-workbench.tsx',import.meta.url),'utf8');
 const stamps=readFileSync(new URL('../app/stamp-workbench.tsx',import.meta.url),'utf8');
 const component=readFileSync(new URL('../app/workshop-tour.tsx',import.meta.url),'utf8');
 const ui=readFileSync(new URL('../app/ui-kit-panel.tsx',import.meta.url),'utf8');
+const stack=readFileSync(new URL('../app/stack-workbench.tsx',import.meta.url),'utf8');
 const css=readFileSync(new URL('../app/workshop-tour.css',import.meta.url),'utf8');
 
 test('field guide covers each major workstream with an unambiguous task and optional practice',()=>{
  assert.doesNotThrow(validateGuide);
- assert.equal(GUIDE_CHAPTERS.length,7);
+ assert.equal(GUIDE_CHAPTERS.length,8);
  assert.ok(GUIDE_STEPS.length>=18);
  for(const chapter of GUIDE_CHAPTERS){
   const chapterSteps=guideSteps(chapter.id);
@@ -30,6 +34,7 @@ test('every guide target maps to an actual reachable editor control',()=>{
    colors.includes('data-guide="'+step.target+'"')||
    stamps.includes('data-guide="'+step.target+'"')||
    ui.includes('data-guide="'+step.target+'"')||
+   stack.includes('data-guide="'+step.target+'"')||
    editor.includes("'"+step.target+"'"),
    step.id+' is missing data-guide target '+step.target
   );
@@ -39,6 +44,36 @@ test('every guide target maps to an actual reachable editor control',()=>{
  assert.ok(editor.includes("setInspectorOpen(mobileLayout)"));
  assert.ok(editor.includes("setDrawToolsOpen(compactDrawTools)"));
  assert.ok(editor.includes("guide.mode!=='off'&&!modal&&!packModal&&<WorkshopGuide"));
+});
+test('stack guide keeps flat projects intact and reveals the native controls after setup',()=>{
+ const steps=guideSteps('stack');
+ assert.deepEqual(steps.map(step=>step.target),['new-canvas','stack-slices','stack-orbit','canvas','stack-export']);
+ for(const step of steps){
+  const fallback=guideStepForProject(step,false)!;
+  assert.equal(fallback.id,step.id);assert.equal(fallback.target,'new-canvas');assert.equal(fallback.panel,'none');
+  assert.equal(guideStepForProject(step,true),step);
+ }
+ assert.equal(guideStepForProject(guideSteps('drawing')[0],false),guideSteps('drawing')[0]);
+ assert.equal(guideStepForProject(undefined,false),undefined);
+});
+test('practice lantern has pickable metal and glass, and a window pixel changes in the orbit',()=>{
+ const doc=practiceLanternStack(),renderer=createSpriteStackRenderer();
+ assert.equal(frameCount(doc),18);
+ const size={width:80,height:90},preview=renderer.render(doc,size);
+ let pickedGlass=false,pickedMetal=false;
+ for(let y=0;y<preview.height;y++)for(let x=0;x<preview.width;x++){
+  const hit=preview.pick(x,y);
+  if(hit?.layerId==='base')pickedMetal=true;
+  if(hit?.layerId!=='glass'||pickedGlass)continue;
+  const painted=applySnapshotCommands(doc,[{op:'pixel',x:hit.x,y:hit.y,layer:hit.layerId,frame:hit.sliceIndex,color:'#ed329f'}]);
+  const rgba=renderer.render(painted,size).rgba;
+  const i=4*(y*preview.width+x);
+  assert.deepEqual([...rgba.subarray(i,i+4)],[237,50,159,255]);
+  assert.deepEqual(renderer.render(doc,size).rgba,preview.rgba);
+  pickedGlass=true;
+ }
+ assert.ok(pickedMetal&&pickedGlass,'Both practice materials must be visible from the opening view');
+ assert.notEqual(practiceLanternStack().id,doc.id);
 });
 test('UI kit guide points to reachable section headings and covers the full kit workflow',()=>{
  const steps=guideSteps('ui');

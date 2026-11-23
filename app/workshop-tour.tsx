@@ -1,17 +1,17 @@
 'use client';
 
 import {useEffect,useRef,useState} from 'react';
-import {ArrowLeft,ArrowRight,BookOpen,Check,Film,KeyRound,Package,Paintbrush,Play, Rocket, Sparkles,X} from 'lucide-react';
+import {ArrowLeft,ArrowRight,BookOpen,Box,Check,Film,KeyRound,Package,Paintbrush,Play, Rocket, Sparkles,X} from 'lucide-react';
 import {GUIDE_CHAPTERS,guideSteps,type GuideScope,type GuideStep} from '../lib/workshop-guide.ts';
 import {placeGuideCard,type GuideRect} from '../lib/workshop-tour-position.ts';
 import './workshop-tour.css';
 
 type GuideProps={
- mode:'menu'|'tour';scope:GuideScope;index:number;
+ mode:'menu'|'tour';scope:GuideScope;index:number;step?:GuideStep;
  onStart:(scope:GuideScope)=>void;onMove:(direction:-1|1)=>void;
  onClose:()=>void;onMenu:()=>void;
 };
-const chapterIcon={rocket:Rocket,paint:Paintbrush,film:Film,sparkles:Sparkles,package:Package,key:KeyRound};
+const chapterIcon={rocket:Rocket,paint:Paintbrush,film:Film,sparkles:Sparkles,package:Package,key:KeyRound,box:Box};
 function GuideMenu({onStart,onClose}:{onStart:(scope:GuideScope)=>void;onClose:()=>void}){
  const ref=useRef<HTMLElement>(null);
  useEffect(()=>{
@@ -125,7 +125,7 @@ function GuideWalkthrough({step,scope,index,count,onMove,onClose,onMenu}:{
    active=false;if(frame)cancelAnimationFrame(frame);if(delayed)cancelAnimationFrame(delayed);
    observer?.disconnect();window.removeEventListener('resize',schedule);window.removeEventListener('scroll',schedule,true);
   };
- },[step.id]);
+ },[step.id,step.target]);
  useEffect(()=>{
   const handle=(e:KeyboardEvent)=>{
    if((e.target as HTMLElement|null)?.closest('[data-release-notes-dialog]'))return;
@@ -158,6 +158,7 @@ function GuideWalkthrough({step,scope,index,count,onMove,onClose,onMenu}:{
     <h2 id="guide-step-heading">{step.title}</h2>
     <p id="guide-step-description">{step.body}</p>
     <div className="guide-practice"><Sparkles size={15}/><span>{step.tryIt}</span></div>
+    {step.chapter==='stack'&&step.target==='new-canvas'&&step.id!=='stack-start'&&<p className="guide-fallback">To try this here, choose New canvas → Sprite Stack → Open practice lantern.</p>}
     {!rect&&<p className="guide-fallback">This control isn&apos;t visible in the current layout. Follow the instructions here, or move to the next stop.</p>}
    </div>
    <div className="guide-card-actions">
@@ -172,10 +173,9 @@ function GuideWalkthrough({step,scope,index,count,onMove,onClose,onMenu}:{
   </section>
  </>;
 }
-export default function WorkshopGuide({mode,scope,index,onStart,onMove,onClose,onMenu}:GuideProps){
+export default function WorkshopGuide({mode,scope,index,step,onStart,onMove,onClose,onMenu}:GuideProps){
  if(mode==='menu')return <GuideMenu onStart={onStart} onClose={onClose}/>;
  const steps=guideSteps(scope);
- const step=steps[index];
  if(!step)return null;
  return <GuideWalkthrough step={step} scope={scope} index={index} count={steps.length}
   onMove={onMove} onClose={onClose} onMenu={onMenu}/>;

@@ -113,7 +113,7 @@ export function StackPreview({doc,busy,editing,commit,onPick}:{doc:PixelDocument
  const modified=Object.entries(pose).some(([key,value])=>Math.abs(saved[key as keyof Pose]-value)>.0001);
  return <section className="stack-preview" aria-label="Live sprite stack preview">
   <header><span><Box size={14}/> Orbit preview</span><span className="stack-angle">{Math.round(wrap(pose.yaw))%360}° / {Math.round(pose.pitch)}°</span></header>
-  <div className="stack-stage" ref={stage}>
+  <div className="stack-stage" data-guide="stack-orbit" ref={stage}>
    <canvas ref={canvas} aria-label="Sprite stack orbit. Drag or use arrow keys to rotate. Click a pixel to edit its slice." tabIndex={0}
     onPointerDown={start} onPointerMove={move} onPointerUp={end}
     onPointerCancel={()=>{pointer.current=null;setOrbiting(false);}} onLostPointerCapture={()=>{pointer.current=null;setOrbiting(false);}}
@@ -139,7 +139,7 @@ export function StackPreview({doc,busy,editing,commit,onPick}:{doc:PixelDocument
 export function SliceControls({doc,active,busy,full,select,commit}:{doc:PixelDocument;active:number;busy:boolean;full:boolean;select:(slice:number)=>void;commit:Commit}){
  const count=frameCount(doc);
  const mutate=async(op:PaintCommand,next:number)=>{if(await commit([op]))select(next);};
- return <section className="slice-controls" aria-label="Stack slices">
+ return <section className="slice-controls" data-guide="stack-slices" aria-label="Stack slices">
   <div className="slice-control-title"><Layers size={15}/> Slice <output>{active+1} / {count}</output><span>Z {zLabel(doc,active)}</span></div>
   <div className="slice-navigation">
    <button type="button" title="Previous slice" aria-label="Previous slice" disabled={busy||active<=0} onClick={()=>select(active-1)}><ArrowDown size={15}/></button>
