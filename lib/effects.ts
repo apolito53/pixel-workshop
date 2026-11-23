@@ -313,6 +313,7 @@ export function effectPixels(width:number,height:number,frame:number,count:numbe
 }
 
 export function effectCapacity(d:PixelDocument) {
+  if(d.stack)return {frames:0,reason:'Generating temporal effects requires an animation timeline.'};
   if(!hasFreeEffectLayerSlot(d))return {frames:0,reason:`The effect needs a free layer. All ${MAX_LAYERS} slots are occupied.`};
   return {frames:frameCount(d)===1?8:frameCount(d),reason:''};
 }
@@ -364,6 +365,7 @@ export function generateEffectCommands(d: PixelDocument, recipe: EffectRecipe): 
  * Manually painted pixels inside the selected effect layer are replaced on regenerate.
  */
 export function regenerateEffectCommands(d:PixelDocument,layer:string,recipe:EffectRecipe):PaintCommand[]{
+ if(d.stack)throw new Error('Regenerating temporal effects requires an animation timeline.');
  const target=d.layers.find(l=>l.id===layer);
  if(!target?.effect)throw new Error('Choose a generated effect layer to regenerate.');
  const full=normalizeEffectRecipe(recipe),count=frameCount(d);

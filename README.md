@@ -39,7 +39,7 @@ Open http://127.0.0.1:4317. The Node service serves the React/Vite build, projec
 
 For a client that launches a local server, run `node --experimental-strip-types server/stdio.ts` with this repository as its working directory. `PIXEL_DATA_DIR` should point to the same directory used by the browser service. Both processes use revision checks, a file lock, and atomic writes.
 
-Available tools (MCP server v0.3.0): `create_canvas`, `list_canvases`, `get_canvas`, `import_reference`, `copy_reference`, `compare_reference`, `paint`, `undo`, `redo`, `export_png`, `export_svg`, `export_sprite_sheet`, `generate_effect`, `regenerate_effect`, `finish_image`. The [image-finishing agent guide](docs/image-finishing.md) describes full-resolution PNG adjustments and editable project round-trips. Recipes are persisted on FX layers and returned by `get_canvas`. Drawing commands accept a zero-based `frame` index; animation controls are `frame_add`, `frame_delete`, and `set_fps`. The public HTTP `/mcp` endpoint requires an `Authorization: Bearer <workspace-token>` header. Inside the editor, open **Workspace → Copy MCP connection** to get a ready-to-use endpoint/header configuration. This is a secret providing access to that one workspace; keep it private. The stand-alone local stdio process deliberately uses its separate local filesystem and does not need a remote bearer token. Pull the latest code and restart a local stdio process; refresh your MCP client's tool list after updating either transport.
+Available tools (MCP server v0.3.0): `create_canvas`, `import_project`, `import_stack_pages`, `preview_stack`, `export_stack_pages`, `list_canvases`, `get_canvas`, `import_reference`, `copy_reference`, `compare_reference`, `paint`, `undo`, `redo`, `export_png`, `export_svg`, `export_sprite_sheet`, `generate_effect`, `regenerate_effect`, `finish_image`. The [image-finishing agent guide](docs/image-finishing.md) describes full-resolution PNG adjustments and editable project round-trips. Recipes are persisted on FX layers and returned by `get_canvas`. Drawing commands accept a zero-based `frame` index; animation controls are `frame_add`, `frame_delete`, and `set_fps`. The public HTTP `/mcp` endpoint requires an `Authorization: Bearer <workspace-token>` header. Inside the editor, open **Workspace → Copy MCP connection** to get a ready-to-use endpoint/header configuration. This is a secret providing access to that one workspace; keep it private. The stand-alone local stdio process deliberately uses its separate local filesystem and does not need a remote bearer token. Pull the latest code and restart a local stdio process; refresh your MCP client's tool list after updating either transport.
 
 Example drawing batch (use the ID and revision returned by `create_canvas`):
 
@@ -57,6 +57,32 @@ Example drawing batch (use the ID and revision returned by `create_canvas`):
 ```
 
 Coordinates are integer, zero-based and bounded by the canvas. Operations include pixels, lines, rectangles, ellipses, flood fill, clear, palette changes, and layer administration. A drawing batch either completes fully or leaves the document unchanged. MCP paint/get returns an enlarged nearest-neighbor PNG preview. `export_png` defaults to the exact native dimensions with an RGBA transparent background.
+
+### Editing sprite stacks
+
+In **New canvas → Sprite Stack**, choose the width and height of each horizontal drawing and the number of slices. In an existing timeline, **Sprite Stack** treats its frames as elevations, in their current order. Draw on the top-down canvas and use the slice slider to move through the object. The editor labels the lowest slice “1” and shows its world Z. Drag the adjacent **Orbit preview** to look around the object, click a visible pixel to select its source slice and layer, or use **Spread** to inspect the cross-sections. **Save orbit view** records that camera in the editable project. From **Export**, **Export stack pages ZIP** writes the game-ready PNGs, their placement manifest and the editable project together.
+
+### Sprite stacks over MCP
+
+A stack is a series of horizontal pixel drawings. Its bottom slice has index 0. Each slice uses the same layer list, XY origin, and editing commands. World elevation is `zMin + slice × sliceHeight`. For example, these three tool calls create a stack, draw a brass base at elevation −1 and a lit pane at elevation +1, then look up at the assembled object. Substitute the project ID and revision from the first response.
+
+```json
+[
+  {"name":"create_canvas","arguments":{"name":"Bench light","width":12,"height":12,"slices":6,"zMin":-1}},
+  {"name":"paint","arguments":{"id":"<id>","revision":0,"slice":2,"commands":[
+    {"op":"rect","frame":0,"x":2,"y":2,"width":8,"height":8,"color":"#855039"},
+    {"op":"add_layer","id":"glass","name":"Amber glass"},
+    {"op":"rect","layer":"glass","x":3,"y":3,"width":6,"height":6,"filled":false,"color":"#FFCE64"}
+  ]}},
+  {"name":"preview_stack","arguments":{"id":"<id>","yaw":32,"pitch":-22,"width":240,"height":180}}
+]
+```
+
+`get_canvas({id,slice:2})` returns the top-down drawing. On `paint`, `slice` sets the default drawing elevation for the batch and an explicit command `frame` overrides it. Layer creation, visibility and ordering apply across the project. Use `slice_insert` with an insertion `index` and optional `source_slice` to duplicate artwork, `slice_move` with `from` and `to`, and `slice_delete` with `index`. Each paint batch can be undone together.
+
+To convert an existing frame-as-slice timeline in place, send `paint` with `[{"op":"stack_settings"}]` and the current revision. To open a native file as a separate project, call `import_project` with its complete JSON object as `project`. Packed files keep blank and shared cels compact. For generated sparse artwork, batch cropped `replace_cel` commands with tight bounds and packed RGBA integers. Routine inspections only return metadata and a preview.
+
+`preview_stack` uses the view saved on the project; `yaw`, `pitch`, `zoom` and `spread` override individual values for one render. Supply `pick:{"x":30,"y":40}` to identify the visible slice, layer and pixel at a point in the preview. Save a view through `stack_settings` with `view:{"yaw":32,"pitch":-22,"zoom":1,"spread":0}`. For game assets, call `export_stack_pages` with the project ID to get its atlas manifest. Request each zero-based `page` with the returned `revision` and the same page settings to obtain its PNG. The sheets contain the stacked drawings in bottom-to-top order and work independently of the camera. To reopen the pages as artwork, pass `import_stack_pages` the returned `manifest` and `pages:[{"file":"pages/slices-001.png","png_base64":"…"}]`, or pass a complete Workshop pages archive as `zip_base64`.
 
 ## Private workspaces
 

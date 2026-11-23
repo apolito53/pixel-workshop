@@ -29,6 +29,10 @@ import ColorWorkbench from './color-workbench.tsx';
 import QuickColorGrid from './quick-color-grid.tsx';
 import StampWorkbench from './stamp-workbench.tsx';
 import WindPanel from './wind-panel.tsx';
+import {StackPreview,SliceControls,StackSettingsPanel} from './stack-workbench.tsx';
+import {createStackDocument,MAX_STACK_SLICES} from '../lib/pixels.ts';
+import type {StackHit} from '../lib/sprite-stack-renderer.ts';
+import './stack.css';
 import {STAMP_LIBRARY_LIMIT,loadStamps,captureStamp,stampCommand,positionStamp,stampRgba,addSavedStamp,type StampAsset} from '../lib/stamp-library.ts';
 import {isHexInk,normalizeInk,rememberInk,rgbHex,splitProjectPalette,withOpacity,withRgb} from '../lib/color-workflow.ts';
 import './image-finishing.css';
@@ -149,6 +153,9 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  const inspectorRef=useRef<HTMLElement>(null),drawerToggleRef=useRef<HTMLButtonElement>(null),drawerCloseRef=useRef<HTMLButtonElement>(null);
  const drawToolsRef=useRef<HTMLElement>(null),drawToolsToggleRef=useRef<HTMLButtonElement>(null),drawToolsCloseRef=useRef<HTMLButtonElement>(null);
  const [frame,setFrame]=useState(0),[playing,setPlaying]=useState(false),[onion,setOnion]=useState(false),[effectKind,setEffectKind]=useState<EffectKind>('embers'),[effectSeed,setEffectSeed]=useState(53),[snap,setSnap]=useState<Snapshot|null>(null),[list,setList]=useState<ProjectListItem[]>([]),[tool,setTool]=useState<Tool>('pencil'),[ink,setInk]=useState('#f6da92'),[hexDraft,setHexDraft]=useState('#f6da92'),[recentColors,setRecentColors]=useState<string[]>([]),[layer,setLayer]=useState('base'),[zoom,setZoom]=useState(10),[grid,setGrid]=useState(true),[filled,setFilled]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState('Opening workspace…'),[error,setError]=useState(''),[cursor,setCursor]=useState('X —   Y —'),[hover,setHover]=useState<{x:number;y:number}|null>(null),[modal,setModal]=useState(false),[name,setName]=useState('Untitled sprite'),[width,setWidth]=useState(64),[height,setHeight]=useState(64),[scale,setScale]=useState(1),[selection,setSelection]=useState<PixelRegion|null>(null),[clipboard,setClipboard]=useState<{width:number;height:number;pixels:number[]}|null>(null),[previewScale,setPreviewScale]=useState(1),[fitMode,setFitMode]=useState(true),[saveState,setSaveState]=useState<Pick<QueueState,'pending'|'saving'|'error'>>({pending:0,saving:false,error:null});
+ const [newKind,setNewKind]=useState<'sprite'|'stack'>('sprite'),[newDepth,setNewDepth]=useState(16);
+ const [stackPick,setStackPick]=useState<StackHit|null>(null),[stackEditing,setStackEditing]=useState(false);
+ const pickMarker=useRef<HTMLSpanElement>(null);
  const [quickColorsOpen,setQuickColorsOpen]=useState(false);
  const [referenceView,setReferenceView]=useState<CanvasView>('overlay'),[referenceOpacity,setReferenceOpacity]=useState(.5),[artworkOpacity,setArtworkOpacity]=useState(1);
  const [exportFormat,setExportFormat]=useState<'png'|'svg'>('png');
@@ -261,7 +268,16 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   panRef.current={x:0,y:0};setCanvasPan({x:0,y:0});setPinchScale(1);
   touchPoints.current.clear();touchGesture.current=null;suppressTouchDrawing.current=false;
  },[]);
- const present=useCallback((s:Snapshot)=>{current.current=s;setSnap(s);setLayer(l=>s.doc.layers.some(x=>x.id===l)?l:s.doc.layers[0].id);},[]);
+ const present=useCallback((s:Snapshot)=>{
+  current.current=s;setSnap(s);setLayer(l=>s.doc.layers.some(x=>x.id===l)?l:s.doc.layers[0].id);
+  setStackEditing(!!s.doc.stack&&(!!stroke.current||!!selectionDrag.current));
+  setStackPick(pick=>{
+   if(!pick)return null;
+   if(!s.doc.stack||!s.doc.layers.some(l=>l.id===pick.layerId&&l.visible))return null;
+   if(pick.sliceIndex>0&&s.doc.animation?.frames[pick.sliceIndex-1]?.id!==pick.frameId)return null;
+   return pick;
+  });
+ },[]);
  const previewEdit=useCallback((base:Snapshot,commands:PaintCommand[])=>{
   try{return {...base,doc:applySnapshotCommands(base.doc,commands)};}
   catch(e){
@@ -280,7 +296,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   const d=state.snapshot.doc;setList(items=>items.map(p=>p.id===d.id?{...p,name:d.name,revision:d.revision,updatedAt:d.updatedAt}:p));
  },[present,previewEdit]);
  const adopt=useCallback((s:Snapshot)=>{
-  if(current.current?.doc.id!==s.doc.id){setSelection(null);setFrame(0);setPlaying(false);setPreviewClip(null);setEffectTarget(null);setFxPreview(null);setConfirmFxOverwrite(false);setClipOriginal(null);setClipName('idle');setClipFrom(0);setClipTo(0);setClipRangeSelection(null);setRangeSelectMode(false);setUiSections(['panel']);clipDragRef.current=null;resetPan();setFitMode(true);}
+  if(current.current?.doc.id!==s.doc.id){setStackPick(null);setSelection(null);setFrame(0);setPlaying(false);setPreviewClip(null);setEffectTarget(null);setFxPreview(null);setConfirmFxOverwrite(false);setClipOriginal(null);setClipName('idle');setClipFrom(0);setClipTo(0);setClipRangeSelection(null);setRangeSelectMode(false);setUiSections(['panel']);clipDragRef.current=null;resetPan();setFitMode(true);}
   queue.current?.dispose();queue.current=new EditQueue(s,request=>api<Snapshot>('projects/'+s.doc.id,request),showQueue);
   setSaveState({pending:0,saving:false,error:null});present(s);
  },[present,showQueue,resetPan]);
@@ -326,7 +342,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  useEffect(()=>{const d=snap?.doc;if(d)setZoom(z=>Math.min(z,maxPreviewZoom(d.width,d.height)));},[snap?.doc.id,snap?.doc.width,snap?.doc.height]);
  useEffect(()=>{if(snap)setFrame(i=>Math.min(i,frameCount(snap.doc)-1));},[snap?.doc.animation?.frames.length,snap?.doc.id]);
  useEffect(()=>{
-   if(!playing||!snap)return;
+   if(!playing||!snap||snap.doc.stack)return;
    const doc=snap.doc,clip=doc.animation?.clips?.find(clip=>clip.name===previewClip);
    const sequence=clip?clipFrameSequence(clip):null;
    if(clip?.mode==='once'&&sequence?.length===1){setPlaying(false);return;}
@@ -576,11 +592,41 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
    if(!docs.some(doc=>doc.ui?.assetKey?.startsWith('ui')))throw new Error('Assign at least one Stardrop asset key before previewing.');
    const currentDoc=current.current!.doc;
    const returnPoint:UiReturn={format:'pixel-workshop-ui-return/1',workspaceId:workspaceId||'local',projectId:currentDoc.id,
-    frame:Math.min(frame,frameCount(currentDoc)-1),layer,sections:uiSections};
+    ...(currentDoc.stack?{stack:true as const}:{}),frame:Math.min(frame,frameCount(currentDoc)-1),layer,sections:uiSections};
    sessionStorage.setItem(UI_RETURN_KEY,JSON.stringify(returnPoint));
    sessionStorage.setItem('pixel-workshop-ui-preview-v1',JSON.stringify({format:'pixel-workshop-ui-preview/1',documents:docs.map(doc=>packProject(doc))}));
    window.location.assign('/play/moonkeeper?uiPreview=1');
   }catch(e){setError((e as Error).message);locked.current=false;setBusy(false);}
+ };
+ const selectSlice=(index:number)=>{
+  if(stroke.current||selectionDrag.current)return;
+  setFrame(index);setPlaying(false);setSelection(null);setHover(null);setStackPick(null);
+ };
+ const pickStackCell=(hit:StackHit)=>{
+  if(stroke.current||selectionDrag.current)return;
+  selectSlice(hit.sliceIndex);setLayer(hit.layerId);setStackPick(hit);
+  setCursor(`X ${hit.x}   Y ${hit.y}`);
+ };
+ // If an orbit pick lies outside a magnified drawing viewport, reveal
+ // only the source cell. The preview camera and drawing zoom stay put.
+ useEffect(()=>{
+  const marker=pickMarker.current,scroller=viewport.current;
+  if(!stackPick||!marker||!scroller)return;
+  const box=scroller.getBoundingClientRect(),cell=marker.getBoundingClientRect();
+  const x=(cell.left+cell.right)/2,y=(cell.top+cell.bottom)/2;
+  const dx=x<box.left+12||x>box.right-12?x-(box.left+box.right)/2:0;
+  const dy=y<box.top+12||y>box.bottom-12?y-(box.top+box.bottom)/2:0;
+  if(!dx&&!dy)return;
+  if(touchNavigationActive){
+   panRef.current={x:panRef.current.x-dx,y:panRef.current.y-dy};
+   setCanvasPan(panRef.current);
+  }else{scroller.scrollLeft+=dx;scroller.scrollTop+=dy;}
+ },[stackPick,touchNavigationActive]);
+ const toggleStack=async()=>{
+  const doc=current.current?.doc;if(!doc||stroke.current||selectionDrag.current)return;
+  if(await commit([{op:doc.stack?'stack_disable':'stack_settings'}])){
+   setStackPick(null);setPlaying(false);setPreviewClip(null);setSelection(null);setRangeSelectMode(false);
+  }
  };
  const gestureViewport=(element:HTMLDivElement):GestureViewport=>{
   const rect=element.getBoundingClientRect();
@@ -957,8 +1003,15 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  const frameLimitText=frameFull?`All ${MAX_ANIMATION_FRAMES} frames are in use.`:'';
  const layerLimitText=layersFull?`All ${MAX_LAYERS} layer slots are in use.`:'';
  const plannedSizeValid=[width,height].every(value=>Number.isInteger(value)&&value>=1&&value<=MAX_CANVAS_SIDE);
+ const depthLimit=MAX_STACK_SLICES;
+ const validStackDepth=Number.isInteger(newDepth)&&newDepth>=1&&newDepth<=depthLimit;
+ const makeCanvas=()=>{
+  if(newKind==='sprite'){void create();return;}
+  try{void create(false,createStackDocument(name,width,height,newDepth));}
+  catch(err){setError((err as Error).message);}
+ };
  const usage=capacity?`${capacity.storedCells.toLocaleString()} / ${MAX_ANIMATION_CELLS.toLocaleString()} pixel cells used${d?.reference?', including the reference':''}. Each distinct drawing uses its cropped area. Held frames share it.`:'';
- const effectRoom=useMemo(()=>d?effectCapacity(d):null,[d]);
+ const effectRoom=useMemo(()=>d&&!d.stack?effectCapacity(d):null,[d]);
  const canBackUpFx=!!d&&d.layers.length<MAX_LAYERS;
  const previewKey=JSON.stringify([d?.id,d?.revision,effectTarget,activeFrame,effectKind,effectSeed,ink,effectSpeed,effectOpacity,effectDrift]);
  const validFxPreview=fxPreview?.key===previewKey?fxPreview.comparison:null;
@@ -1030,15 +1083,21 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   </select></label>
  </div>}{['rect','ellipse'].includes(tool)&&<label className="fill-option"><input type="checkbox" checked={filled} onChange={e=>setFilled(e.target.checked)}/>Filled</label>}<span className="spacer"/><button type="button" ref={drawerToggleRef} className={'small-toggle mobile-inspector-toggle '+(inspectorOpen?'on':'')}
  aria-controls="pixel-inspector" aria-expanded={mobileLayout&&inspectorOpen} aria-haspopup="dialog" aria-label={inspectorOpen?'Close inspector panels':'Open inspector panels'}
- onClick={()=>{setDrawToolsOpen(false);setInspectorOpen(v=>!v);}}><SlidersHorizontal size={17}/><span>Panels</span></button><span className="canvas-hint">ONE CELL = ONE PIXEL.</span></div><div className="canvas-scroll" ref={viewport} onPointerDownCapture={touchDown}
+ onClick={()=>{setDrawToolsOpen(false);setInspectorOpen(v=>!v);}}><SlidersHorizontal size={17}/><span>Panels</span></button><span className="canvas-hint">{d?.stack?`SLICE ${activeFrame+1} / ${frames}`:'ONE CELL = ONE PIXEL.'}</span></div>
+ <div className={d?.stack?'artboard-stage dual-stack-stage':'artboard-stage'}><div className="canvas-scroll" ref={viewport} onPointerDownCapture={touchDown}
  onPointerMoveCapture={touchMove} onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd}><div className="canvas-mat">{d?<div className="canvas-frame" data-guide="canvas" style={touchNavigationActive?{
  transform:`translate3d(${canvasPan.x}px,${canvasPan.y}px,0) scale(${pinchScale})`
 }:undefined}><span className="canvas-coordinate top-left">0, 0</span><canvas ref={canvas} className="pixel-canvas" aria-label={`${d.name}, ${d.width} by ${d.height} pixel canvas`} style={{width:d.width*zoom,height:d.height*zoom,backgroundSize:`${zoom*2}px ${zoom*2}px`}} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={()=>{if(stampCaptureDrag.current){stampCaptureDrag.current=null;setSelection(null);}if(selectionDrag.current){setSelection(selectionDrag.current.source);present(selectionDrag.current.base);selectionDrag.current=null;}if(stroke.current){present(stroke.current.base);stroke.current=null;}}} onPointerLeave={()=>{setHover(null);if(!stroke.current&&!selectionDrag.current)setCursor('X —   Y —');}}/>{hover&&zoom>=3&&tool!=='select'&&<div className="cell-cursor" aria-hidden="true" style={{left:hover.x*zoom,top:hover.y*zoom,width:zoom,height:zoom}}/>}{stampHover&&activeStamp&&<canvas ref={stampPreviewRef} className="stamp-cursor-preview"
   aria-hidden="true" style={{left:stampHover.x*zoom,top:stampHover.y*zoom,
    width:activeStamp.width*zoom,height:activeStamp.height*zoom}}/>}
- {selection&&<div className="selection-marquee" style={{left:selection.x*zoom,top:selection.y*zoom,width:selection.width*zoom,height:selection.height*zoom}}/>}<span className="canvas-coordinate bottom-right">{d.width}, {d.height}</span></div>:<div className="loading-canvas"><Grid2X2 size={32}/><span>Opening your pixel workshop…</span>{error&&<button onClick={()=>location.reload()}>Try again</button>}</div>}</div></div>{d&&<div className="timeline" aria-label="Animation timeline">
+ {d?.stack&&stackPick&&stackPick.sliceIndex===activeFrame&&stackPick.layerId===layer&&<span ref={pickMarker} className="stack-picked-cell"
+  aria-label={`Picked pixel X ${stackPick.x}, Y ${stackPick.y}, slice ${activeFrame+1}`} style={{left:stackPick.x*zoom,top:stackPick.y*zoom,width:zoom,height:zoom}}/>}
+ {selection&&<div className="selection-marquee" style={{left:selection.x*zoom,top:selection.y*zoom,width:selection.width*zoom,height:selection.height*zoom}}/>}<span className="canvas-coordinate bottom-right">{d.width}, {d.height}</span></div>:<div className="loading-canvas"><Grid2X2 size={32}/><span>Opening your pixel workshop…</span>{error&&<button onClick={()=>location.reload()}>Try again</button>}</div>}</div></div>{d?.stack&&<StackPreview key={d.id} doc={d} busy={busy} editing={stackEditing} commit={commit} onPick={pickStackCell}/>}</div>
+ {d?.stack&&<SliceControls doc={d} active={activeFrame} busy={busy} full={frameFull} select={selectSlice} commit={commit}/>}
+ {d&&!d.stack&&<div className="timeline" aria-label="Animation timeline">
   <div className="timeline-header"><span className="eyebrow"><Film size={13}/>ANIMATION <span className="muted">{frames} / {capacity?.maxFrames} FRAMES</span></span>
     <div className="timeline-controls" data-guide="timeline-actions">
+     <button type="button" className="small-toggle" disabled={busy||playing} title="Use the frames as horizontal slices, from bottom to top" onClick={()=>void toggleStack()}><Layers size={14}/>Sprite Stack</button>
      <button className="small-toggle" aria-label={playing?'Pause animation':'Play animation'} disabled={frameCount(d)<2||busy} onClick={()=>setPlaying(v=>!v)}>{playing?<Pause size={14}/>:<Play size={14}/>} {playing?'Pause':'Play'}</button>
      <label className="fps-control">FPS <select aria-label="Animation frames per second" value={d.animation?.fps??8} disabled={busy} onChange={e=>void commit([{op:'set_fps',fps:Number(e.target.value)}])}>{[4,6,8,10,12,15,20,24,30].map(f=><option key={f} value={f}>{f}</option>)}</select></label>
      <button className={'small-toggle '+(onion?'on':'')} aria-pressed={onion} onClick={()=>setOnion(v=>!v)}>Onion {onion?'on':'off'}</button>
@@ -1099,10 +1158,11 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   {INSPECTOR_TABS.map(tab=>{
    const Icon=tab.id==='draw'?Palette:tab.id==='layers'?Layers:tab.id==='effects'?Sparkles:tab.id==='animation'?Film:tab.id==='ui'?PanelsTopLeft:Download;
    const active=inspectorTab===tab.id;
+   const label=d?.stack&&tab.id==='animation'?'Stack':tab.label;
    return <button key={tab.id} type="button" id={`inspector-tab-${tab.id}`} data-inspector-tab={tab.id}
     className={'inspector-tab '+(active?'active':'')} role="tab"
-    aria-label={`${tab.label} tools`} aria-controls={`inspector-panel-${tab.id}`}
-    aria-selected={active} tabIndex={active?0:-1} title={tab.label}
+    aria-label={`${label} tools`} aria-controls={`inspector-panel-${tab.id}`}
+    aria-selected={active} tabIndex={active?0:-1} title={label}
     onClick={()=>activateInspectorTab(tab.id)}
     onKeyDown={e=>{
      const next=inspectorTabForKey(tab.id,e.key);
@@ -1110,7 +1170,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
       e.preventDefault();activateInspectorTab(next);
       inspectorRef.current?.querySelector<HTMLButtonElement>(`[data-inspector-tab="${next}"]`)?.focus();
      }
-    }}><Icon size={15}/><span>{tab.label}</span></button>;
+    }}><Icon size={15}/><span>{label}</span></button>;
   })}
  </nav>
  <div className="inspector-panel" id="inspector-panel-draw" role="tabpanel" aria-labelledby="inspector-tab-draw" tabIndex={0} hidden={inspectorTab!=='draw'}>
@@ -1135,6 +1195,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   usage={usage} addLimit={layerLimitText} onSelect={setLayer} onCommit={commit}/>}
  </div>
  <div className="inspector-panel" id="inspector-panel-effects" role="tabpanel" aria-labelledby="inspector-tab-effects" tabIndex={0} hidden={inspectorTab!=='effects'}>
+ {d?.stack?<section className="inspector-section"><p className="layer-note">Procedural animation effects use a frame timeline. Stack slices represent height.</p></section>:<>
  {d && inspectorTab==='effects' && <WindPanel key={d.id+':'+layer} doc={d} layer={layer} frame={activeFrame} busy={busy} commit={commit}/>}
  <section className="inspector-section effects-section"><div className="section-heading" data-guide="effects"><span>PROCEDURAL EFFECTS</span><Sparkles size={14}/></div>
    <p>Create a seeded, editable animation layer. Painting and undo work on every generated frame.</p>
@@ -1185,10 +1246,10 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
      disabled={busy||!validFxPreview||!d.layers.some(l=>l.id===effectTarget&&l.effect)||((!canBackUpFx||!preserveFx)&&!confirmFxOverwrite)}
      onClick={()=>void regenerateEffect()}><Sparkles size={14}/>Apply previewed effect</button>
    </div>}
-  </section>
+  </section></>}
  </div>
  <div className="inspector-panel" id="inspector-panel-animation" role="tabpanel" aria-labelledby="inspector-tab-animation" tabIndex={0} hidden={inspectorTab!=='animation'}>
-  <section className="inspector-section clip-section">
+  {d?.stack?<StackSettingsPanel key={[d.id,...d.stack.origin,d.stack.zMin,d.stack.sliceHeight].join('/')} doc={d} busy={busy} commit={commit} onDisable={()=>void toggleStack()}/>:<section className="inspector-section clip-section">
    {d&&capacity&&<p className="effect-capacity" aria-live="polite">{frames} / {MAX_ANIMATION_FRAMES} frames. {usage}</p>}
    <div className="section-heading" data-guide="clips"><span>ANIMATION CLIPS</span><Film size={15}/></div>
    <p>Select a clip range visually in the timeline, or Shift-click two frames, then give it a name. Drag its range again to adjust it. Clips export with the atlas.</p>
@@ -1212,7 +1273,7 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
     <option value="loop">Loop</option><option value="once">Once</option><option value="pingpong">Ping-pong</option>
    </select></label>
    <button type="button" className="secondary full" disabled={!d||busy||!clipName.trim()||clipFrom<0||clipTo<clipFrom||clipTo>=frameCount(d)||clipFps<1||clipFps>30} onClick={()=>void saveClip()}><Plus size={14}/>Save clip</button>
-  </section>
+  </section>}
  </div>
  <div className="inspector-panel" id="inspector-panel-ui" role="tabpanel" aria-labelledby="inspector-tab-ui" tabIndex={0} hidden={inspectorTab!=='ui'}>
   {d&&inspectorTab==='ui'&&<UiKitPanel key={d.id} doc={d} frame={activeFrame} layer={layer} ink={ink} busy={busy} onCommit={commit} onSaveDraft={saveUiDraft} onFrame={setFrame} onLayer={setLayer}
@@ -1227,9 +1288,17 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   <label className="scale-select">Frame size<select aria-label="Frame export scale" value={scale} onChange={e=>setScale(Number(e.target.value))}>{[1,2,4,8].map(s=><option key={s} value={s} disabled={!!d&&exportFormat==='png'&&d.width*d.height*s*s>4_194_304}>{s}× {d?`· ${d.width*s} × ${d.height*s}`:''}</option>)}</select></label>
   <p>{exportFormat==='svg'?'Scalable vector pixels with transparency. Visible layers are combined; the pixel-art shape stays crisp.':'Transparent background. Clean pixels, ready for your game.'}</p>
   <button className="secondary full" disabled={!d||busy} onClick={()=>void exportFrame()}>Current frame {exportFormat.toUpperCase()} <Download size={14}/></button>
+  {d?.stack?<button type="button" className="secondary full" disabled={busy} onClick={async()=>{
+   try{
+    const {exportStackPages}=await import('../lib/sprite-stack-pages.ts');
+    const pack=await exportStackPages(d);
+    download(d.name+'.stack.zip',new Blob([pack.bytes],{type:'application/zip'}));
+    setNotice('Exported sprite stack pages and manifest');
+   }catch(err){setError((err as Error).message);}
+  }}>Export stack pages ZIP <Download size={14}/></button>:<>
   <button className="secondary full" disabled={!d||busy} onClick={()=>void exportSheet()}>Sprite sheet {exportFormat.toUpperCase()} <Download size={14}/></button>
   <button className="secondary full" disabled={!d||busy} onClick={exportAtlas}>Animation atlas JSON <Download size={14}/></button>
-  <p>Sprite sheets use native dimensions and contain every frame. The atlas matches the selected format.</p>
+  <p>Sprite sheets use native dimensions and contain every frame. The atlas matches the selected format.</p></>}
   <button className="secondary full" disabled={!d||busy} onClick={()=>{if(d)download(d.name+'.pixel.json',new Blob([JSON.stringify(packProject(d))],{type:'application/json'}));}}>Save editable project <Download size={14}/></button>
   <div className="tileset-export-block" data-guide="tileset">
    <p>Building a tile-based game? Slice the current frame into a coordinate-accurate grid, keeping empty tiles and their IDs.</p>
@@ -1245,7 +1314,19 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
  </div>
  </aside></div>
  <footer className="status-bar"><span data-guide="save-status" className={'save-status '+(displayError?'error':uiDraftCount?'draft':'')}><i className={busy||saveState.pending?'saving':''}/>{displayStatus}</span>{saveState.error&&<>{!saveState.error.conflict&&<button className="text-button save-retry" disabled={busy} onClick={()=>{setError('');queue.current?.retry();}}>Retry save</button>}<button className="text-button save-retry" disabled={busy} onClick={()=>void create(false,current.current?.doc,true)}>Save a copy</button></>}<span className="status-detail">{cursor}</span><span className="status-detail">{d?.layers.length||0} LAYERS</span><span className="status-shortcuts">B pencil<span>E eraser</span><span>G fill</span><span>H grid</span></span><ReleaseNotes edition="workshop"/></footer>
- <input ref={file} type="file" accept=".json,.pixel.json" className="visually-hidden" aria-label="Import editable project" onChange={async e=>{const f=e.target.files?.[0];if(!f)return;try{if(f.size>MAX_PROJECT_FILE_BYTES)throw new Error('Project file is too large.');await create(false,JSON.parse(await f.text()));}catch(err){setError((err as Error).message);}e.target.value='';}}/>
+ <input ref={file} type="file" accept=".json,.pixel.json,.stack.zip,.zip" className="visually-hidden" aria-label="Import editable project" onChange={async e=>{
+  const file=e.currentTarget.files?.[0];e.currentTarget.value='';if(!file)return;
+  try{
+   if(/\.zip$/i.test(file.name)){
+    const {importStackPages,MAX_STACK_ZIP_BYTES}=await import('../lib/sprite-stack-pages.ts');
+    if(file.size>MAX_STACK_ZIP_BYTES)throw new Error('Stack archive is too large.');
+    await create(false,await importStackPages(new Uint8Array(await file.arrayBuffer())));
+   }else{
+    if(file.size>MAX_PROJECT_FILE_BYTES)throw new Error('Project file is too large.');
+    await create(false,JSON.parse(await file.text()));
+   }
+  }catch(err){setError((err as Error).message);}
+ }}/>
  {packModal&&<div className="modal-backdrop" onClick={()=>!busy&&setPackModal(false)}>
    <section className="new-dialog pack-dialog" role="dialog" aria-modal="true" aria-labelledby="pack-dialog-heading" onClick={e=>e.stopPropagation()}>
     <button className="dialog-close icon-button" type="button" aria-label="Close game pack exporter" disabled={busy} onClick={()=>setPackModal(false)}><X size={18}/></button>
@@ -1271,8 +1352,12 @@ export default function Editor({onManageWorkspace,workspaceId}:{onManageWorkspac
   </div>}
  {guide.mode!=='off'&&!modal&&!packModal&&<WorkshopGuide mode={guide.mode} scope={guide.scope} index={guide.index}
   onStart={startGuide} onMove={moveGuide} onClose={closeGuide} onMenu={guideMenu}/>}
-  {modal&&<div className="modal-backdrop" onClick={()=>setModal(false)}><section className="new-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" onClick={e=>e.stopPropagation()}><button className="dialog-close icon-button" aria-label="Close new canvas dialog" onClick={()=>setModal(false)}><X size={18}/></button><span className="eyebrow">A FRESH LITTLE START</span><h2 id="dialog-title">Make room for an idea.</h2><label>Canvas name<input autoFocus value={name} maxLength={80} onChange={e=>setName(e.target.value)}/></label><div className="dimension-inputs"><label>Width<input type="number" min={1} max={MAX_CANVAS_SIDE} value={width} onChange={e=>setWidth(Number(e.target.value))}/></label><span>×</span><label>Height<input type="number" min={1} max={MAX_CANVAS_SIDE} value={height} onChange={e=>setHeight(Number(e.target.value))}/></label></div><div className="size-presets">{[16,32,48,64,128].map(s=><button key={s} className={width===s&&height===s?'selected':''} onClick={()=>{setWidth(s);setHeight(s);}}>{s}×{s}</button>)}</div>
-   <p className="pack-description" aria-live="polite">{plannedSizeValid?`Up to ${MAX_LAYERS} layers and ${MAX_ANIMATION_FRAMES} frames. Drawings store their cropped area. Blank layers and held frames use no extra pixel cells.`:`Enter whole-number dimensions from 1 to ${MAX_CANVAS_SIDE}.`}</p>
-   {error&&<p className="error-text">{error}</p>}<button className="primary full" disabled={busy||!plannedSizeValid} onClick={()=>void create()}><Plus size={16}/>Create canvas</button><button className="text-button example-button" disabled={busy} onClick={()=>void create('cottage')}>Open Moonkeeper’s cottage · 64 × 64</button><button className="text-button example-button" disabled={busy} onClick={()=>void create(true)}>Or open the little lantern</button></section></div>}
+  {modal&&<div className="modal-backdrop" onClick={()=>setModal(false)}><section className="new-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" onClick={e=>e.stopPropagation()}><button className="dialog-close icon-button" aria-label="Close new canvas dialog" onClick={()=>setModal(false)}><X size={18}/></button><span className="eyebrow">A FRESH LITTLE START</span><h2 id="dialog-title">Make room for an idea.</h2><div className="new-kind" role="group" aria-label="Canvas type">
+    <button type="button" aria-pressed={newKind==='sprite'} onClick={()=>setNewKind('sprite')}><Grid2X2 size={15}/>2D sprite</button>
+    <button type="button" aria-pressed={newKind==='stack'} onClick={()=>setNewKind('stack')}><Layers size={15}/>Sprite Stack</button>
+   </div><label>Canvas name<input autoFocus value={name} maxLength={80} onChange={e=>setName(e.target.value)}/></label><div className="dimension-inputs"><label>Width<input type="number" min={1} max={MAX_CANVAS_SIDE} value={width} onChange={e=>setWidth(Number(e.target.value))}/></label><span>×</span><label>Height<input type="number" min={1} max={MAX_CANVAS_SIDE} value={height} onChange={e=>setHeight(Number(e.target.value))}/></label></div><div className="size-presets">{[16,32,48,64,128].map(s=><button key={s} className={width===s&&height===s?'selected':''} onClick={()=>{setWidth(s);setHeight(s);}}>{s}×{s}</button>)}</div>
+   {newKind==='stack'&&<label>Number of slices<input aria-label="Initial slice count" type="number" min={1} max={depthLimit} value={newDepth||''} onChange={e=>setNewDepth(Number(e.target.value))}/></label>}
+   <p className="pack-description" aria-live="polite">{plannedSizeValid&&newKind==='stack'?`Each slice is ${width} × ${height} pixels. Choose 1–${depthLimit} slices, ordered from base to top.`:plannedSizeValid?`Up to ${MAX_LAYERS} layers and ${MAX_ANIMATION_FRAMES} frames. Drawings store their cropped area. Blank layers and held frames use no extra pixel cells.`:`Enter whole-number dimensions from 1 to ${MAX_CANVAS_SIDE}.`}</p>
+   {error&&<p className="error-text">{error}</p>}<button className="primary full" disabled={busy||!plannedSizeValid||(newKind==='stack'&&!validStackDepth)} onClick={makeCanvas}><Plus size={16}/>{newKind==='stack'?'Create sprite stack':'Create canvas'}</button><button className="text-button example-button" disabled={busy} onClick={()=>void create('cottage')}>Open Moonkeeper’s cottage · 64 × 64</button><button className="text-button example-button" disabled={busy} onClick={()=>void create(true)}>Or open the little lantern</button></section></div>}
  </main>;
 }

@@ -1,3 +1,6 @@
+import { rgbaOver } from './rgba-over.ts';
+import {stackDefaults, MAX_STACK_SLICES, validateStackSettings, type StackSettings} from './stack-domain.ts';
+export {MAX_STACK_SLICES, type StackSettings, type StackView} from './stack-domain.ts';
 import {validatePixelText,validateUi,type PixelTextRecipe,type UiMetadata} from './ui-metadata.ts';
 import {renderTextCel,textDimensions} from './pixel-font.ts';
 import {blankCel, CelBrush, celArea, celData, CelInterner, celPixel, celRect, cropCel, type Cel, type CroppedCel} from './cel-storage.ts';
@@ -25,7 +28,7 @@ export function clipFrameSequence(clip: AnimationClip): number[] {
   const frames = Array.from({length:clip.to-clip.from+1},(_,i)=>clip.from+i);
   return clip.mode==='pingpong'&&frames.length>2?[...frames,...frames.slice(1,-1).reverse()]:frames;
 }
-export type PixelDocument<P extends Cel=Cel> = { format: 'pixel-workshop/1'; id: string; name: string; width: number; height: number; revision: number; palette: string[]; layers: Layer<P>[]; updatedAt: string; animation?: { fps: number; frames: AnimationFrame<P>[]; clips?: AnimationClip[] }; ui?:UiMetadata; reference?:ReferenceImage };
+export type PixelDocument<P extends Cel=Cel> = { format: 'pixel-workshop/1'; id: string; name: string; width: number; height: number; revision: number; palette: string[]; layers: Layer<P>[]; stack?:StackSettings; updatedAt: string; animation?: { fps: number; frames: AnimationFrame<P>[]; clips?: AnimationClip[] }; ui?:UiMetadata; reference?:ReferenceImage };
 export const MAX_LAYERS = 64;
 export const MAX_ANIMATION_FRAMES = 96;
 export const MAX_ANIMATION_CELLS = 4_194_304;
@@ -53,7 +56,7 @@ export function canvasCapacity(width:number,height:number,layers:number,frames:n
 export function documentCapacity(d: PixelDocument) {
   const storedCells=documentCells(d);
   const remainingCells=MAX_ANIMATION_CELLS-storedCells;
-  return {maxFrames:MAX_ANIMATION_FRAMES,maxLayers:MAX_LAYERS,
+  return {maxFrames:d.stack?MAX_STACK_SLICES:MAX_ANIMATION_FRAMES,maxLayers:MAX_LAYERS,
     remainingCelBuffers:Math.floor(remainingCells/(d.width*d.height)),blankAvailable:true,storedCells,remainingCells};
 }
 // An atomic palette remap must be possible even when the entire document is filled.
@@ -95,13 +98,22 @@ export function createCompactDocument(name:string,width:number,height:number,id=
 export function createDocument(name:string,width:number,height:number,id=crypto.randomUUID()) {
   return newDocument(name,width,height,id,()=>new Array<number>(width*height).fill(0));
 }
+export function createStackDocument(name:string,width:number,height:number,slices:number,options:Partial<StackSettings>={},id=crypto.randomUUID()):PixelDocument<CroppedCel> {
+  const doc=createCompactDocument(name,width,height,id);
+  requireInt(slices,1,MAX_STACK_SLICES,'Stack depth');
+  const stack=validateStackSettings({...stackDefaults(width,height),...options});
+  const blank=doc.layers[0].pixels;
+  return {...doc,stack,animation:{fps:8,frames:Array.from({length:slices-1},(_,i)=>({id:'slice-'+(i+1),pixels:{base:blank}}))}};
+}
 export function validateDocument(input: unknown): PixelDocument {
   const d = input as PixelDocument;
   if (!d || d.format !== 'pixel-workshop/1') throw new Error('This is not a Pixel Workshop project.');
   requireInt(d.width,1,MAX_CANVAS_SIDE,'Width'); requireInt(d.height,1,MAX_CANVAS_SIDE,'Height');
   if (typeof d.name !== 'string' || d.name.length > 80) throw new Error('Invalid project name.');
   if (!Array.isArray(d.layers) || !d.layers.length || d.layers.length>MAX_LAYERS) throw new Error(`Projects need 1–${MAX_LAYERS} layers.`);
-  if(d.animation!==undefined&&(!d.animation||!Array.isArray(d.animation.frames)||d.animation.frames.length>=MAX_ANIMATION_FRAMES))
+  const stack=d.stack===undefined?undefined:validateStackSettings(d.stack);
+  const frameLimit=stack?MAX_STACK_SLICES:MAX_ANIMATION_FRAMES;
+  if(d.animation!==undefined&&(!d.animation||!Array.isArray(d.animation.frames)||d.animation.frames.length>=frameLimit))
     throw new Error('Invalid animation settings.');
 
   if(d.reference!==undefined)validateReference(d.reference,d.width,d.height);
@@ -171,7 +183,7 @@ export function validateDocument(input: unknown): PixelDocument {
   }
   if(d.ui!==undefined)validateUi(d.ui,d.width,d.height,frameCount(d));
   for(const layer of d.layers)if(layer.text!==undefined)validatePixelText(layer.text,d.width,d.height,frameCount(d));
-  return structuredClone({...d,layers:d.layers.map(layer=>({...layer,pixels:checked.get(layer.pixels)!})),
+  return structuredClone({...d,...(stack?{stack}:{}),layers:d.layers.map(layer=>({...layer,pixels:checked.get(layer.pixels)!})),
     ...(d.animation?{animation:{...d.animation,frames:d.animation.frames.map(frame=>({...frame,
       pixels:Object.fromEntries(Object.entries(frame.pixels).map(([id,pixels])=>[id,checked.get(pixels)!]))}))}}:{})});
 }
@@ -183,13 +195,12 @@ export function composite(d: PixelDocument): Uint8Array {
     let hasInk=false;
     const rect=celRect(layer.pixels,d.width,d.height);
     for(let y=0;y<rect.height;y++)for(let x=0;x<rect.width;x++){
-      const p=rect.data[y*rect.width+x]>>>0, a=(p&255)/255; if (!a) continue;
+      const p=rect.data[y*rect.width+x]>>>0; if (!(p&255)) continue;
       hasInk=true;
-      const j=((rect.y+y)*d.width+rect.x+x)*4,oldA=rgba[j+3]/255,outA=a+oldA*(1-a);
-      rgba[j]=Math.round(((p>>>24)*a+rgba[j]*oldA*(1-a))/outA);
-      rgba[j+1]=Math.round((((p>>>16)&255)*a+rgba[j+1]*oldA*(1-a))/outA);
-      rgba[j+2]=Math.round((((p>>>8)&255)*a+rgba[j+2]*oldA*(1-a))/outA);
-      rgba[j+3]=Math.round(outA*255);
+      const j=((rect.y+y)*d.width+rect.x+x)*4;
+      const bottom=(rgba[j]<<24)|(rgba[j+1]<<16)|(rgba[j+2]<<8)|rgba[j+3];
+      const out=rgbaOver(bottom,p);
+      rgba[j]=out>>>24; rgba[j+1]=out>>>16; rgba[j+2]=out>>>8; rgba[j+3]=out;
     }
     if(!hasInk)transparent.add(layer.pixels);
   }
@@ -260,6 +271,64 @@ class CelEdit {
   }
 }
 
+/** The base layer pixels store slice zero; later slices have frame records. */
+function editStackSlices(d:PixelDocument,command:PaintCommand,cels:CelEdit) {
+  const count=frameCount(d),inserting=command.op==='slice_insert',deleting=command.op==='slice_delete';
+  const at=requireInt(inserting||deleting?command.index:command.from,0,inserting?count:count-1,'slice index');
+  const to=inserting||deleting?at:requireInt(command.to,0,count-1,'destination slice');
+  if(deleting&&count===1)throw new Error('A sprite stack must retain at least one slice.');
+  if(inserting&&count>=MAX_STACK_SLICES)throw new Error('This stack has reached its slice limit.');
+  const animation=d.animation??={fps:8,frames:[]};
+  const planes:AnimationFrame[]=[{id:'',pixels:Object.fromEntries(d.layers.map(layer=>[layer.id,layer.pixels]))},...animation.frames];
+  if(inserting){
+    const source=command.source_slice===undefined?undefined:planes[requireInt(command.source_slice,0,count-1,'source slice')];
+    const pixels=Object.fromEntries(d.layers.map(layer=>{
+      const cel=source?source.pixels[layer.id]:cels.empty();
+      cels.add(cel);return [layer.id,cel];
+    }));
+    planes.splice(at,0,{id:'',pixels});
+  }else if(deleting){
+    const [removed]=planes.splice(at,1);
+    for(const cel of Object.values(removed.pixels))cels.remove(cel);
+  }else{
+    const [moved]=planes.splice(at,1);planes.splice(to,0,moved);
+  }
+  for(const layer of d.layers)layer.pixels=planes[0].pixels[layer.id];
+  const ids=new Set(planes.map(p=>p.id));
+  let serial=0;
+  // A newly inserted slice or the former base can become a numbered frame.
+  animation.frames=planes.slice(1).map(plane=>{
+    if(plane.id)return plane;
+    let id:string;
+    do{id=`slice-${d.revision+1}-${serial++}`;}while(ids.has(id));
+    ids.add(id);return {...plane,id};
+  });
+  const mapped=(index:number)=>{
+    if(inserting)return index<at?index:index+1;
+    if(deleting)return index===at?-1:index<at?index:index-1;
+    if(index===at)return to;
+    if(at<index&&index<=to)return index-1;
+    if(to<=index&&index<at)return index+1;
+    return index;
+  };
+  if(d.ui?.slots)d.ui.slots=d.ui.slots.flatMap(slot=>{
+    const frame=mapped(slot.frame);return frame<0?[]:[{...slot,frame}];
+  });
+  for(const layer of d.layers)if(layer.text){
+    const frame=mapped(layer.text.frame);
+    if(frame<0)delete layer.text;
+    else layer.text={...layer.text,frame};
+  }
+  // Named clips cover timeline slots. A move changes their contents; inserting
+  // or deleting a slot shifts their boundaries in the same way as a frame edit.
+  if(animation.clips&&(inserting||deleting))animation.clips=animation.clips.flatMap(clip=>{
+    if(deleting&&clip.from===at&&clip.to===at)return [];
+    const from=clip.from+(inserting?Number(clip.from>=at):-Number(clip.from>at));
+    const end=clip.to+(inserting?Number(clip.to>=at):-Number(clip.to>=at));
+    return [{...clip,from,to:end}];
+  });
+}
+
 /** Returns another immutable snapshot; untouched cels can be shared with source. */
 export function applySnapshotCommands(source:PixelDocument,commands:PaintCommand[],work={spent:0}):PixelDocument {
   return runCommands(source,commands,work,true);
@@ -270,7 +339,10 @@ export function applyCommands(source:PixelDocument,commands:PaintCommand[],work=
 }
 function runCommands(source:PixelDocument,commands:PaintCommand[],work:{spent:number},immutableSnapshot:boolean):PixelDocument {
   if (!Array.isArray(commands)||commands.length<1||commands.length>5000) throw new Error('Send 1–5000 drawing commands in one batch.');
-  if(commands.length===1&&commands[0]?.op==='wind_bake')commands=planWindBake(source,commands[0]);
+  if(commands.length===1&&commands[0]?.op==='wind_bake'){
+    if(source.stack)throw new Error('Wind baking requires an animation timeline.');
+    commands=planWindBake(source,commands[0]);
+  }
   const d:PixelDocument={...source,layers:source.layers.map(layer=>({...layer})),
     ...(source.ui?{ui:{...source.ui}}:{}),
     ...(source.animation?{animation:{...source.animation,
@@ -335,6 +407,26 @@ function runCommands(source:PixelDocument,commands:PaintCommand[],work:{spent:nu
       d.palette=d.palette.map(v=>parseInt(v.slice(1,7),16)===from?'#'+to.toString(16).padStart(6,'0')+(v.length===9?v.slice(7):''):v);
       continue;
     }
+    if(c.op==='stack_settings'){
+      const prev=d.stack??stackDefaults(d.width,d.height);
+      const next=validateStackSettings({
+        origin:c.origin===undefined?prev.origin:c.origin, zMin:c.zMin===undefined?prev.zMin:c.zMin,
+        sliceHeight:c.sliceHeight===undefined?prev.sliceHeight:c.sliceHeight,
+        view:c.view===null?undefined:c.view===undefined?prev.view:c.view,
+      });
+      d.stack=next;continue;
+    }
+    if(c.op==='stack_disable'){
+      if(!d.stack)throw new Error('This project is already a sprite.');
+      if(frameCount(d)>MAX_ANIMATION_FRAMES)throw new Error(`An animation can contain at most ${MAX_ANIMATION_FRAMES} frames. Reduce the stack depth before converting.`);
+      delete d.stack;continue;
+    }
+    if(c.op==='slice_insert'||c.op==='slice_move'||c.op==='slice_delete'){
+      if(!d.stack)throw new Error('Slice edits require a sprite stack project.');
+      spend(frameCount(d)*d.layers.length);
+      editStackSlices(d,c,cels);
+      continue;
+    }
     if(c.op==='set_fps'){
       const fps=requireInt(c.fps,1,30,'fps');
       d.animation ??= {fps,frames:[]};d.animation.fps=fps;continue;
@@ -363,7 +455,8 @@ function runCommands(source:PixelDocument,commands:PaintCommand[],work:{spent:nu
       continue;
     }
     if(c.op==='frame_add'){
-      if(frameCount(d)>=MAX_ANIMATION_FRAMES)throw new Error(`Animation supports up to ${MAX_ANIMATION_FRAMES} frames.`);
+      const limit=d.stack?MAX_STACK_SLICES:MAX_ANIMATION_FRAMES;
+      if(frameCount(d)>=limit)throw new Error(d.stack?`This stack supports up to ${limit} slices.`:`Animation supports up to ${limit} frames.`);
       const from=requireInt(c.source_frame ?? 0,0,frameCount(d)-1,'source_frame');
       const sourceLayers=frameView(d,from).layers;
       const blank=c.blank === true;

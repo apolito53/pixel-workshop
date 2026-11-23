@@ -1,3 +1,4 @@
+import {MAX_STACK_SLICES,validateStackSettings} from './stack-domain.ts';
 import {MAX_ANIMATION_CELLS, MAX_ANIMATION_FRAMES, MAX_LAYERS, frameCount, validateDocument, type PixelDocument} from './pixels.ts';
 import {MAX_CANVAS_SIDE} from './canvas-limits.ts';
 
@@ -120,7 +121,7 @@ export class UnsupportedProjectFormat extends Error {
 }
 
 function checkLegacyDimensions(doc:PixelDocument) {
-  if(doc.width>1024 || doc.height>1024 || doc.layers.length>64 || frameCount(doc)>96)throw new UnsupportedProjectFormat();
+  if(doc.stack || doc.width>1024 || doc.height>1024 || doc.layers.length>64 || frameCount(doc)>96)throw new UnsupportedProjectFormat();
 }
 
 /** Preserve the wire protocol used by older clients for documents they can edit. */
@@ -229,9 +230,12 @@ export function unpackProject(input:unknown):PixelDocument {
   if(!isPackedProject(input))return input as PixelDocument;
   const {width,height,layers,animation,reference}=input;
   const n=width*height;
+  const stack=input.stack===undefined?undefined:validateStackSettings(input.stack);
+  if(stack && input.format!==PACKED_PROJECT_FORMAT)throw invalid();
+  const frameLimit=stack?MAX_STACK_SLICES:MAX_ANIMATION_FRAMES;
   if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width>MAX_CANVAS_SIDE||height>MAX_CANVAS_SIDE||
      !Array.isArray(layers)||!layers.length||layers.length>MAX_LAYERS ||
-     (animation!==undefined&&(!animation||!Array.isArray(animation.frames)||animation.frames.length>=MAX_ANIMATION_FRAMES))||
+     (animation!==undefined&&(!animation||!Array.isArray(animation.frames)||animation.frames.length>=frameLimit))||
      (reference!==undefined&&(!reference||reference.width!==width||reference.height!==height)))throw invalid();
   const ids=new Set<string>();
   for(const layer of layers){
@@ -308,7 +312,7 @@ export function unpackProject(input:unknown):PixelDocument {
     buffers=crops;
   }
   const {layers:indexedLayers,animation:indexedAnimation,reference:packedReference,...meta}=doc;
-  return {...meta,format:'pixel-workshop/1',
+  return {...meta,...(stack?{stack}:{}),format:'pixel-workshop/1',
     layers:indexedLayers.map(layer=>({...layer,pixels:buffers[layer.pixels]})),
     ...(packedReference?{reference:{...packedReference,pixels:decodeCel(packedReference.pixels,n)}}:{}),
     ...(indexedAnimation?{animation:{...indexedAnimation,frames:indexedAnimation.frames.map(frame=>({
@@ -323,17 +327,22 @@ export function packEntry(entry:HistoryEntry<PixelDocument>):HistoryEntry<DocWir
 }
 export function unpackEntry(entry:HistoryEntry<unknown>):HistoryEntry<PixelDocument> {
   // Dense historical saves predate shared buffers; normalize them once on read.
-  const stored=(value:unknown)=>isPackedProject(value)?unpackProject(value):validateDocument(value);
+  const stored=(value:unknown)=>{
+    if(!isPackedProject(value))return validateDocument(value);
+    const doc=unpackProject(value);
+    return doc.stack?validateDocument(doc):doc;
+  };
   return {...entry,doc:stored(entry.doc),undo:entry.undo.map(stored),redo:entry.redo.map(stored)};
 }
 
 export type ProjectSummary = Pick<PixelDocument,'id'|'name'|'width'|'height'|'revision'|'updatedAt'> & {
   layers:Pick<PixelDocument['layers'][number],'id'|'name'|'visible'>[];
   frames:number;
+  stack?:PixelDocument['stack'];
 };
 export function projectSummary(doc:DocWire):ProjectSummary {
   const {id,name,width,height,revision,updatedAt}=doc;
-  return {id,name,width,height,revision,updatedAt,
+  return {id,name,width,height,revision,updatedAt,...(doc.stack?{stack:doc.stack}:{}),
     layers:doc.layers.map(layer=>({id:layer.id,name:layer.name,visible:layer.visible})),
     frames:1+(doc.animation?.frames.length??0)};
 }

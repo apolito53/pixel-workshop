@@ -5,6 +5,8 @@ export const playerReleaseNotes = {
     {
       title: 'November 2026',
       changes: [
+        'Build a 3D sprite by painting horizontal slices. Rotate the stack and click a visible pixel to jump to its slice and layer.',
+        'Save your favorite view and export the slices as PNG sheets, with an editable copy of the stack included.',
         'Open Image Finishing to adjust the light, color, and detail of artwork or photos at full resolution, with before/after comparison and reversible edits.',
         'Crop, save reusable looks, and download an editable finishing project or a finished PNG or JPEG. Agents can use the same controls through MCP.',
         'Small drawings now use only the space around their pixels. Paint beyond their edges or erase them and the stored bounds adjust automatically.',
